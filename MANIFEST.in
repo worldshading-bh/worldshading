@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include worldshading *.css
+recursive-include worldshading *.csv
+recursive-include worldshading *.html
+recursive-include worldshading *.ico
+recursive-include worldshading *.js
+recursive-include worldshading *.json
+recursive-include worldshading *.md
+recursive-include worldshading *.png
+recursive-include worldshading *.py
+recursive-include worldshading *.svg
+recursive-include worldshading *.txt
+recursive-exclude worldshading *.pyc
