@@ -44,7 +44,7 @@ frappe.ui.form.on('Material Request', {
                 uom: item.uom,
                 stock_uom: item.stock_uom,
                 conversion_factor: item.conversion_factor,
-                s_warehouse: item.s_warehouse || item.warehouse,
+                s_warehouse: item.warehouse,
                 t_warehouse: null,
                 actual_qty: item.actual_qty,
                 cost_center: item.cost_center,
@@ -70,7 +70,7 @@ frappe.ui.form.on('Material Request', {
                 stock_uom: item.stock_uom,
                 conversion_factor: item.conversion_factor,
                 s_warehouse: null,
-                t_warehouse: item.t_warehouse || item.warehouse,
+                t_warehouse: item.warehouse,
                 actual_qty: item.actual_qty,
                 cost_center: item.cost_center,
                 transferred_qty: item.qty,
@@ -130,7 +130,6 @@ function _set_items_warehouse(frm) {
   // Update 'from_items' (source)
   frm.doc.from_items?.forEach((item) => {
     frappe.model.set_value(item.doctype, item.name, 'warehouse', frm.doc.pb_to_warehouse);
-    frappe.model.set_value(item.doctype, item.name, 's_warehouse', frm.doc.pb_to_warehouse);
   });
 }
 
@@ -143,3 +142,5 @@ function _maybe_add_from_items_row(frm) {
     }
   }
 }
+
+
