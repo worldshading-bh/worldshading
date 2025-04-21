@@ -343,7 +343,6 @@ def create_material_request(material_requests):
                                         mr.append("from_items", frappe._dict({
                                             "item_code": from_item.item_code,
                                             "warehouse": d.warehouse,
-                                            "s_warehouse": d.warehouse,
                                             "qty": from_item.qty,
                                             "uom": from_item.uom,
                                             "schedule_date": add_days(nowdate(), 7),
@@ -355,7 +354,6 @@ def create_material_request(material_requests):
                                     mr.append("items", {
                                         "item_code": to_item.item_code,
                                         "warehouse": d.warehouse,
-                                        "t_warehouse": d.warehouse,
                                         "qty": to_item.qty,
                                         "uom": to_item.uom,
                                         "item_name": item_doc.item_name,
