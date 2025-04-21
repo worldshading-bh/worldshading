@@ -1,0 +1,55 @@
+
+======================================================================
+ERPNext Core Modification Documentation
+======================================================================
+
+====
+1,
+====
+📁 File Modified:
+Path: frappe-bench/apps/erpnext/erpnext/stock/reorder_item.py
+
+🔧 Function Modified:
+_reorder_item()
+
+🛠️ Change Summary:
+Added a safety check to skip Item Reorder rows with unsupported Material Request types like 'Repack' or 'Production'.
+
+✅ Added:
+    if d.material_request_type not in material_requests:
+        continue  # skip custom types like Repack or Production
+
+
+📅 Date of Change:
+2025-04-14
+
+
+
+
+====
+2,
+====
+📁 File Modified:
+Path: frappe-bench/apps/erpnext/erpnext/stock/stock_balance.py
+
+🔧 Function Modified:
+get_indented_qty(item_code, warehouse)
+
+🛠️ Change Summary:
+Added 'Repack' and 'Production' to the list of allowed Material Request types
+in the SQL query that calculates `inward_qty` for requested_qty calculation.
+✅ Added: mr.material_request_type in ('Purchase', 'Manufacture', 'Customer Provided', 'Material Transfer','Repack','Production')
+
+🧠 Reason:
+By default, ERPNext only considers Material Requests of types:
+'Purchase', 'Manufacture', 'Customer Provided', and 'Material Transfer'
+for updating the `requested_qty` in the `tabBin` table.
+Since we use custom scheduler logic to generate Material Requests of type
+'Repack' and 'Production', they were not being reflected in the projected
+quantity calculations. This caused the system to keep triggering new
+Material Requests even when valid ones already existed.
+
+📅 Date of Change:
+2025-04-16
+
+

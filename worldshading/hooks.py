@@ -137,3 +137,23 @@ scheduler_events = {
     ]
 }
 
+fixtures = [
+    {"doctype": "DocType", "filters": [["name", "in", [
+        "Repack Production Rule", "Source Item", "Target Item"
+    ]]]}
+]
+
+
+# doc_events = {
+#     "Material Request": {
+#         "on_submit": "worldshading.material_request_hooks.process_to_items"
+#     }
+# }
+
+
+
+doctype_js = {
+    "Material Request": "public/js/material_request.js"
+
+}
+
