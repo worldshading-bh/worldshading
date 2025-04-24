@@ -144,11 +144,6 @@ fixtures = [
 ]
 
 
-# doc_events = {
-#     "Material Request": {
-#         "on_submit": "worldshading.material_request_hooks.process_to_items"
-#     }
-# }
 
 
 
@@ -157,3 +152,4 @@ doctype_js = {
 
 }
 
+# app_include_js = "/assets/worldshading/js/floating_chat.js"

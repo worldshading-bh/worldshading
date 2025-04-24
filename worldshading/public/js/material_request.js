@@ -135,12 +135,16 @@ function _set_items_warehouse(frm) {
 
 // 🧩 Auto-add a blank row to 'from_items' only for Repack / Production
 function _maybe_add_from_items_row(frm) {
-  if (["Repack", "Production"].includes(frm.doc.material_request_type)) {
+  if (
+    frm.doc.docstatus === 0 && // ✅ Only in Draft
+    ["Repack", "Production"].includes(frm.doc.material_request_type)
+  ) {
     if (!frm.doc.from_items || frm.doc.from_items.length === 0) {
       frappe.model.add_child(frm.doc, "Material Request Item", "from_items");
       frm.refresh_field("from_items");
     }
   }
 }
+
 
 

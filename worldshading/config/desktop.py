@@ -6,9 +6,10 @@ def get_data():
 	return [
 		{
 			"module_name": "Worldshading",
+			"category": "Modules",
 			"color": "grey",
-			"icon": "octicon octicon-file-directory",
+			"icon": "octicon octicon-file-code",
 			"type": "module",
-			"label": _("Worldshading")
+			"label": _("World Shading")
 		}
 	]
