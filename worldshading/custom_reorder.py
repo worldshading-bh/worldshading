@@ -285,6 +285,12 @@ def create_material_request(material_requests):
     mr_list = []
     exceptions_list = []
 
+    # 🗺️ Mapping Production Warehouses → Showroom Warehouses
+    warehouse_mapping = {
+        "Production Salmabad - WS": "Salmabad Showroom - WS",
+        "Production Hamad Town - WS": "Hamad Town Showroom - WS"
+    }
+
     def _log_exception():
         if frappe.local.message_log:
             exceptions_list.extend(frappe.local.message_log)
@@ -328,11 +334,17 @@ def create_material_request(material_requests):
                                         "material_request_type": request_type
                                     })
 
-                                    # 🔁 Append source items (from_item from rule) into custom 'from_items' table
+                                    # 🔁 Append source items into 'from_items' table
                                     for from_item in rule_doc.from_item:
+                                        # 📦 Resolve correct warehouse for source items
+                                        if request_type == "Production":
+                                            from_warehouse = warehouse_mapping.get(d.warehouse) or d.warehouse
+                                        else:
+                                            from_warehouse = d.warehouse
+
                                         args = {
                                             "item_code": from_item.item_code,
-                                            "warehouse": d.warehouse,
+                                            "warehouse": from_warehouse,
                                             "company": company,
                                             "qty": from_item.qty,
                                             "conversion_factor": 1,
@@ -342,14 +354,14 @@ def create_material_request(material_requests):
 
                                         mr.append("from_items", frappe._dict({
                                             "item_code": from_item.item_code,
-                                            "warehouse": d.warehouse,
+                                            "warehouse": from_warehouse,
                                             "qty": from_item.qty,
                                             "uom": from_item.uom,
                                             "schedule_date": add_days(nowdate(), 7),
-                                            **from_item_data  # Merge stock-related fields
+                                            **from_item_data
                                         }))
 
-                                    # ✅ Add target item into core 'items' table (tracked by ERPNext)
+                                    # ✅ Append target item into 'items' table
                                     item_doc = frappe.get_doc("Item", to_item.item_code)
                                     mr.append("items", {
                                         "item_code": to_item.item_code,
@@ -380,7 +392,6 @@ def create_material_request(material_requests):
                         })
                         item_doc = frappe.get_doc("Item", d.item_code)
 
-                        # ✅ Target item into 'items'
                         mr.append("items", {
                             "item_code": d.item_code,
                             "warehouse": d.warehouse,
@@ -409,6 +420,7 @@ def create_material_request(material_requests):
         notify_errors(exceptions_list)
 
     return mr_list
+
 
 
 
