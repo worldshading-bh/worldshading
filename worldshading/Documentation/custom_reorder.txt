@@ -1,0 +1,75 @@
+📦 How Material Request is Created 
+Stock Check 📦
+
+Every day, the system checks all your items' current stock.
+
+If an item’s projected quantity is less than the reorder level, it decides:
+👉 “We need to create a Material Request (MR) for this item.”
+
+Find Matching Production Rule 🔎
+
+For Repack or Production requests:
+
+System looks inside the custom Repack Production Rule (the rules you manually set).
+
+It checks if there’s a rule matching the item code.
+
+If a rule is found, it knows:
+
+✅ What items are needed as From Items (the source).
+
+✅ What item is the To Item (the target / final product).
+
+Create the Material Request 📄
+
+✅ If a rule is found:
+
+Source Items (From Items):
+
+These are added inside the from_items table (your custom table).
+
+For each source item, a row is created with:
+
+Item code
+
+Warehouse (based on warehouse mapping if Production)
+
+Quantity
+
+UOM
+
+Other stock details (like available stock)
+
+Target Item (To Item):
+
+This is added into the standard items table.
+
+This is the main item you are "producing" or "repacking".
+
+✅ If no rule is found:
+
+A simple Material Request is created:
+
+Only the requested item (shortage item) is added into the items table.
+
+No from_items.
+
+Submit the MR 📝
+
+After filling all rows, the MR is:
+
+Inserted (saved) ✅
+
+Submitted (finalized) ✅
+
+🧠 Important Things
+Repack → From and To items are in the same warehouse.
+
+Production → From items' warehouse is mapped from Production Warehouse → Showroom Warehouse.
+
+Stock quantities and indented quantities work properly because the target item (To Item) is in the items table.
+
+Source items (from_items) are handled separately because they are just consumed, not directly ordered.
+
+🌟 In a nutshell:
+The system automatically builds the correct Material Request, placing the source materials and the target item in the correct places, based on your rule and warehouse setup. Then it saves and submits it.
