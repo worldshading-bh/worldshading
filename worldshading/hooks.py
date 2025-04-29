@@ -129,11 +129,14 @@ app_license = "MIT"
 # override_doctype_dashboards = {
 # 	"Task": "worldshading.task.get_dashboard_data"
 # }
+# app_include_css = "/assets/worldshading/css/custom_theme.css"
+
 
 
 scheduler_events = {
     "daily": [
-        "worldshading.custom_reorder.reorder_item"
+        "worldshading.custom_reorder.reorder_item",
+        "worldshading.daily.create_insurance_todos" 
     ]
 }
 
@@ -144,12 +147,10 @@ fixtures = [
 ]
 
 
-
-
-
 doctype_js = {
     "Material Request": "public/js/material_request.js"
 
 }
 
-# app_include_js = "/assets/worldshading/js/floating_chat.js"
+
+
