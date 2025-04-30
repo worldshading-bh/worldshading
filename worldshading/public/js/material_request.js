@@ -85,9 +85,10 @@ frappe.ui.form.on('Material Request', {
         ]);
       }).css({
         color: "white",
-        backgroundColor: "#5E64FF",
-        borderColor: "#444bff",
-        fontWeight: "500"
+        backgroundColor: "#131667",
+        borderColor: "#131667",
+        fontWeight: "500",
+        borderRadius: "8px"
       });
     }
 

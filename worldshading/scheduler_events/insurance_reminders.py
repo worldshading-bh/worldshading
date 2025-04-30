@@ -76,3 +76,6 @@ def create_insurance_todos():
         print("✔️ Script finished. No new ToDos needed today.")
 
     frappe.db.commit()
+
+
+

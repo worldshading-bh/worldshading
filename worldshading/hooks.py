@@ -129,14 +129,14 @@ app_license = "MIT"
 # override_doctype_dashboards = {
 # 	"Task": "worldshading.task.get_dashboard_data"
 # }
-# app_include_css = "/assets/worldshading/css/custom_theme.css"
+app_include_css = "/assets/worldshading/css/custom_theme.css"
 
 
 
 scheduler_events = {
     "daily": [
         "worldshading.custom_reorder.reorder_item",
-        "worldshading.daily.create_insurance_todos" 
+        "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
     ]
 }
 
