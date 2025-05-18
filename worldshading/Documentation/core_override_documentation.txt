@@ -1,6 +1,6 @@
 
 ======================================================================
-ERPNext Core Modification Documentation
+ERPNext Core Modification Documentation - ws overrides
 ======================================================================
 
 ====
@@ -52,4 +52,67 @@ Material Requests even when valid ones already existed.
 📅 Date of Change:
 2025-04-16
 
+ 
+====
+3,
+====
+
+📁 File Modified:
+Path: frappe-bench/apps/erpnext/erpnext/stock/doctype/material_request/material_request.py
+
+🔧 Function Modified:
+def validate(self):
+
+🛠️ Change Summary:
+Added support for 4 new custom workflow statuses (Repacked, Produced, Partially Repacked, Partially Produced) to the allowed status validation inside the validate() method.
+
+
+# 🔁 Before:
+validate_status(self.status, ["Draft", "Submitted", "Stopped", "Cancelled", "Pending", "Partially Ordered", "Ordered", "Issued", "Transferred", "Received", "Manufactured"])
+
+# ✅ After:
+validate_status(self.status, [
+    "Draft", "Submitted", "Stopped", "Cancelled", "Pending",
+    "Partially Ordered", "Ordered", "Issued", "Transferred", "Received",
+    "Repacked", "Produced", "Partially Repacked", "Partially Produced"
+])
+
+🧠 Reason:
+ERPNext by default validates only predefined statuses for Material Requests. Since we introduced two new Material Request types (Repack, Production) with their own lifecycle statuses, we needed to allow these in the validation to prevent Invalid Status errors during save or submit.
+
+📅 Date of Change:
+2025-05-15
+
+
+
+====
+4,
+====
+
+
+📁 File Modified:
+Path: frappe-bench/apps/erpnext/erpnext/stock/doctype/material_request/material_request.py
+
+
+🔧 Function Modified:
+update_completed_qty(self, mr_items=None, update_modified=True)
+
+🛠️ Change Summary:
+Included support for Repack and Production in the condition that determines which Stock Entry types should contribute to ordered_qty.
+
+python
+Copy
+Edit
+# 🔁 Before:
+if self.material_request_type in ("Material Issue", "Material Transfer", "Customer Provided"):
+
+# ✅ After:
+if self.material_request_type in ("Material Issue", "Material Transfer", "Customer Provided", "Repack", "Production"):
+This ensures Stock Entries for Repack and Production are also considered when calculating fulfillment percentages for the Material Request.
+
+🧠 Reason:
+ERPNext originally does not consider Repack and Production types when calculating per_ordered. This caused the status to remain “Pending” or “Partially Ordered” even after all to_items were fulfilled. Adding these types ensures accurate progress tracking for custom workflows.
+
+📅 Date of Change:
+2025-05-15
 
