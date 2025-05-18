@@ -19,7 +19,7 @@ frappe.ui.form.on('Material Request', {
     if (
       frm.doc.docstatus == 1 &&
       ["Repack", "Production"].includes(frm.doc.material_request_type) &&
-      !["Transferred", "Received"].includes(frm.doc.status)
+      ["Pending", "Partially Repacked","Partially Produced"].includes(frm.doc.status)
     ) {
       frm.add_custom_button(__("Create Stock Entry"), function () {
         frappe.run_serially([
@@ -149,3 +149,26 @@ function _maybe_add_from_items_row(frm) {
 
 
 
+
+// filter for 'warehouse' field in both 'items' and 'from_items' tables
+frappe.ui.form.on("Material Request", {
+  onload: function(frm) {
+    frm.set_query("warehouse", "items", function(doc, cdt, cdn) {
+      return {
+        filters: {
+          is_group: 0,
+          company: frm.doc.company
+        }
+      };
+    });
+
+    frm.set_query("warehouse", "from_items", function(doc, cdt, cdn) {
+      return {
+        filters: {
+          is_group: 0,
+          company: frm.doc.company
+        }
+      };
+    });
+  }
+});

@@ -154,3 +154,31 @@ doctype_js = {
 
 
 
+override_whitelisted_methods = {
+    "worldshading.api.public_pdf.download_public_pdf": "worldshading.api.public_pdf.download_public_pdf"
+}
+
+doctype_list_js = {
+    "Material Request": "public/js/material_request_list.js"
+}
+
+
+doc_events = {
+    "Material Request": {
+        "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
+    }
+}
+
+
+
+import frappe  
+
+def override_status_updater():
+    try:
+        from erpnext.controllers import status_updater
+        from worldshading.overrides.custom_status_updater import CustomStatusUpdater
+        status_updater.StatusUpdater = CustomStatusUpdater
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Failed to override StatusUpdater")
+
+override_status_updater()
