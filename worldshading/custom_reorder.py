@@ -1,5 +1,3 @@
-
-
 from __future__ import unicode_literals
 import frappe
 import erpnext
@@ -87,8 +85,7 @@ def _reorder_item():
 
 	if material_requests:
 		create_material_request(material_requests)
-		# create_repack_request(material_requests)
-		# return create_material_request(material_requests)
+
 
 def get_item_warehouse_projected_qty(items_to_consider):
 	item_warehouse_projected_qty = {}
@@ -116,180 +113,16 @@ def get_item_warehouse_projected_qty(items_to_consider):
 	return item_warehouse_projected_qty
 
 
-# code before adding the from_items table(uses old to_item logic)
-# from erpnext.stock.get_item_details import get_item_details
-
-# def create_material_request(material_requests):
-#     print("⚠️ Creating Material Requests for Repack/Production...")
-#     mr_list = []
-#     exceptions_list = []
- 
-#     def _log_exception():
-#         if frappe.local.message_log:
-#             exceptions_list.extend(frappe.local.message_log)
-#             frappe.local.message_log = []
-#         else:
-#             exceptions_list.append(frappe.get_traceback())
-#         frappe.log_error(frappe.get_traceback())
-
-#     for request_type in ["Repack", "Production"]:
-#         for company in material_requests.get(request_type, {}):
-#             items = material_requests[request_type][company]
-#             if not items:
-#                 continue
-
-#             for d in items:
-#                 d = frappe._dict(d)
-#                 print(f"🛠 Creating Material Request for {d.item_code} ({request_type})")
-
-#                 try:
-#                     rules = frappe.get_all("Repack Production Rule", filters={"type": request_type})
-#                     found = False
-
-#                     for rule in rules:
-#                         rule_doc = frappe.get_doc("Repack Production Rule", rule.name)
-#                         for to_item in rule_doc.to_item:
-#                             if to_item.item_code == d.item_code:
-#                                 found = True
-#                                 print(f"🔁 Rule matched: {rule.name}")
-
-#                                 rule_qty = to_item.qty
-#                                 reorder_qty = d.reorder_qty
-#                                 multiplier = max(1, round(reorder_qty / rule_qty))
-
-#                                 print(f"🔢 Reorder Qty: {reorder_qty}, Rule Qty: {rule_qty}, Multiplier: {multiplier}")
-
-#                                 for i in range(multiplier):
-#                                     mr = frappe.new_doc("Material Request")
-#                                     mr.update({
-#                                         "company": company,
-#                                         "transaction_date": nowdate(),
-#                                         "material_request_type": request_type
-#                                     })
-
-#                                     for from_item in rule_doc.from_item:
-#                                         item_doc = frappe.get_doc("Item", from_item.item_code)
-#                                         mr.append("items", {
-#                                             "item_code": from_item.item_code,
-#                                             "warehouse": d.warehouse,
-#                                             "t_warehouse": None,
-#                                             "s_warehouse": d.warehouse,
-#                                             "qty": from_item.qty,
-#                                             "uom": from_item.uom,
-#                                             "item_name": item_doc.item_name,
-#                                             "description": item_doc.description,
-#                                             "item_group": item_doc.item_group,
-#                                             "brand": item_doc.brand,
-#                                             "schedule_date": add_days(nowdate(), 7)
-#                                         })
-
-#                                     # Get item details for 'to_item' to auto-fill stock fields
-#                                     args = {
-#                                         "item_code": to_item.item_code,
-#                                         "warehouse": d.warehouse,
-#                                         "company": company,
-#                                         "qty": to_item.qty,
-#                                         "conversion_factor": 1,
-#                                         "doctype": "Material Request"
-#                                     }
-#                                     to_item_data = get_item_details(args)
-
-#                                     mr.append("to_item", frappe._dict({
-#                                         "item_code": to_item.item_code,
-#                                         "warehouse": d.warehouse,
-#                                         "t_warehouse": d.warehouse,
-#                                         "qty": to_item.qty,
-#                                         "uom": to_item.uom,
-#                                         "schedule_date": add_days(nowdate(), 7),
-#                                         **to_item_data  # Merge stock-related fields
-#                                     }))
-
-#                                     mr.flags.ignore_mandatory = True
-#                                     mr.insert()
-#                                     mr.submit()
-#                                     print(f"✅ MR Created: {mr.name}")
-#                                     mr_list.append(mr)
-#                                 break
-
-#                     if not found:
-#                         print("⚠️ No rule found — fallback to only requested item")
-#                         mr = frappe.new_doc("Material Request")
-#                         mr.update({
-#                             "company": company,
-#                             "transaction_date": nowdate(),
-#                             "material_request_type": request_type
-#                         })
-#                         item_doc = frappe.get_doc("Item", d.item_code)
-#                         mr.append("items", {
-#                             "item_code": d.item_code,
-#                             "warehouse": d.warehouse,
-#                             "qty": d.reorder_qty,
-#                             "uom": item_doc.stock_uom,
-#                             "item_name": item_doc.item_name,
-#                             "description": item_doc.description,
-#                             "item_group": item_doc.item_group,
-#                             "brand": item_doc.brand,
-#                             "schedule_date": add_days(nowdate(), 7)
-#                         })
-
-#                         # Get item details for 'to_item'
-#                         args = {
-#                             "item_code": d.item_code,
-#                             "warehouse": d.warehouse,
-#                             "company": company,
-#                             "qty": d.reorder_qty,
-#                             "conversion_factor": 1,
-#                             "doctype": "Material Request"
-#                         }
-#                         to_item_data = get_item_details(args)
-
-#                         mr.append("to_item", frappe._dict({
-#                             "item_code": d.item_code,
-#                             "warehouse": d.warehouse,
-#                             "t_warehouse": d.warehouse,
-#                             "qty": d.reorder_qty,
-#                             "uom": item_doc.stock_uom,
-#                             "schedule_date": add_days(nowdate(), 7),
-#                             **to_item_data  # Merge stock-related fields
-#                         }))
-
-#                         mr.flags.ignore_mandatory = True
-#                         mr.insert()
-#                         mr.submit()
-#                         print(f"✅ MR Created: {mr.name}")
-#                         mr_list.append(mr)
-
-#                 except Exception:
-#                     _log_exception()
-
-#     if mr_list and cint(frappe.db.get_value('Stock Settings', None, 'reorder_email_notify')):
-#         send_email_notification(mr_list)
-
-#     if exceptions_list:
-#         notify_errors(exceptions_list)
-
-#     return mr_list
-
-
-
-
-
-
-
 
 
 from erpnext.stock.get_item_details import get_item_details
 
 def create_material_request(material_requests):
     print("⚠️ Creating Material Requests for Repack/Production...")
+    MAX_MR_LIMIT = 10  # 🔢 Set your desired max limit here
     mr_list = []
+    missing_rule_items = []
     exceptions_list = []
-
-    # 🗺️ Mapping Production Warehouses → Showroom Warehouses
-    warehouse_mapping = {
-        "Production Salmabad - WS": "Salmabad Showroom - WS",
-        "Production Hamad Town - WS": "Hamad Town Showroom - WS"
-    }
 
     def _log_exception():
         if frappe.local.message_log:
@@ -326,7 +159,75 @@ def create_material_request(material_requests):
 
                                 print(f"🔢 Reorder Qty: {reorder_qty}, Rule Qty: {rule_qty}, Multiplier: {multiplier}")
 
-                                for i in range(multiplier):
+                                # ✅ For Production: create one MR per multiplier
+                                if request_type == "Production":
+                                    for i in range(multiplier):
+                                        if len(mr_list) >= MAX_MR_LIMIT:
+                                            print("🛑 Max MR limit reached — stopping further MR creation.")
+                                            return mr_list
+                                        print(f"🔄 Current MR count: {len(mr_list)}")
+
+                                        mr = frappe.new_doc("Material Request")
+                                        mr.update({
+                                            "company": company,
+                                            "transaction_date": nowdate(),
+                                            "material_request_type": request_type
+                                        })
+
+                                        # 🔁 Add source items to 'from_items'
+                                        for from_item in rule_doc.from_item:
+                                            if d.warehouse == "Production Salmabad - WS":
+                                                from_warehouse = "Salmabad Showroom - WS"
+                                            elif d.warehouse == "Production Hamad Town - WS":
+                                                from_warehouse = "Hamad Town Showroom - WS"
+                                            else:
+                                                from_warehouse = d.warehouse
+
+                                            args = {
+                                                "item_code": from_item.item_code,
+                                                "warehouse": from_warehouse,
+                                                "company": company,
+                                                "qty": from_item.qty,
+                                                "conversion_factor": 1,
+                                                "doctype": "Material Request"
+                                            }
+                                            from_item_data = get_item_details(args)
+
+                                            mr.append("from_items", frappe._dict({
+                                                "item_code": from_item.item_code,
+                                                "warehouse": from_warehouse,
+                                                "qty": from_item.qty,
+                                                "uom": from_item.uom,
+                                                "schedule_date": add_days(nowdate(), 7),
+                                                **from_item_data
+                                            }))
+
+                                        item_doc = frappe.get_doc("Item", to_item.item_code)
+                                        mr.append("items", {
+                                            "item_code": to_item.item_code,
+                                            "warehouse": d.warehouse,
+                                            "qty": to_item.qty,
+                                            "uom": to_item.uom,
+                                            "item_name": item_doc.item_name,
+                                            "description": item_doc.description,
+                                            "item_group": item_doc.item_group,
+                                            "brand": item_doc.brand,
+                                            "schedule_date": add_days(nowdate(), 7)
+                                        })
+
+                                        mr.flags.ignore_mandatory = True
+                                        mr.insert()
+                                        mr.submit()
+                                        print(f"✅ MR Created: {mr.name}")
+                                        mr_list.append(mr)
+
+                                # ✅ For Repack: combine all into one MR with multiplier * qty
+                                else:
+                                    if len(mr_list) >= MAX_MR_LIMIT:
+                                        print("🛑 Max MR limit reached — stopping further MR creation.")
+                                        return mr_list
+                                    print(f"🔄 Current MR count: {len(mr_list)}")
+
                                     mr = frappe.new_doc("Material Request")
                                     mr.update({
                                         "company": company,
@@ -334,19 +235,13 @@ def create_material_request(material_requests):
                                         "material_request_type": request_type
                                     })
 
-                                    # 🔁 Append source items into 'from_items' table
                                     for from_item in rule_doc.from_item:
-                                        # 📦 Resolve correct warehouse for source items
-                                        if request_type == "Production":
-                                            from_warehouse = warehouse_mapping.get(d.warehouse) or d.warehouse
-                                        else:
-                                            from_warehouse = d.warehouse
-
+                                        from_warehouse = d.warehouse
                                         args = {
                                             "item_code": from_item.item_code,
                                             "warehouse": from_warehouse,
                                             "company": company,
-                                            "qty": from_item.qty,
+                                            "qty": from_item.qty * multiplier,
                                             "conversion_factor": 1,
                                             "doctype": "Material Request"
                                         }
@@ -355,18 +250,17 @@ def create_material_request(material_requests):
                                         mr.append("from_items", frappe._dict({
                                             "item_code": from_item.item_code,
                                             "warehouse": from_warehouse,
-                                            "qty": from_item.qty,
+                                            "qty": from_item.qty * multiplier,
                                             "uom": from_item.uom,
                                             "schedule_date": add_days(nowdate(), 7),
                                             **from_item_data
                                         }))
 
-                                    # ✅ Append target item into 'items' table
                                     item_doc = frappe.get_doc("Item", to_item.item_code)
                                     mr.append("items", {
                                         "item_code": to_item.item_code,
                                         "warehouse": d.warehouse,
-                                        "qty": to_item.qty,
+                                        "qty": to_item.qty * multiplier,
                                         "uom": to_item.uom,
                                         "item_name": item_doc.item_name,
                                         "description": item_doc.description,
@@ -380,35 +274,14 @@ def create_material_request(material_requests):
                                     mr.submit()
                                     print(f"✅ MR Created: {mr.name}")
                                     mr_list.append(mr)
-                                break
 
+                                break  # rule matched — break inner loop
                     if not found:
-                        print("⚠️ No rule found — fallback to only requested item")
-                        mr = frappe.new_doc("Material Request")
-                        mr.update({
-                            "company": company,
-                            "transaction_date": nowdate(),
-                            "material_request_type": request_type
-                        })
-                        item_doc = frappe.get_doc("Item", d.item_code)
+                        print(f"📝 No rule found for {d.item_code} — will include in summary ToDo")
+                        item_link = f"{frappe.utils.get_url()}/desk#Form/Item/{d.item_code}"
+                        missing_rule_items.append(f"<li><a href='{item_link}'>{d.item_code}</a> ({request_type})</li>")
 
-                        mr.append("items", {
-                            "item_code": d.item_code,
-                            "warehouse": d.warehouse,
-                            "qty": d.reorder_qty,
-                            "uom": item_doc.stock_uom,
-                            "item_name": item_doc.item_name,
-                            "description": item_doc.description,
-                            "item_group": item_doc.item_group,
-                            "brand": item_doc.brand,
-                            "schedule_date": add_days(nowdate(), 7)
-                        })
 
-                        mr.flags.ignore_mandatory = True
-                        mr.insert()
-                        mr.submit()
-                        print(f"✅ MR Created: {mr.name}")
-                        mr_list.append(mr)
 
                 except Exception:
                     _log_exception()
@@ -418,12 +291,36 @@ def create_material_request(material_requests):
 
     if exceptions_list:
         notify_errors(exceptions_list)
+    # ✅ Create one summary ToDo listing all missing rule items
+    if missing_rule_items:
+        item_list_html = "<ul>" + "\n".join(missing_rule_items) + "</ul>"
+        todo_description = (
+            f"🚫 The following items were skipped during auto reorder because no "
+            f"<b>Repack/Production Rule</b> was found:<br>{item_list_html}"
+        )
+
+        stock_managers = frappe.db.sql_list("""
+            SELECT parent FROM `tabHas Role`
+            WHERE role = 'Stock Manager'
+            AND parent IN (
+                SELECT name FROM `tabUser`
+                WHERE enabled = 1 AND name NOT IN ('Administrator', 'Guest')
+            )
+        """)
+
+        for user in stock_managers:
+            frappe.get_doc({
+                "doctype": "ToDo",
+                "owner": user,
+                "description": todo_description,
+                "priority": "Medium",
+                "status": "Open",
+                "date": nowdate()
+            }).insert(ignore_permissions=True)
+
+        print("📝 Summary ToDo created for all missing rule items.")
 
     return mr_list
-
-
-
-
 
 
 
@@ -446,490 +343,38 @@ def send_email_notification(mr_list):
 	frappe.sendmail(recipients=email_list,
 		subject=_('Auto Material Requests Generated'), message = msg)
 
+import json
+
 def notify_errors(exceptions_list):
-	subject = _("[Important] [ERPNext] Auto Reorder Errors")
-	content = _("Dear System Manager,") + "<br>" + _("An error occured for certain Items while creating Material Requests based on Re-order level. \
-		Please rectify these issues :") + "<br>"
-
-	for exception in exceptions_list:
-		exception = json.loads(exception)
-		error_message = """<div class='small text-muted'>{0}</div><br>""".format(_(exception.get("message")))
-		content += error_message
-
-	content += _("Regards,") + "<br>" + _("Administrator")
-
-	from frappe.email import sendmail_to_system_managers
-	sendmail_to_system_managers(subject, content)
-
-
-
-#code before adding the get items details for to_item.
-# def create_material_request(material_requests):
-#     print("⚠️ Creating Material Requests for Repack/Production...")
-#     mr_list = []
-#     exceptions_list = []
-
-#     def _log_exception():
-#         if frappe.local.message_log:
-#             exceptions_list.extend(frappe.local.message_log)
-#             frappe.local.message_log = []
-#         else:
-#             exceptions_list.append(frappe.get_traceback())
-#         frappe.log_error(frappe.get_traceback())
-
-#     for request_type in ["Repack", "Production"]:
-#         for company in material_requests.get(request_type, {}):
-#             items = material_requests[request_type][company]
-#             if not items:
-#                 continue
-
-#             for d in items:
-#                 d = frappe._dict(d)
-#                 print(f"🛠 Creating Material Request for {d.item_code} ({request_type})")
-
-#                 try:
-#                     rules = frappe.get_all("Repack Production Rule", filters={"type": request_type})
-#                     found = False
-
-#                     for rule in rules:
-#                         rule_doc = frappe.get_doc("Repack Production Rule", rule.name)
-#                         for to_item in rule_doc.to_item:
-#                             if to_item.item_code == d.item_code:
-#                                 found = True
-#                                 print(f"🔁 Rule matched: {rule.name}")
-
-#                                 rule_qty = to_item.qty
-#                                 reorder_qty = d.reorder_qty
-#                                 multiplier = max(1, round(reorder_qty / rule_qty))
-
-#                                 print(f"🔢 Reorder Qty: {reorder_qty}, Rule Qty: {rule_qty}, Multiplier: {multiplier}")
-
-#                                 for i in range(multiplier):
-#                                     mr = frappe.new_doc("Material Request")
-#                                     mr.update({
-#                                         "company": company,
-#                                         "transaction_date": nowdate(),
-#                                         "material_request_type": request_type
-#                                     })
-
-#                                     for from_item in rule_doc.from_item:
-#                                         item_doc = frappe.get_doc("Item", from_item.item_code)
-#                                         mr.append("items", {
-#                                             "item_code": from_item.item_code,
-#                                             "warehouse": d.warehouse,
-#                                             "t_warehouse": None,
-#                                             "s_warehouse": d.warehouse,
-#                                             "qty": from_item.qty,
-#                                             "uom": from_item.uom,
-#                                             "item_name": item_doc.item_name,
-#                                             "description": item_doc.description,
-#                                             "item_group": item_doc.item_group,
-#                                             "brand": item_doc.brand,
-#                                             "schedule_date": add_days(nowdate(), 7)
-#                                         })
-
-#                                     for to_item_row in rule_doc.to_item:
-#                                         item_doc = frappe.get_doc("Item", to_item_row.item_code)
-#                                         mr.append("items", {
-#                                             "item_code": to_item_row.item_code,
-#                                             "warehouse": d.warehouse,
-#                                             "s_warehouse": None,
-#                                             "t_warehouse": d.warehouse,
-#                                             "qty": to_item_row.qty,
-#                                             "uom": to_item_row.uom,
-#                                             "item_name": item_doc.item_name,
-#                                             "description": item_doc.description,
-#                                             "item_group": item_doc.item_group,
-#                                             "brand": item_doc.brand,
-#                                             "schedule_date": add_days(nowdate(), 7)
-#                                         })
-
-#                                     mr.flags.ignore_mandatory = True
-#                                     mr.insert()
-#                                     mr.submit()
-#                                     print(f"✅ MR Created: {mr.name}")
-#                                     mr_list.append(mr)
-#                                 break
-
-#                     if not found:
-#                         print("⚠️ No rule found — fallback to only requested item")
-#                         mr = frappe.new_doc("Material Request")
-#                         mr.update({
-#                             "company": company,
-#                             "transaction_date": nowdate(),
-#                             "material_request_type": request_type
-#                         })
-#                         item_doc = frappe.get_doc("Item", d.item_code)
-#                         mr.append("items", {
-#                             "item_code": d.item_code,
-#                             "warehouse": d.warehouse,
-#                             "qty": d.reorder_qty,
-#                             "uom": item_doc.stock_uom,
-#                             "item_name": item_doc.item_name,
-#                             "description": item_doc.description,
-#                             "item_group": item_doc.item_group,
-#                             "brand": item_doc.brand,
-#                             "schedule_date": add_days(nowdate(), 7)
-#                         })
-#                         mr.flags.ignore_mandatory = True
-#                         mr.insert()
-#                         mr.submit()
-#                         print(f"✅ MR Created: {mr.name}")
-#                         mr_list.append(mr)
-
-#                 except Exception:
-#                     _log_exception()
-
-#     if mr_list and cint(frappe.db.get_value('Stock Settings', None, 'reorder_email_notify')):
-#         send_email_notification(mr_list)
-
-#     if exceptions_list:
-#         notify_errors(exceptions_list)
-
-#     return mr_list
-	
-
-
-
-
-
-
-# Code before adding the individual mr creation for multiplier.
-# def create_material_request(material_requests):
-#     print("⚠️ Creating Material Requests for Repack/Production...")
-#     mr_list = []
-
-#     for request_type in ["Repack", "Production"]:
-#         for company in material_requests.get(request_type, {}):
-#             items = material_requests[request_type][company]
-#             if not items:
-#                 continue
-
-#             for d in items:
-#                 d = frappe._dict(d)
-#                 print(f"🛠 Creating Material Request for {d.item_code} ({request_type})")
-
-#                 mr = frappe.new_doc("Material Request")
-#                 mr.update({
-#                     "company": company,
-#                     "transaction_date": nowdate(),
-#                     "material_request_type": request_type
-#                 })
-
-#                 rules = frappe.get_all("Repack Production Rule", filters={"type": request_type})
-#                 found = False
-
-#                 for rule in rules:
-#                     rule_doc = frappe.get_doc("Repack Production Rule", rule.name)
-#                     for to_item in rule_doc.to_item:
-#                         if to_item.item_code == d.item_code:
-#                             found = True
-#                             print(f"🔁 Rule matched: {rule.name}")
-
-#                             # Calculate multiplier
-#                             rule_qty = to_item.qty
-#                             reorder_qty = d.reorder_qty
-#                             multiplier = max(1, round(reorder_qty / rule_qty))
-
-#                             print(f"🔢 Reorder Qty: {reorder_qty}, Rule Qty: {rule_qty}, Multiplier: {multiplier}")
-
-#                             # Add from_items
-#                             for from_item in rule_doc.from_item:
-#                                 item_doc = frappe.get_doc("Item", from_item.item_code)
-#                                 mr.append("items", {
-#                                     "item_code": from_item.item_code,
-#                                     "warehouse": d.warehouse,
-#                                     "t_warehouse": None,
-#                                     "s_warehouse": d.warehouse,
-#                                     "qty": from_item.qty * multiplier,
-#                                     "uom": from_item.uom,
-#                                     "item_name": item_doc.item_name,
-#                                     "description": item_doc.description,
-#                                     "item_group": item_doc.item_group,
-#                                     "brand": item_doc.brand,
-#                                     "schedule_date": add_days(nowdate(), 7)
-#                                 })
-
-#                             # Add to_items
-#                             for to_item_row in rule_doc.to_item:
-#                                 item_doc = frappe.get_doc("Item", to_item_row.item_code)
-#                                 mr.append("items", {
-#                                     "item_code": to_item_row.item_code,
-#                                     "warehouse": d.warehouse,
-#                                     "s_warehouse": None,
-#                                     "t_warehouse": d.warehouse,
-#                                     "qty": to_item_row.qty * multiplier,
-#                                     "uom": to_item_row.uom,
-#                                     "item_name": item_doc.item_name,
-#                                     "description": item_doc.description,
-#                                     "item_group": item_doc.item_group,
-#                                     "brand": item_doc.brand,
-#                                     "schedule_date": add_days(nowdate(), 7)
-#                                 })
-#                             break
-
-#                 if not found:
-#                     print("⚠️ No rule found — fallback to only requested item")
-#                     item_doc = frappe.get_doc("Item", d.item_code)
-#                     mr.append("items", {
-#                         "item_code": d.item_code,
-#                         "warehouse": d.warehouse,
-#                         "qty": d.reorder_qty,
-#                         "uom": item_doc.stock_uom,
-#                         "item_name": item_doc.item_name,
-#                         "description": item_doc.description,
-#                         "item_group": item_doc.item_group,
-#                         "brand": item_doc.brand,
-#                         "schedule_date": add_days(nowdate(), 7)
-#                     })
-
-#                 mr.flags.ignore_mandatory = True
-#                 mr.insert()
-#                 mr.submit()
-#                 print(f"✅ MR Created: {mr.name}")
-#                 mr_list.append(mr)
-
-#     return mr_list
-
-
-
-
-def create_repack_request(material_requests):
-    print("⚠️ Creating Repack Requests only for Repack Type...")
-    for company in material_requests.get("Repack", {}):
-        items = material_requests["Repack"][company]
-        for d in items:
-            d = frappe._dict(d)
-            rules = frappe.get_all("Repack Production Rule", filters={"type": "Repack"})
-            for rule in rules:
-                rule_doc = frappe.get_doc("Repack Production Rule", rule.name)
-                for to_item in rule_doc.to_item:
-                    if to_item.item_code == d.item_code:
-                        print(f"⚙️ Creating Repack Request for {d.item_code}")
-                        repack_request = frappe.new_doc("Repack Request")
-                        repack_request.update({
-                            "type": "Repack",
-                            "transaction_date": nowdate(),
-                            "required_date": add_days(nowdate(), 7),
-                            "schedule_date": add_days(nowdate(), 7),
-                            "company": company,
-                            "warehouse": d.warehouse,
-                            "status": "Draft"
-                        })
-
-                        for from_item in rule_doc.from_item:
-                            item_details = frappe.get_doc("Item", from_item.item_code)
-                            repack_request.append("items", {
-                                "item_code": from_item.item_code,
-                                "item_name": item_details.item_name,
-                                "description": item_details.description,
-                                "image": item_details.image,
-                                "qty": from_item.qty,
-                                "uom": from_item.uom,
-                                "stock_uom": item_details.stock_uom,
-                                "conversion_factor": 1.0,
-                                "stock_qty": from_item.qty,
-                                "warehouse": d.warehouse,
-                                "schedule_date": add_days(nowdate(), 7),
-                                "item_group": item_details.item_group,
-                                "brand": item_details.brand,
-                                "expense_account": item_details.expense_account
-                                
-                            })
-
-                        for to_item_row in rule_doc.to_item:
-                            item_details = frappe.get_doc("Item", to_item_row.item_code)
-                            repack_request.append("to_items", {
-                                "item_code": to_item_row.item_code,
-                                "item_name": item_details.item_name,
-                                "description": item_details.description,
-                                "image": item_details.image,
-                                "qty": to_item_row.qty,
-                                "uom": to_item_row.uom,
-                                "stock_uom": item_details.stock_uom,
-                                "conversion_factor": 1.0,
-                                "stock_qty": to_item_row.qty,
-                                "warehouse": d.warehouse,
-                                "schedule_date": add_days(nowdate(), 7),
-                                "item_group": item_details.item_group,
-                                "brand": item_details.brand,
-                                "expense_account": item_details.expense_account
-                            })
-
-                        repack_request.flags.ignore_mandatory = True
-                        repack_request.insert()
-                        print(f"✅ Repack Request {repack_request.name} created!")
-
-
-
-
-
-
-
-
-
-# def create_material_request(material_requests):
-# 	print("⚠️ Custom create_material_request() for Repack/Production is running.")
-# 	mr_list = []
-# 	exceptions_list = []
-
-# 	def _log_exception():
-# 		if frappe.local.message_log:
-# 			exceptions_list.extend(frappe.local.message_log)
-# 			frappe.local.message_log = []
-# 		else:
-# 			exceptions_list.append(frappe.get_traceback())
-# 		frappe.log_error(frappe.get_traceback())
-
-# 	for request_type in ["Repack", "Production"]:
-# 		for company in material_requests.get(request_type, {}):
-# 			try:
-# 				items = material_requests[request_type][company]
-# 				if not items:
-# 					continue
-
-# 				for d in items:
-# 					d = frappe._dict(d)
-# 					print(f"🛠 Creating Material Request for {d.item_code} ({request_type})")
-
-# 					mr = frappe.new_doc("Material Request")
-# 					mr.update({
-# 						"company": company,
-# 						"transaction_date": nowdate(),
-# 						"material_request_type": request_type
-# 					})
-
-# 					rules = frappe.get_all("Repack Production Rule", filters={"type": request_type})
-# 					found = False
-
-# 					for rule in rules:
-# 						rule_doc = frappe.get_doc("Repack Production Rule", rule.name)
-# 						for to_item in rule_doc.to_item:
-# 							if to_item.item_code == d.item_code:
-# 								found = True
-# 								print(f"🔁 Rule matched: {rule.name}")
-
-# 								# ➕ Source Items
-# 								for from_item in rule_doc.from_item:
-# 									mr.append("items", {
-# 										"item_code": from_item.item_code,
-# 										"warehouse": d.warehouse,
-# 										"t_warehouse": None,
-# 										"s_warehouse": d.warehouse,
-# 										"qty": from_item.qty,
-# 										"uom": from_item.uom,
-# 										"schedule_date": add_days(nowdate(), 7)
-# 									})
-# 								# ➕ Target Items
-# 								for to_item_row in rule_doc.to_item:
-# 									mr.append("items", {
-# 										"item_code": to_item_row.item_code,
-# 										"warehouse": d.warehouse,
-# 										"s_warehouse": None,
-# 										"t_warehouse": d.warehouse,
-# 										"qty": to_item_row.qty,
-# 										"uom": to_item_row.uom,
-# 										"schedule_date": add_days(nowdate(), 7)
-# 									})
-# 								break
-
-# 					if not found:
-# 						print("⚠️ No rule found — fallback to only requested item")
-# 						uom = frappe.db.get_value("Item", d.item_code, "stock_uom")
-# 						mr.append("items", {
-# 							"item_code": d.item_code,
-# 							"warehouse": d.warehouse,
-# 							"qty": d.reorder_qty,
-# 							"uom": uom,
-# 							"schedule_date": add_days(nowdate(), 7)
-# 						})
-
-# 					mr.flags.ignore_mandatory = True
-# 					mr.insert()
-# 					mr.submit()
-# 					print(f"✅ MR Created: {mr.name}")
-# 					mr_list.append(mr)
-
-# 					# 🧠 Create Repack Request if it's Repack type
-# 					if request_type == "Repack" and found:
-# 						print(f"⚙️ Creating Repack Request for MR {mr.name}")
-# 						repack_request = frappe.new_doc("Repack Request")
-# 						repack_request.update({
-# 							"type": "Repack",
-# 							"transaction_date": nowdate(),
-# 							"required_date": add_days(nowdate(), 7),
-# 							"schedule_date": add_days(nowdate(), 7),
-# 							"company": company,
-# 							"warehouse": d.warehouse,
-# 							"status": "Draft"
-# 						})
-
-# 						# ➕ Add source items to 'items' table
-# 						for from_item in rule_doc.from_item:
-# 							repack_request.append("items", {
-# 								"item_code": from_item.item_code,
-# 								"qty": from_item.qty,
-# 								"uom": from_item.uom,
-# 								"for_warehouse": d.warehouse,
-# 								"required_date": add_days(nowdate(), 7)
-# 							})
-
-# 						# ➕ Add target items to 'to_items' table
-# 						for to_item in rule_doc.to_item:
-# 							repack_request.append("to_items", {
-# 								"item_code": to_item.item_code,
-# 								"qty": to_item.qty,
-# 								"uom": to_item.uom,
-# 								"for_warehouse": d.warehouse,
-# 								"required_date": add_days(nowdate(), 7)
-# 							})
-
-# 						repack_request.flags.ignore_mandatory = True
-# 						repack_request.insert()
-# 						print(f"✅ Repack Request {repack_request.name} created!")
-
-# 			except:
-# 				_log_exception()
-
-# 	if mr_list and cint(frappe.db.get_value('Stock Settings', None, 'reorder_email_notify')):
-# 		send_email_notification(mr_list)
-
-# 	if exceptions_list:
-# 		notify_errors(exceptions_list)
-
-# 	return mr_list
-
-
-# def send_email_notification(mr_list):
-# 	""" Notify user about auto creation of indent"""
-
-# 	email_list = frappe.db.sql_list("""select distinct r.parent
-# 		from `tabHas Role` r, tabUser p
-# 		where p.name = r.parent and p.enabled = 1 and p.docstatus < 2
-# 		and r.role in ('Purchase Manager','Stock Manager')
-# 		and p.name not in ('Administrator', 'All', 'Guest')""")
-
-# 	msg = frappe.render_template("templates/emails/reorder_item.html", {
-# 		"mr_list": mr_list
-# 	})
-
-# 	frappe.sendmail(recipients=email_list,
-# 		subject=_('Auto Material Requests Generated'), message = msg)
-
-# def notify_errors(exceptions_list):
-# 	subject = _("[Important] [ERPNext] Auto Reorder Errors")
-# 	content = _("Dear System Manager,") + "<br>" + _("An error occured for certain Items while creating Material Requests based on Re-order level. \
-# 		Please rectify these issues :") + "<br>"
-
-# 	for exception in exceptions_list:
-# 		exception = json.loads(exception)
-# 		error_message = """<div class='small text-muted'>{0}</div><br>""".format(_(exception.get("message")))
-# 		content += error_message
-
-# 	content += _("Regards,") + "<br>" + _("Administrator")
-
-# 	from frappe.email import sendmail_to_system_managers
-# 	sendmail_to_system_managers(subject, content)
+    subject = _("[Important] [ERPNext] Auto Reorder Errors")
+    content = _("Dear System Manager,") + "<br>" + _(
+        "An error occurred for certain Items while creating Material Requests based on Re-order level. \
+        Please rectify these issues:"
+    ) + "<br>"
+
+    for exception in exceptions_list:
+        if not exception:
+            continue
+
+        # If already parsed, or simple string
+        try:
+            if isinstance(exception, dict):
+                message = exception.get("message")
+            elif isinstance(exception, str) and exception.strip().startswith("{"):
+                parsed = json.loads(exception)
+                message = parsed.get("message", str(parsed))
+            else:
+                message = str(exception)
+        except Exception:
+            message = "❌ Error while parsing exception: " + str(exception)
+
+        error_message = f"""<div class='small text-muted'>{message}</div><br>"""
+        content += error_message
+
+    content += _("Regards,") + "<br>" + _("Administrator")
+
+    from frappe.email import sendmail_to_system_managers
+    sendmail_to_system_managers(subject, content)
 
 
 
