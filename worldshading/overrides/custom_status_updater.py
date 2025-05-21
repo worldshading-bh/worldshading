@@ -8,17 +8,10 @@ custom_status_map = status_map.copy()
 # ✅ Insert custom status before Partially Ordered to take precedence
 custom_status_map["Material Request"].insert(4, [
     "Stock Entry In Progress",
-    """eval:
-        self.status != 'Stopped'
-        and self.docstatus == 1
-        and self.per_ordered == 0
-        and self.material_request_type in ('Repack', 'Production')
-        and frappe.db.exists('Stock Entry Detail', {
-            'material_request': self.name,
-            'docstatus': 0
-        })
-    """
+    """eval:self.status != 'Stopped' and self.docstatus == 1 and self.per_ordered == 0 and self.material_request_type in ('Repack', 'Production') and get_value('Stock Entry Detail', {'material_request': self.name, 'docstatus': 0}, 'name')"""
 ])
+
+
 
 # ✅ Append additional custom states
 custom_status_map["Material Request"].extend([

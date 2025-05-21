@@ -119,7 +119,7 @@ from erpnext.stock.get_item_details import get_item_details
 
 def create_material_request(material_requests):
     print("⚠️ Creating Material Requests for Repack/Production...")
-    MAX_MR_LIMIT = 10  # 🔢 Set your desired max limit here
+    MAX_MR_LIMIT = 25  # 🔢 Set your desired max limit here
     mr_list = []
     missing_rule_items = []
     exceptions_list = []
@@ -140,7 +140,7 @@ def create_material_request(material_requests):
 
             for d in items:
                 d = frappe._dict(d)
-                print(f"🛠 Creating Material Request for {d.item_code} ({request_type})")
+                print(f"👥 Creating Material Request for {d.item_code} ({request_type})")
 
                 try:
                     rules = frappe.get_all("Repack Production Rule", filters={"type": request_type})
@@ -159,6 +159,30 @@ def create_material_request(material_requests):
 
                                 print(f"🔢 Reorder Qty: {reorder_qty}, Rule Qty: {rule_qty}, Multiplier: {multiplier}")
 
+                                # ✅ Check stock of all source items before proceeding
+                                if request_type == "Production":
+                                    if d.warehouse == "Production Salmabad - WS":
+                                        from_warehouse = "Salmabad Showroom - WS"
+                                    elif d.warehouse == "Production Hamad Town - WS":
+                                        from_warehouse = "Hamad Town Showroom - WS"
+                                    else:
+                                        from_warehouse = d.warehouse
+                                else:
+                                    from_warehouse = d.warehouse
+
+                                source_missing = []
+                                for from_item in rule_doc.from_item:
+                                    actual_qty = frappe.db.get_value("Bin", {
+                                        "item_code": from_item.item_code,
+                                        "warehouse": from_warehouse
+                                    }, "actual_qty") or 0
+                                    if actual_qty <= 0:
+                                        source_missing.append(f"{from_item.item_code} (0 in {from_warehouse})")
+
+                                if source_missing:
+                                    print(f"❌ Skipping {d.item_code} ({request_type}) — source stock unavailable: {', '.join(source_missing)}")
+                                    continue
+
                                 # ✅ For Production: create one MR per multiplier
                                 if request_type == "Production":
                                     for i in range(multiplier):
@@ -174,15 +198,7 @@ def create_material_request(material_requests):
                                             "material_request_type": request_type
                                         })
 
-                                        # 🔁 Add source items to 'from_items'
                                         for from_item in rule_doc.from_item:
-                                            if d.warehouse == "Production Salmabad - WS":
-                                                from_warehouse = "Salmabad Showroom - WS"
-                                            elif d.warehouse == "Production Hamad Town - WS":
-                                                from_warehouse = "Hamad Town Showroom - WS"
-                                            else:
-                                                from_warehouse = d.warehouse
-
                                             args = {
                                                 "item_code": from_item.item_code,
                                                 "warehouse": from_warehouse,
@@ -236,7 +252,6 @@ def create_material_request(material_requests):
                                     })
 
                                     for from_item in rule_doc.from_item:
-                                        from_warehouse = d.warehouse
                                         args = {
                                             "item_code": from_item.item_code,
                                             "warehouse": from_warehouse,
@@ -281,8 +296,6 @@ def create_material_request(material_requests):
                         item_link = f"{frappe.utils.get_url()}/desk#Form/Item/{d.item_code}"
                         missing_rule_items.append(f"<li><a href='{item_link}'>{d.item_code}</a> ({request_type})</li>")
 
-
-
                 except Exception:
                     _log_exception()
 
@@ -291,6 +304,7 @@ def create_material_request(material_requests):
 
     if exceptions_list:
         notify_errors(exceptions_list)
+
     # ✅ Create one summary ToDo listing all missing rule items
     if missing_rule_items:
         item_list_html = "<ul>" + "\n".join(missing_rule_items) + "</ul>"
@@ -321,6 +335,7 @@ def create_material_request(material_requests):
         print("📝 Summary ToDo created for all missing rule items.")
 
     return mr_list
+
 
 
 
