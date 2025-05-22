@@ -139,7 +139,16 @@ scheduler_events = {
         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
     ]
 }
-
+# scheduler_events = {
+#     "daily": [
+#         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
+#     ],
+#     "cron": {
+#         "0 1 * * *": [
+#             "worldshading.custom_reorder.reorder_item"
+#         ]
+#     }
+# }
 fixtures = [
     {"doctype": "DocType", "filters": [["name", "in", [
         "Repack Production Rule", "Source Item", "Target Item"
@@ -164,6 +173,9 @@ doctype_list_js = {
 
 
 doc_events = {
+    "*": {
+        "on_cancel": "worldshading.events.cancel_assign.assign_to_gm_on_cancel"
+    },
     "Material Request": {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
     }
