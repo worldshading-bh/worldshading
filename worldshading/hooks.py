@@ -137,6 +137,7 @@ scheduler_events = {
     "daily": [
         "worldshading.custom_reorder.reorder_item",
         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
+        "worldshading.scheduler_events.draft_cleanup_schedule.execute",
     ]
 }
 # scheduler_events = {
