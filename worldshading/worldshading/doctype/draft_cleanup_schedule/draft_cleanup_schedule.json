@@ -1,0 +1,86 @@
+{
+ "autoname": "target_doctype.-.##",
+ "creation": "2025-05-24 14:16:31.797122",
+ "custom": 1,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "disabled",
+  "target_doctype",
+  "limit",
+  "filter_field",
+  "days_older_than",
+  "column_break_6",
+  "info_html"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled"
+  },
+  {
+   "description": "The type of document to clean up",
+   "fieldname": "target_doctype",
+   "fieldtype": "Link",
+   "label": "Target Doctype",
+   "options": "DocType",
+   "unique": 1
+  },
+  {
+   "description": "Maximum number of documents to delete per day",
+   "fieldname": "limit",
+   "fieldtype": "Int",
+   "label": "Limit"
+  },
+  {
+   "description": "Which date field to use",
+   "fieldname": "filter_field",
+   "fieldtype": "Select",
+   "label": "Filter Field"
+  },
+  {
+   "description": "Deletes only if older than this",
+   "fieldname": "days_older_than",
+   "fieldtype": "Int",
+   "label": "Days Older Than"
+  },
+  {
+   "fieldname": "column_break_6",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "info_html",
+   "fieldtype": "HTML",
+   "label": "Guide",
+   "options": "<h4>\ud83e\uddf9 Draft Cleanup Guide</h4>\n<p>This rule will <strong>automatically delete draft documents</strong> that meet the conditions below:</p>\n\n<ul>\n  <li><b>Target Doctype:</b> The document type to clean up (e.g. Sales Order, Quotation)</li>\n  <li><b>Filter Field:</b> The date field to check (e.g. <code>creation</code>, <code>valid_till</code>)</li>\n  <li><b>Days Older Than:</b> Deletes documents older than this many days</li>\n  <li><b>Limit:</b> Maximum number of documents deleted per run</li>\n</ul>\n\n<div style=\"padding: 10px; border-left: 4px solid #ffeeba; margin-top: 10px;\">\n  \u26a0\ufe0f <strong>Important:</strong> This will only delete documents with <code>docstatus = 0</code>. \n  Submitted documents are never touched.\n</div>\n"
+  }
+ ],
+ "modified": "2025-05-24 15:10:06.322911",
+ "modified_by": "hilal@worldshading.com",
+ "module": "Worldshading",
+ "name": "Draft Cleanup Schedule",
+ "owner": "hilal@worldshading.com",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "show_name_in_global_search": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1,
+ "track_seen": 1
+}
