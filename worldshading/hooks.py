@@ -197,3 +197,11 @@ def override_status_updater():
 override_status_updater()
 
 
+# Monkey patch make_packing_list
+def override_packing_list():
+    import erpnext.stock.doctype.packed_item.packed_item as original
+    from worldshading.overrides.packed_item import make_packing_list
+    original.make_packing_list = make_packing_list
+    frappe.msgprint("✅ Monkey patch loaded")
+
+override_packing_list()  # ✅ Call it directly at load time (not via doc_events)
