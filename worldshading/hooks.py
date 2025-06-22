@@ -180,10 +180,10 @@ doc_events = {
     "Material Request": {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
     },
-    "Sales Order": {
-        "validate": "worldshading.overrides.sales_order.validate",
-        "after_save": "worldshading.overrides.sales_order.custom_after_save",
-    }
+    # "Sales Order": {
+    #     # "validate": "worldshading.overrides.sales_order.validate",
+    #     # "after_save": "worldshading.overrides.sales_order.custom_after_save",
+    # }
 }
 
 
