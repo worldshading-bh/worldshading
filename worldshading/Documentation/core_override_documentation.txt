@@ -116,3 +116,21 @@ ERPNext originally does not consider Repack and Production types when calculatin
 📅 Date of Change:
 2025-05-15
 
+
+====
+5,
+====
+
+📁 File Modified:
+Path:
+frappe-bench/apps/erpnext/erpnext/selling/doctype/sales_order/sales_order.py
+
+🔧 Lines Commented:
+# from erpnext.stock.doctype.packed_item.packed_item import make_packing_list
+# make_packing_list(self)
+
+🛠️ Change Summary:
+🚫 Disabled automatic packing list generation by commenting out:
+
+
+This prevents ERPNext from auto-generating packed items when saving a Sales Order.
