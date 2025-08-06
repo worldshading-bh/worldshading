@@ -2,8 +2,7 @@ import frappe
 from frappe.model.mapper import get_mapped_doc
 
 @frappe.whitelist()
-def make_delivery_trip(source_name, target_doc=None, source_doctype=None):
-    #
+def custom_make_delivery_trip(source_name, target_doc=None, source_doctype=None):
 
     # fallback to Delivery Note if source_doctype is not passed
     if not source_doctype:
@@ -39,8 +38,11 @@ def make_delivery_trip(source_name, target_doc=None, source_doctype=None):
             }
         }, target_doc)
 
+        doclist.type = "Delivery Note"
+
     # ✅ Case 2: from Stock Entry (Material Transfer)
     elif source_doctype == "Stock Entry":
+        
         stock_entry = frappe.get_doc("Stock Entry", source_name)
 
         doclist = frappe.new_doc("Delivery Trip")
@@ -55,7 +57,7 @@ def make_delivery_trip(source_name, target_doc=None, source_doctype=None):
             t_warehouse = first_item.t_warehouse or "?"
             doclist.reference = f"Need material transfer from {s_warehouse} to {t_warehouse}."
 
-        # ✅ Fixed stop details
+        #✅ Fixed stop details
         doclist.append("delivery_stops", {
             "customer": "CM0922",
             "address": "CM0385-Billing"
