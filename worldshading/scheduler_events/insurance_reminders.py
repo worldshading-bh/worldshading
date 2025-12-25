@@ -4,8 +4,8 @@ from frappe.utils import today, add_days
 def create_insurance_todos():
     print("🔔 [Insurance ToDo Scheduler] Starting task...")
 
-    # Step 1: Get all valid enabled users with role "Senior Accountant"
-    role_users = frappe.get_all("Has Role", filters={"role": "Senior Accountant"}, fields=["parent"])
+    # Step 1: Get all valid enabled users with role "HR Manager"
+    role_users = frappe.get_all("Has Role", filters={"role": "HR Manager"}, fields=["parent"])
     valid_users = frappe.get_all("User", filters={"enabled": 1}, fields=["name"])
     valid_users = [u["name"] for u in valid_users]
 
@@ -16,12 +16,12 @@ def create_insurance_todos():
     ]
 
     if not user_list:
-        msg = "❌ No users found with role: Senior Accountant"
+        msg = "❌ No users found with role: HR Manager"
         frappe.log_error(msg, "Insurance ToDo Script")
         print(msg)
         return
 
-    print(f"👤 Found {len(user_list)} users with role 'Senior Accountant': {user_list}")
+    print(f"👤 Found {len(user_list)} users with role 'HR Manager': {user_list}")
 
     # Step 2: Find vehicles whose insurance is expiring in next 10 days
     vehicles = frappe.get_all("Vehicle", 
@@ -76,6 +76,4 @@ def create_insurance_todos():
         print("✔️ Script finished. No new ToDos needed today.")
 
     frappe.db.commit()
-
-
 

@@ -10,8 +10,8 @@ def execute():
         try:
             doctype = rule.target_doctype
             date_field = rule.filter_field
-            days_old = rule.days_old or 7
-            limit = rule.limit or 10
+            days_old = rule.days_older_than or 10
+            limit = rule.limit or 5
 
             target_date = add_days(nowdate(), -days_old)
 

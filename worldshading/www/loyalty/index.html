@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Manifest -->
+    <link rel="manifest" href="/loyalty/manifest.json?v=6">
+    <meta name="theme-color" content="#131667">
+
+    <!-- iOS PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/assets/erpnext/images/erpnext-logo.png" />
+
+    <title>World Shading Loyalty</title>
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/loyalty/styles.css?v=6">
+</head>
+
+<body>
+
+<!-- HEADER -->
+<div class="app-header">
+    <div class="header-content">
+        <div class="logo-circle">
+            <img src="https://wserp.worldshading.com/assets/erpnext/images/erp-icon.svg" 
+                 alt="World Shading Logo" 
+                 style="width: 40px; height: 40px; object-fit: contain;" />
+        </div>
+        <div class="header-text">
+            <h1>World Shading</h1>
+            <p>Loyalty Rewards Program</p>
+        </div>
+    </div>
+</div>
+
+<!-- INSTALL BUTTON -->
+<button id="installBtn" class="btn-main">📲 Install App</button>
+
+<!-- iOS INSTALL PROMPT -->
+<div id="iosInstall">
+    <div class="ios-install-title">Install App</div>
+    <div class="ios-install-text">
+        Tap <span class="share-icon">⬆</span> then <strong>Add to Home Screen</strong>
+    </div>
+</div>
+
+<!-- MAIN CONTAINER -->
+<div class="container">
+    <!-- SEARCH CARD -->
+    <div class="search-card">
+        <h2 class="card-title">Check Your Points</h2>
+        <p class="card-subtitle">Enter your mobile number or customer ID</p>
+
+        <div class="input-wrapper">
+            <span class="input-icon">👤</span>
+            <input id="customerInput" 
+                   class="input-field" 
+                   type="text" 
+                   placeholder="Mobile or Customer ID (CMXXXX)" />
+        </div>
+
+        <button id="checkPointsBtn" class="btn-main">🔍 Check Points</button>
+    </div>
+
+    <!-- LOADING INDICATOR -->
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading your rewards...</div>
+    </div>
+
+    <!-- RESULT CARD -->
+    <div id="resultBox" class="result-card">
+        <div class="result-header">
+            <h2 id="customerName"></h2>
+            <div class="customer-id" id="customerId"></div>
+            
+            <div class="points-display">
+                <div class="points-label">Available Points</div>
+                <div class="points-value" id="pointsValue">0</div>
+            </div>
+        </div>
+
+        <div class="result-body">
+            <div class="info-row">
+                <span class="info-label">📱 Mobile</span>
+                <span class="info-value" id="customerMobile"></span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">🎯 Program</span>
+                <span class="info-value" id="loyaltyProgram"></span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">⚡ Tier</span>
+                <span class="info-value" id="tierBadge"></span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">📊 Collection Factor</span>
+                <span class="info-value" id="collectionFactor"></span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">❌ Expired Points</span>
+                <span class="info-value" id="expiredPoints"></span>
+            </div>
+
+            <div id="expiryWarning" class="expiry-warning" style="display: none;">
+                <div class="expiry-warning-text">
+                    ⚠️ <strong id="expiringPoints"></strong> points will expire on <strong id="expiryDate"></strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FOOTER NAVIGATION -->
+<div class="footer">
+    <div class="nav-container">
+        <button class="nav-item active" onclick="showHome()">
+            <div class="nav-icon">🏠</div>
+            <div class="nav-label">Home</div>
+        </button>
+        <button class="nav-item" onclick="showOffers()">
+            <div class="nav-icon">🎁</div>
+            <div class="nav-label">Offers</div>
+        </button>
+        <button class="nav-item" onclick="showHistory()">
+            <div class="nav-icon">📊</div>
+            <div class="nav-label">History</div>
+        </button>
+        <button class="nav-item" onclick="showProfile()">
+            <div class="nav-icon">👤</div>
+            <div class="nav-label">Profile</div>
+        </button>
+    </div>
+    <div class="copyright">© 2025 World Shading</div>
+</div>
+
+<!-- OTP VERIFICATION POPUP -->
+<div id="otpPopup" style="
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: none; align-items: center; justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(5px);
+">
+    <div style="
+        background: white; padding: 35px 30px; width: 90%; max-width: 400px;
+        border-radius: 20px; text-align: center;
+        box-shadow: 0 10px 50px rgba(0, 0, 0, 0.4);
+        animation: popupSlide 0.3s ease;
+    ">
+        <div style="
+            width: 70px; height: 70px; 
+            background: linear-gradient(135deg, #E54B2C 0%, #131667 100%);
+            border-radius: 50%; margin: 0 auto 20px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 35px;
+        ">
+            🔐
+        </div>
+
+        <h2 style="color: #131667; margin-bottom: 8px; font-size: 24px; font-weight: 700;">
+            Verify Your Number
+        </h2>
+
+        <p id="otpSentText" style="font-size: 14px; margin-bottom: 25px; color: #666;"></p>
+
+        <input id="otpField"
+               type="number"
+               placeholder="Enter 6-digit OTP"
+               maxlength="6"
+               style="width: 100%; padding: 16px;
+               border: 2px solid #e0e0e0;
+               border-radius: 12px; margin-bottom: 15px; 
+               font-size: 18px; text-align: center;
+               font-weight: 600; letter-spacing: 3px;
+               transition: all 0.3s ease;" 
+               onfocus="this.style.borderColor='#E54B2C'; this.style.boxShadow='0 0 0 4px rgba(229, 75, 44, 0.1)';"
+               onblur="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none';" />
+
+        <button id="verifyBtn"
+            style="width: 100%; padding: 16px; 
+            background: linear-gradient(135deg, #E54B2C 0%, #131667 100%);
+            color: white; border: none; border-radius: 12px; 
+            font-size: 16px; font-weight: 700; margin-bottom: 12px;
+            cursor: pointer; transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(229, 75, 44, 0.3);">
+            Verify OTP
+        </button>
+
+        <button id="resendBtn"
+            style="width: 100%; padding: 16px; 
+            background: white; color: #E54B2C;
+            border: 2px solid #E54B2C; border-radius: 12px; 
+            font-size: 16px; font-weight: 600;
+            cursor: pointer; transition: all 0.3s ease;">
+            Resend OTP
+        </button>
+
+        <button onclick="closeOtpPopup()" 
+            style="margin-top: 15px; background: none; border: none; 
+            color: #999; font-size: 14px; cursor: pointer; text-decoration: underline;">
+            Cancel
+        </button>
+    </div>
+</div>
+
+<!-- SERVICE WORKER -->
+<script>
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/loyalty/sw.js?v=6');
+}
+</script>
+
+<!-- ANDROID INSTALL PROMPT -->
+<script>
+let deferredPrompt;
+const installBtn = document.getElementById("installBtn");
+
+window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = "block";
+
+    installBtn.addEventListener("click", async () => {
+        installBtn.style.display = "none";
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+    });
+});
+</script>
+
+<!-- iOS INSTALL DETECTION -->
+<script>
+function isIos() { 
+    return /iphone|ipad|ipod/i.test(navigator.userAgent); 
+}
+
+function isInStandaloneMode() { 
+    return ('standalone' in window.navigator) && window.navigator.standalone; 
+}
+
+if (isIos() && !isInStandaloneMode()) {
+    document.getElementById("iosInstall").style.display = "block";
+}
+</script>
+
+<!-- MAIN APPLICATION SCRIPT -->
+<script src="/loyalty/app.js?v=6"></script>
+
+</body>
+</html>

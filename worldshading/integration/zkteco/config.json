@@ -1,0 +1,9 @@
+{
+  "device_api": "http://109.63.116.44:5000",
+  "device_user": "worldshading",
+  "device_pass": "Ws50601020*",
+  "erp_url": "https://wserp.worldshading.com",
+  "erp_api_key": "cdabfd9e2cec951",
+  "erp_api_secret": "35c575d710c1f38",
+  "max_logs": 50
+}

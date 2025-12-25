@@ -131,6 +131,12 @@ app_license = "MIT"
 # }
 app_include_css = "/assets/worldshading/css/custom_theme.css"
 
+app_include_js = [
+    "/assets/worldshading/js/customer_quick_entry.js",
+    "/assets/worldshading/js/global_list_patch.js",
+    "/assets/worldshading/js/notification_sound.js"
+]
+
 
 
 scheduler_events = {
@@ -138,22 +144,39 @@ scheduler_events = {
         "worldshading.custom_reorder.reorder_item",
         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
         "worldshading.scheduler_events.draft_cleanup_schedule.execute",
-    ]
+        #"worldshading.scheduler_events.overdue_assignments.assign_overdue_sales_orders",
+        "worldshading.scheduler_events.journal_entry_followups.auto_transition_jv"
+    ],
+
+    "cron": {
+        "30 6 * * *": [  # every day at 6:30 AM
+            "worldshading.scheduler_events.quotation_followups.auto_update_followups"
+        ],
+        "*/10 7-19 * * *":[
+            "worldshading.integration.zkteco.attendance_sync.run"
+        ]
+    }
 }
-# scheduler_events = {
-#     "daily": [
-#         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
-#     ],
-#     "cron": {
-#         "0 1 * * *": [
-#             "worldshading.custom_reorder.reorder_item"
-#         ]
-#     }
-# }
+
+
+
 fixtures = [
-    {"doctype": "DocType", "filters": [["name", "in", [
-        "Repack Production Rule", "Source Item", "Target Item"
-    ]]]}
+    {
+        "doctype": "DocType",
+        "filters": [
+            ["name", "in", [
+                # Existing (do NOT remove)
+                "Repack Production Rule",
+                "Source Item",
+                "Target Item",
+
+                # New UI-created DocTypes (to protect)
+                "Loyalty Trusted Device",
+                "API Settings",
+                "OTP Log"
+            ]]
+        ]
+    }
 ]
 
 
@@ -165,7 +188,11 @@ doctype_js = {
 
 
 override_whitelisted_methods = {
-    "worldshading.api.public_pdf.download_public_pdf": "worldshading.api.public_pdf.download_public_pdf"
+    "worldshading.api.public_pdf.download_public_pdf": "worldshading.api.public_pdf.download_public_pdf",
+    "worldshading.api.loyalty.get_loyalty_points": "worldshading.api.loyalty.get_loyalty_points",
+    "worldshading.api.otp.send_otp": "worldshading.api.otp.send_otp",
+    "worldshading.api.otp.verify_otp": "worldshading.api.otp.verify_otp",
+    "worldshading.api.trusted_device.register_trusted_device": "worldshading.api.trusted_device.register_trusted_device",
 }
 
 doctype_list_js = {
@@ -180,10 +207,13 @@ doc_events = {
     "Material Request": {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
     },
-    # "Sales Order": {
-    #     # "validate": "worldshading.overrides.sales_order.validate",
-    #     # "after_save": "worldshading.overrides.sales_order.custom_after_save",
-    # }
+    "Sales Order": {
+        "validate": "worldshading.overrides.sales_order.validate",
+        "after_save": "worldshading.overrides.sales_order.custom_after_save",
+    },
+    "Sales Invoice": {
+        "on_update_after_submit": "worldshading.events.apply_credit_balance.apply_credit_simple"
+    }
 }
 
 
@@ -199,6 +229,13 @@ def override_status_updater():
         frappe.log_error(frappe.get_traceback(), "Failed to override StatusUpdater")
 
 override_status_updater()
+
+
+
+#if migration failed bcs of pickling error, use this no-op function to let old pickles load and comment the patch below
+# def override_packing_list(*args, **kwargs):
+#     # no-op; exists only to let old pickles load once
+#     return None
 
 
 

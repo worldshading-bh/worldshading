@@ -6,8 +6,7 @@ from erpnext.stock.doctype.packed_item.packed_item import (
 
 def make_packing_list(doc):
     """Create packing list with optional custom project logic based on Product Bundle settings."""
-
-    frappe.msgprint("🔁 Creating Packing List...worldshading override")
+    frappe.msgprint("🔁 Creating Packing List...worldshading override...")
 
     if doc.get("_action") == "update_after_submit":
         return

@@ -3,6 +3,15 @@
 ERPNext Core Modification Documentation - ws overrides
 ======================================================================
 
+All modifications made directly in the ERPNext core code are minimal, intentional, and controlled.
+Each change is clearly marked using the comment tag:
+==============
+# ws overrides
+==============
+To quickly locate all core customizations, simply search for "ws overrides" within the ERPNext codebase.
+This ensures transparency, easy auditing, and safer future upgrades or migrations.
+
+
 ====
 1,
 ====
@@ -100,9 +109,7 @@ update_completed_qty(self, mr_items=None, update_modified=True)
 🛠️ Change Summary:
 Included support for Repack and Production in the condition that determines which Stock Entry types should contribute to ordered_qty.
 
-python
-Copy
-Edit
+
 # 🔁 Before:
 if self.material_request_type in ("Material Issue", "Material Transfer", "Customer Provided"):
 
@@ -134,3 +141,44 @@ frappe-bench/apps/erpnext/erpnext/selling/doctype/sales_order/sales_order.py
 
 
 This prevents ERPNext from auto-generating packed items when saving a Sales Order.
+
+
+
+====
+6,
+====
+
+📁 File Modified:
+Path:
+frappe-bench/apps/erpnext/erpnext/stock/doctype/delivery_note/delivery_note.py
+
+🔧 Function Modified:
+def validate(self):
+
+🛠️ Change Summary:
+Added a conditional check to control automatic packing list generation
+based on a custom checkbox field `custom_project_logic`.
+
+🚫 Modified Logic:
+Disabled ERPNext’s default behavior of always generating packed items
+during Delivery Note validation, unless explicitly allowed.
+
+# 🔁 Before:
+from erpnext.stock.doctype.packed_item.packed_item import make_packing_list
+make_packing_list(self)
+
+# ✅ After (ws overrides):
+# added custom project logic check - ws overrides
+if not self.get("custom_project_logic"):
+    from erpnext.stock.doctype.packed_item.packed_item import make_packing_list
+    make_packing_list(self)
+
+🧠 Reason:
+In custom project-based workflows, packing logic is handled manually or
+through custom automation (e.g. split delivery notes, parent vs packed
+items handling). 
+
+
+
+
+

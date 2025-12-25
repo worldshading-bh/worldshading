@@ -1,0 +1,8 @@
+{
+  "name": "Checkin Transaction Report",
+  "doctype": "Report",
+  "is_standard": "Yes",
+  "ref_doctype": "Employee Checkin",
+  "report_type": "Script Report",
+  "module": "Worldshading"
+}

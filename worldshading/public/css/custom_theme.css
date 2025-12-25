@@ -8,7 +8,7 @@ body, .form-control, .page-title, .section-body {
 
 /* Navbar Styling */
 .navbar, .navbar-light, .navbar-default {
-    background-color: #131667 !important;
+    background-color: #000000 !important;
     border-color: #131667;
 }
 
@@ -22,7 +22,7 @@ body, .form-control, .page-title, .section-body {
 }
 
 #navbar-search {
-    background-color: #23257c !important; /* Slightly lighter than #131667 */
+    background-color: #28282d !important; /* Slightly lighter than #131667 */
     border: 1px solid #1f2175;
     color: #ffffff;
     height: 36px;

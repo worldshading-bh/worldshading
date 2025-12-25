@@ -1,0 +1,22 @@
+{
+    "name": "World Shading",
+    "short_name": "WS Loyalty",
+    "start_url": "/loyalty",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#ec5638",
+    "icons": [
+      {
+        "src": "/files/logo%20removed.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "/files/logo%20removed.png",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ]
+    
+  }
+  
