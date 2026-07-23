@@ -5,5 +5,6 @@
   "erp_url": "https://erp.worldshading.com",
   "erp_api_key": "d5b6d4b6f321560",
   "erp_api_secret": "681e393f58946bf",
-  "max_logs": 50
+  "max_logs": 50,
+  "_note": "erp_api_secret above was REVOKED on 2026-07-23 and is INVALID. Before resuming, create a dedicated integration user (not Administrator) and regenerate erp_api_key/erp_api_secret here."
 }
