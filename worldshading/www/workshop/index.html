@@ -1,0 +1,2228 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Workshop{% endblock %}
+
+{% block page_content %}
+
+<link rel="stylesheet" href="/ws-pwa-core.css?v=2">
+
+<style>
+    /* Workshop-only styles. Shared shell styling lives in /ws-pwa-core.css */
+
+    /* Filters (state chips + search + date) only show on the Work Orders tab */
+    .app-shell:not([data-active-tab="workorders"]) #wo-filters {
+        display: none;
+    }
+
+    /* Admin-only member picker (All Members / individual) — styled light and
+       simple like the driver PWA's visitor filter. */
+    .wo-member-wrap {
+        margin-bottom: 12px;
+    }
+
+    .wo-member-select {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid rgba(16, 24, 40, 0.08);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 650;
+        box-shadow: 0 6px 16px rgba(16, 24, 40, 0.04);
+        outline: 0;
+        -webkit-appearance: none;
+        appearance: none;
+        padding: 0 34px 0 14px;
+        background-image:
+            linear-gradient(45deg, transparent 50%, var(--faint) 50%),
+            linear-gradient(135deg, var(--faint) 50%, transparent 50%);
+        background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+    }
+
+    /* Header brand chip: core .brand-chip is sized for the stacked login view;
+       reset its bottom margin and lock its size for the horizontal header row. */
+    .header-top .brand-chip {
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        margin-bottom: 0;
+        flex: 0 0 auto;
+    }
+
+    .wo-stack {
+        display: grid;
+        gap: 10px;
+    }
+
+    .wo-card {
+        position: relative;
+        display: block;
+        width: 100%;
+        border: 0;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.94);
+        padding: 13px;
+        color: inherit;
+        text-align: left;
+        box-shadow: var(--shadow-soft);
+        transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+
+    /* Tighter vertical rhythm inside the card so more fit on screen. */
+    .wo-card .progress-wrap {
+        margin-top: 10px;
+    }
+
+    /* With the label removed, keep the % pinned to the right of the bar. */
+    .wo-card .progress-head {
+        justify-content: flex-end;
+    }
+
+    .wo-card:active {
+        transform: scale(0.98);
+    }
+
+    .wo-card.is-ready {
+        box-shadow: 0 10px 26px rgba(16, 24, 40, 0.07);
+    }
+
+    .wo-card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    .wo-head-side {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+        flex: 0 0 auto;
+    }
+
+    .wo-team {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 130px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .wo-team .ws-icon {
+        width: 12px;
+        height: 12px;
+        color: var(--faint);
+        flex: 0 0 auto;
+    }
+
+    .wo-item-name {
+        margin: 0;
+        color: var(--ink);
+        font-size: 16px;
+        font-weight: 850;
+        line-height: 1.25;
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .wo-item-code {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.3;
+    }
+
+    .wo-schedule {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 10px;
+        margin-top: 10px;
+        border-radius: 16px;
+        background: var(--soft);
+        padding: 10px 13px;
+    }
+
+    .wo-schedule-col {
+        min-width: 0;
+    }
+
+    .wo-schedule-col.end {
+        text-align: right;
+    }
+
+    .wo-schedule-label {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 850;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    .wo-schedule-date {
+        margin-top: 5px;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 850;
+        line-height: 1.2;
+    }
+
+    .wo-schedule-time {
+        margin-top: 3px;
+        color: var(--ink-soft);
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1.2;
+    }
+
+    .wo-schedule-arrow {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--faint);
+        flex: 0 0 auto;
+    }
+
+    .wo-schedule-arrow .ws-icon {
+        width: 18px;
+        height: 18px;
+    }
+
+    .wo-schedule-empty {
+        margin-top: 13px;
+        border-radius: 18px;
+        background: var(--soft);
+        padding: 12px 14px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 750;
+    }
+
+    .wo-meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 9px;
+    }
+
+    .wo-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 28px;
+        border-radius: 999px;
+        background: var(--soft);
+        color: var(--ink-soft);
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    .wo-chip .ws-icon {
+        width: 13px;
+        height: 13px;
+        color: var(--faint);
+    }
+
+    .mat-list {
+        display: grid;
+        gap: 0;
+    }
+
+    .mat-row {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        gap: 11px;
+        align-items: center;
+        min-height: 50px;
+        padding: 9px 0;
+        border-bottom: 1px solid rgba(16, 24, 40, 0.06);
+    }
+
+    .mat-row:first-child {
+        padding-top: 2px;
+    }
+
+    .mat-row:last-child {
+        padding-bottom: 2px;
+        border-bottom: 0;
+    }
+
+    .mat-idx {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 7px;
+        background: var(--soft);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 850;
+    }
+
+    .mat-main {
+        min-width: 0;
+    }
+
+    .mat-name {
+        color: var(--ink);
+        font-size: 13.5px;
+        font-weight: 800;
+        line-height: 1.3;
+    }
+
+    .mat-sub {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .mat-qty {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .mat-qty-value {
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 850;
+        line-height: 1.2;
+    }
+
+    .mat-qty.is-ready .mat-qty-value {
+        color: var(--progress-fg);
+    }
+
+    .mat-qty.is-pending .mat-qty-value {
+        color: var(--paused-fg);
+    }
+
+    .mat-qty-uom {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 750;
+        line-height: 1.2;
+    }
+
+    /* Progress quick-picks in 10s: wrap into balanced, centered rows
+       (core row is a fixed 5-col grid meant for 5 buttons). */
+    #progress-sheet .progress-quick-row {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    #progress-sheet .progress-quick {
+        flex: 0 0 calc((100% - 40px) / 6);
+    }
+
+    /* Workflow action buttons (Phase 2) — sticky bottom bar, like the driver PWA.
+       Lives outside the scrolling shell so it stays pinned to the bottom. */
+    .detail-actions {
+        position: fixed;
+        left: 50%;
+        bottom: 0;
+        z-index: 120;
+        width: 100%;
+        max-width: 480px;
+        transform: translateX(-50%);
+        padding: 10px 18px calc(14px + env(safe-area-inset-bottom));
+        background: rgba(247, 248, 250, 0.94);
+        backdrop-filter: blur(18px);
+        box-shadow: 0 -16px 34px rgba(16, 24, 40, 0.06);
+    }
+
+    .detail-actions:empty {
+        display: none;
+    }
+
+    /* Reserve room so the last content clears the pinned bar. */
+    .detail-view.has-actions .detail-shell {
+        padding-bottom: calc(104px + env(safe-area-inset-bottom));
+    }
+
+    /* Auto-arrange 1 / 2 / 3 buttons: a lone button (or an odd last one)
+       spans the full width; otherwise two per row. */
+    .wo-action-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .wo-action-grid .wo-action-btn:first-child:last-child,
+    .wo-action-grid .wo-action-btn:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+    }
+
+    .wo-action-btn {
+        width: 100%;
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 48px;
+        border: 0;
+        border-radius: 16px;
+        padding: 0 15px;
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    .wo-action-btn .ws-icon {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Notifications (push) toggle in the Profile tab */
+    .push-setting-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+    }
+
+    .push-setting-main {
+        min-width: 0;
+        flex: 1;
+    }
+
+    .push-toggle {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        width: 56px;
+        height: 32px;
+        border: 0;
+        border-radius: 999px;
+        background: #D0D5DD;
+        padding: 3px;
+        flex: 0 0 auto;
+        transition: background 160ms ease, opacity 160ms ease;
+    }
+
+    .push-toggle:disabled {
+        opacity: 0.55;
+        pointer-events: none;
+    }
+
+    .push-toggle-knob {
+        display: block;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 3px 8px rgba(16, 24, 40, 0.18);
+        transform: translateX(0);
+        transition: transform 160ms ease;
+    }
+
+    .push-toggle.active {
+        background: var(--primary);
+    }
+
+    .push-toggle.active .push-toggle-knob {
+        transform: translateX(24px);
+    }
+
+    .push-test-button {
+        width: 100%;
+        margin-top: 12px;
+    }
+</style>
+
+<!-- ===================== LOGIN VIEW ===================== -->
+<div class="login-view is-hidden" id="login-view">
+    <div class="login-panel">
+        <div class="login-brand">
+            <span class="brand-chip"><img src="/files/logo%20removed.png" alt="World Shading"></span>
+            <h1 class="login-title">Workshop</h1>
+            <p class="login-subtitle">Production Work Orders for the workshop team.</p>
+        </div>
+        <form class="login-form" onsubmit="prod_login(event)">
+            <p class="login-welcome">Sign in with your workshop account.</p>
+            <div class="login-field">
+                <label class="login-label" for="prod-login-user">Email</label>
+                <input class="login-input" id="prod-login-user" type="text" autocomplete="username" inputmode="email" required>
+            </div>
+            <div class="login-field">
+                <label class="login-label" for="prod-login-password">Password</label>
+                <input class="login-input" id="prod-login-password" type="password" autocomplete="current-password" required>
+            </div>
+            <button class="primary-button" id="prod-login-submit" type="submit" style="width:100%;">Sign In</button>
+            <div class="login-error" id="prod-login-error"></div>
+        </form>
+        <p class="login-note">Only Work Orders assigned to your production team are shown. Contact the office if you cannot see your jobs.</p>
+    </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div class="app-shell is-hidden" id="prod-app" data-active-tab="workorders">
+    <div class="app-header">
+        <div class="header-top">
+            <div class="brand-chip">
+                <img src="/files/logo%20removed.png" alt="World Shading" onerror="this.parentNode.textContent='WS';">
+            </div>
+            <div class="title-block">
+                <p class="app-greeting" id="prod-greeting">Welcome</p>
+                <h1 class="app-title" id="app-title">Work Orders</h1>
+                <p class="app-subtitle" id="app-subtitle">Your active production jobs</p>
+            </div>
+            <div class="top-actions">
+                <button class="install-button" id="install-button" type="button">Install</button>
+                <button class="icon-button" type="button" onclick="refresh_current_view()" aria-label="Refresh">
+                    <span data-icon="refresh"></span>
+                </button>
+            </div>
+        </div>
+
+        <div id="wo-filters">
+            <div class="wo-member-wrap" id="wo-member-wrap" style="display:none;">
+                <select class="wo-member-select" id="wo-member-select" onchange="set_wo_member(this.value)"></select>
+            </div>
+            <div class="state-strip" id="state-strip"></div>
+            <div class="filters">
+                <div class="search-wrap">
+                    <span data-icon="search"></span>
+                    <input class="search-input" id="search-filter" type="search" placeholder="Search work order, item or sales order" autocomplete="off">
+                </div>
+                <button class="date-range-button" type="button" onclick="open_wo_date_sheet()">
+                    <span class="date-range-button-main">
+                        <span data-icon="calendar"></span>
+                        <span class="date-range-button-label" id="wo-date-range-label">All dates</span>
+                    </span>
+                    <span class="date-range-button-clear" id="wo-date-range-clear" onclick="clear_wo_date_range(event)" aria-label="Clear date range">
+                        <span data-icon="x"></span>
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Work Orders tab -->
+    <main class="content app-panel active" id="workorders-panel">
+        <div id="wo-list" class="loading-state">Loading work orders...</div>
+    </main>
+
+    <!-- Insights tab -->
+    <section class="content app-panel" id="insights-panel">
+        <div class="day-glance">
+            <div class="day-glance-title">Production at a glance</div>
+            <div class="day-glance-subtitle">Your active work orders by stage.</div>
+            <div class="day-pill-row" id="insight-pill-row"></div>
+        </div>
+        <div class="insight-grid">
+            <div class="insight-card">
+                <div class="insight-value" id="insight-total">0</div>
+                <div class="insight-label">Active Jobs</div>
+            </div>
+            <div class="insight-card">
+                <div class="insight-value" id="insight-avg">0%</div>
+                <div class="insight-label">Avg Progress</div>
+            </div>
+            <div class="insight-card">
+                <div class="insight-value" id="insight-qty">0</div>
+                <div class="insight-label">Qty To Make</div>
+            </div>
+            <div class="insight-card">
+                <div class="insight-value" id="insight-produced">0</div>
+                <div class="insight-label">Produced</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Profile tab -->
+    <section class="content app-panel" id="profile-panel">
+        <div class="profile-panel-card">
+            <div class="profile-head">
+                <div class="profile-avatar" id="profile-avatar">WS</div>
+                <div style="min-width:0;">
+                    <div class="profile-title" id="profile-name">Workshop</div>
+                    <div class="profile-subtitle" id="profile-user"></div>
+                </div>
+            </div>
+        </div>
+        <div class="profile-panel-card profile-block">
+            <div class="push-setting-row">
+                <div class="push-setting-main">
+                    <div class="profile-title">Notifications</div>
+                    <div class="profile-subtitle" id="push-status">Enable reminders on this device.</div>
+                </div>
+                <button class="push-toggle" id="push-enable-button" type="button" onclick="toggle_push_notifications()" aria-label="Enable notifications" aria-pressed="false">
+                    <span class="push-toggle-knob"></span>
+                </button>
+            </div>
+            <button class="secondary-button push-test-button" id="push-test-button" type="button" onclick="send_test_push_notification()">
+                <span data-icon="check"></span>
+                Test Notification
+            </button>
+        </div>
+        <div class="profile-panel-card profile-block">
+            <button class="secondary-button" type="button" style="width:100%;" onclick="prod_logout()">
+                <span data-icon="logout"></span>
+                Logout
+            </button>
+        </div>
+    </section>
+
+    <nav class="bottom-nav" data-count="3" aria-label="Workshop navigation">
+        <button class="bottom-nav-button active" type="button" data-tab="workorders" onclick="switch_app_tab('workorders')">
+            <span data-icon="tag"></span>
+            Work Orders
+        </button>
+        <button class="bottom-nav-button" type="button" data-tab="insights" onclick="switch_app_tab('insights')">
+            <span data-icon="chart"></span>
+            Insights
+        </button>
+        <button class="bottom-nav-button" type="button" data-tab="profile" onclick="switch_app_tab('profile')">
+            <span data-icon="user"></span>
+            Profile
+        </button>
+    </nav>
+</div>
+
+<!-- ===================== DETAIL VIEW ===================== -->
+<div class="detail-view" id="detail-view">
+    <div class="detail-shell">
+        <div class="detail-header">
+            <div class="detail-top">
+                <button class="icon-button" type="button" onclick="close_detail()" aria-label="Back">
+                    <span data-icon="back"></span>
+                </button>
+                <div class="detail-title">
+                    <h2 id="detail-item"></h2>
+                    <p id="detail-wo-id"></p>
+                </div>
+                <span class="state-badge" id="detail-state"></span>
+            </div>
+        </div>
+        <div class="detail-content" id="detail-content"></div>
+    </div>
+    <div class="detail-actions" id="detail-actions"></div>
+</div>
+
+<!-- ===================== DATE SHEET ===================== -->
+<div class="sheet-backdrop" id="wo-date-sheet">
+    <div class="sheet">
+        <h3>Date Range</h3>
+        <p class="sheet-subtitle">Filter jobs by planned start date, or keep all dates.</p>
+        <div class="quick-date-grid">
+            <button class="secondary-button" type="button" onclick="set_wo_date_quick('all')">All dates</button>
+            <button class="secondary-button" type="button" onclick="set_wo_date_quick('today')">Today</button>
+            <button class="secondary-button" type="button" onclick="set_wo_date_quick('tomorrow')">Tomorrow</button>
+            <button class="secondary-button" type="button" onclick="set_wo_date_quick('week')">This week</button>
+        </div>
+        <div class="date-sheet-grid">
+            <label class="date-range-field">
+                <span class="date-range-label">From</span>
+                <input class="date-input" id="wo-from-date" type="date">
+            </label>
+            <label class="date-range-field">
+                <span class="date-range-label">To</span>
+                <input class="date-input" id="wo-to-date" type="date">
+            </label>
+        </div>
+        <div class="sheet-actions">
+            <button class="secondary-button" type="button" onclick="close_wo_date_sheet()">Close</button>
+            <button class="primary-button" type="button" onclick="apply_wo_date_sheet()">Apply</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== PROGRESS SHEET ===================== -->
+<div class="sheet-backdrop" id="progress-sheet">
+    <div class="sheet">
+        <h3>Update Progress</h3>
+        <p class="sheet-subtitle" id="progress-sheet-subtitle"></p>
+        <div class="progress-big-value"><b id="progress-sheet-number">0</b><span>%</span></div>
+        <input class="progress-range" id="progress-range" type="range" min="0" max="100" step="1" value="0" oninput="on_progress_range_input(this.value)">
+        <div class="progress-quick-row" id="progress-quick-row"></div>
+        <div class="sheet-actions">
+            <button class="secondary-button" type="button" onclick="close_progress_sheet()">Cancel</button>
+            <button class="primary-button" id="progress-save" type="button" onclick="save_progress()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== ACTION CONFIRM SHEET ===================== -->
+<div class="sheet-backdrop" id="action-sheet">
+    <div class="sheet">
+        <h3 id="action-sheet-title">Confirm</h3>
+        <p class="sheet-subtitle" id="action-sheet-message"></p>
+        <textarea class="comment-box" id="action-sheet-note" placeholder="Add a note (optional)"></textarea>
+        <div class="sheet-actions">
+            <button class="secondary-button" type="button" onclick="close_action_sheet()">Cancel</button>
+            <button class="primary-button" id="action-sheet-confirm" type="button" onclick="submit_action()">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<script src="/ws-pwa-core.js?v=3"></script>
+<script>
+/* Workshop PWA — domain logic. Shared helpers come from WSPWA (ws-pwa-core.js). */
+
+/* Thin aliases so the domain render code reads cleanly and stays portable. */
+var escape_html = WSPWA.escapeHtml;
+var escape_attr = WSPWA.escapeAttr;
+var strip_html = WSPWA.stripHtml;
+var format_qty = WSPWA.formatQty;
+var state_class = WSPWA.stateClass;
+var clamp_percent = WSPWA.clampPercent;
+var format_day = WSPWA.formatDate;
+var format_time_ampm = WSPWA.formatTimeAmPm;
+var format_full_datetime = WSPWA.formatFullDateTime;
+var ws_format_datetime = WSPWA.formatDateTime;
+var render_static_icons = WSPWA.renderIcons;
+var prod_debug = WSPWA.debug;
+
+var WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/* Weekday for a Y-M-D[ H:M:S] value, e.g. "Thu". */
+function weekday_abbr(value) {
+    if (!value) {
+        return "";
+    }
+    var m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) {
+        return "";
+    }
+    var d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    return WEEKDAY_ABBR[d.getDay()] || "";
+}
+
+/* Schedule time with a weekday prefix, e.g. "Thu, 3:00 PM". */
+function format_card_time(value) {
+    var time = format_time_ampm(value);
+    if (!time) {
+        return "";
+    }
+    var day = weekday_abbr(value);
+    return day ? (day + ", " + time) : time;
+}
+
+var ALLOWED_TABS = ["workorders", "insights", "profile"];
+
+var STATE_TABS = [
+    { key: "", label: "All" },
+    { key: "Ready to Start", label: "Ready" },
+    { key: "In Progress", label: "In Progress" },
+    { key: "Paused", label: "Paused" },
+    { key: "Stopped", label: "Stopped" }
+];
+
+/* Per-action button styling + confirm copy. The set of actions available on a
+   given work order comes from the API (wo.available_actions); this only decides
+   how each one looks and what the confirmation asks. */
+var ACTION_UI = {
+    start:    { button: "primary-button",   icon: "play",  short: "Start",    message: "Start production on this work order?" },
+    resume:   { button: "primary-button",   icon: "play",  short: "Resume",   message: "Resume production on this work order?" },
+    complete: { button: "primary-button",   icon: "check", short: "Complete", message: "Mark production complete? This moves the work order to Completed." },
+    pause:    { button: "secondary-button", icon: "pause", short: "Pause",    message: "Pause production on this work order?" },
+    stop:     { button: "secondary-button", icon: "stop",  short: "Stop",     message: "Stop production on this work order?" }
+};
+
+var TAB_KEY = "worldshading_prod_pwa_tab";
+var STATE_KEY = "worldshading_prod_pwa_state";
+var MEMBER_KEY = "worldshading_prod_pwa_member";
+
+var app_tabs = null;
+var search_reload_timer = null;
+
+var wo_state = {
+    active_tab: "workorders",
+    work_orders: [],
+    selected_state: "",
+    selected_from_date: "",
+    selected_to_date: "",
+    is_admin: false,
+    selected_member: "",
+    member_options: [],
+    limit: 20,
+    start: 0,
+    has_more: false,
+    total_count: 0,
+    state_counts: {},
+    context: null,
+    current_wo: null,
+    pending_action: null,
+    progress_draft: 0,
+    insights: null,
+    insights_loaded: false
+};
+
+frappe.ready(function () {
+    WSPWA.setupPwa({
+        manifest: "/workshop/manifest.json",
+        sw: "/workshop-sw.js",
+        version: 1,
+        themeColor: "#E54B2C",
+        installButtonId: "install-button"
+    });
+    render_static_icons(document);
+    render_state_tabs();
+
+    if (WSPWA.isGuest()) {
+        show_login_view();
+        return;
+    }
+
+    show_app_view();
+    restore_selected_state();
+    setup_app();
+
+    app_tabs = WSPWA.setupTabs({
+        shellId: "prod-app",
+        tabs: ALLOWED_TABS,
+        storageKey: TAB_KEY,
+        onChange: on_tab_change
+    });
+    wo_state.active_tab = app_tabs.active;
+    app_tabs.apply();
+
+    load_work_order_context();
+    load_work_orders(false);
+});
+
+function setup_app() {
+    var search = document.getElementById("search-filter");
+    search.addEventListener("input", schedule_reload);
+    search.addEventListener("change", function () {
+        load_work_orders(false);
+    });
+
+    var install = document.getElementById("install-button");
+    if (install) {
+        install.addEventListener("click", function () {
+            WSPWA.promptInstall("install-button");
+        });
+    }
+}
+
+function show_login_view() {
+    document.getElementById("login-view").classList.remove("is-hidden");
+    document.getElementById("prod-app").classList.add("is-hidden");
+}
+
+function show_app_view() {
+    document.getElementById("login-view").classList.add("is-hidden");
+    document.getElementById("prod-app").classList.remove("is-hidden");
+}
+
+function prod_login(event) {
+    event.preventDefault();
+
+    var user = document.getElementById("prod-login-user").value;
+    var password = document.getElementById("prod-login-password").value;
+    var button = document.getElementById("prod-login-submit");
+    var error = document.getElementById("prod-login-error");
+
+    error.style.display = "none";
+    button.disabled = true;
+    button.textContent = "Signing In...";
+
+    WSPWA.login({
+        user: user,
+        password: password,
+        redirect: "/workshop",
+        onError: function () {
+            error.textContent = "Login failed. Please check your email and password.";
+            error.style.display = "block";
+        }
+    }).always(function () {
+        button.disabled = false;
+        button.textContent = "Sign In";
+    });
+}
+
+function prod_logout() {
+    WSPWA.logout("/workshop");
+}
+
+function load_work_order_context() {
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.get_work_order_context",
+        callback: function (r) {
+            wo_state.context = r.message || null;
+            render_profile_panel();
+            var greeting = document.getElementById("prod-greeting");
+            if (greeting && wo_state.context) {
+                greeting.textContent = "Hi, " + (wo_state.context.full_name || wo_state.context.user);
+            }
+            apply_admin_member();
+        },
+        error: function (r) {
+            prod_debug("get_work_order_context:error", r);
+        }
+    });
+}
+
+/* ---------------- Admin member picker (All Members / individual) ----------------
+   Mirrors the driver PWA's visitor filter. Only shown to work-order admins.
+   The member list is the users holding the Workshop role (from the API). */
+
+function self_user_id() {
+    return (wo_state.context && wo_state.context.user) || "";
+}
+
+function get_selected_member() {
+    return wo_state.selected_member || "";
+}
+
+function apply_admin_member() {
+    wo_state.is_admin = !!(wo_state.context && wo_state.context.is_admin);
+    wo_state.member_options = (wo_state.context && wo_state.context.user_options) || [];
+
+    var self_user = self_user_id();
+    var previous = wo_state.selected_member;
+
+    if (wo_state.is_admin) {
+        restore_member();
+        if (!wo_state.selected_member) {
+            wo_state.selected_member = self_user;
+        }
+    } else {
+        wo_state.selected_member = self_user;
+    }
+
+    render_member_select();
+    update_app_header();
+
+    // If a saved member other than self was restored after the first (self)
+    // load, refresh the list/insights to match.
+    if (wo_state.is_admin
+        && wo_state.selected_member
+        && wo_state.selected_member !== self_user
+        && wo_state.selected_member !== previous) {
+        wo_state.insights_loaded = false;
+        load_work_orders(false);
+    }
+}
+
+function render_member_select() {
+    var wrap = document.getElementById("wo-member-wrap");
+    var select = document.getElementById("wo-member-select");
+    if (!wrap || !select) {
+        return;
+    }
+
+    wrap.style.display = wo_state.is_admin ? "" : "none";
+    if (!wo_state.is_admin) {
+        return;
+    }
+
+    var self_user = self_user_id();
+
+    select.innerHTML = '<option value="__all__">All Members</option>' +
+        (wo_state.member_options || []).map(function (option) {
+            var label = option.full_name || option.user;
+            if (option.user === self_user) {
+                label += " (You)";
+            }
+            return '<option value="' + escape_attr(option.user) + '">' + escape_html(label) + '</option>';
+        }).join("");
+
+    select.value = wo_state.selected_member || self_user;
+}
+
+function is_valid_member(user) {
+    if (user === self_user_id()) {
+        return true;
+    }
+    return (wo_state.member_options || []).some(function (option) {
+        return option.user === user;
+    });
+}
+
+function set_wo_member(value) {
+    if (!wo_state.is_admin) {
+        return;
+    }
+
+    value = (value || "").trim();
+    if (value !== "__all__" && !is_valid_member(value)) {
+        value = self_user_id();
+    }
+
+    if (wo_state.selected_member === value) {
+        return;
+    }
+
+    wo_state.selected_member = value;
+    save_member();
+    render_member_select();
+    update_app_header();
+    wo_state.insights_loaded = false;
+    load_work_orders(false);
+}
+
+function member_display_name(user) {
+    var match = (wo_state.member_options || []).filter(function (option) {
+        return option.user === user;
+    })[0];
+    return match ? (match.full_name || match.user) : user;
+}
+
+function restore_member() {
+    var saved = "";
+    try {
+        saved = localStorage.getItem(MEMBER_KEY) || "";
+    } catch (e) {
+        saved = "";
+    }
+    if (saved === "__all__" || is_valid_member(saved)) {
+        wo_state.selected_member = saved;
+    }
+}
+
+function save_member() {
+    try {
+        localStorage.setItem(MEMBER_KEY, wo_state.selected_member);
+    } catch (e) {
+        prod_debug("save_member:error", e);
+    }
+}
+
+/* ---------------- Tabs ---------------- */
+
+function switch_app_tab(tab) {
+    if (app_tabs) {
+        app_tabs.switch(tab);
+    }
+}
+
+function on_tab_change(tab) {
+    wo_state.active_tab = tab;
+    update_app_header();
+
+    if (tab === "insights") {
+        load_insights(false);
+    }
+    if (tab === "profile") {
+        render_profile_panel();
+    }
+}
+
+function update_app_header() {
+    var title = "Work Orders";
+    var subtitle = "Your active production jobs";
+
+    var member = wo_state.selected_member;
+    var viewing_all = wo_state.is_admin && member === "__all__";
+    var viewing_other = wo_state.is_admin && member && member !== "__all__" && member !== self_user_id();
+
+    if (wo_state.active_tab === "insights") {
+        title = "Insights";
+        subtitle = viewing_all ? "All production jobs"
+            : viewing_other ? member_display_name(member) + "'s summary"
+            : "Your production summary";
+    } else if (wo_state.active_tab === "profile") {
+        title = "Profile";
+        subtitle = "Account and settings";
+    } else if (get_selected_date_label() !== "All dates") {
+        subtitle = "Planned - " + get_selected_date_label();
+    } else if (viewing_all) {
+        subtitle = "All active production jobs";
+    } else if (viewing_other) {
+        subtitle = member_display_name(member) + "'s jobs";
+    } else {
+        subtitle = "Your active production jobs";
+    }
+
+    document.getElementById("app-title").textContent = title;
+    document.getElementById("app-subtitle").textContent = subtitle;
+}
+
+function refresh_current_view() {
+    if (wo_state.active_tab === "insights") {
+        load_insights(true);
+        return;
+    }
+    if (wo_state.active_tab === "profile") {
+        load_work_order_context();
+        return;
+    }
+    load_work_orders(false);
+}
+
+/* ---------------- State filter tabs ---------------- */
+
+function render_state_tabs() {
+    var strip = document.getElementById("state-strip");
+    if (!strip) {
+        return;
+    }
+
+    strip.innerHTML = STATE_TABS.map(function (tab) {
+        var is_active = wo_state.selected_state === tab.key;
+        var count = tab.key ? (wo_state.state_counts[tab.key] || 0) : total_state_count();
+        return '<button class="state-tab' + (is_active ? " active" : "") + '" type="button" onclick="set_selected_state(\'' + escape_attr(tab.key) + '\')">' +
+            '<span>' + escape_html(tab.label) + '</span>' +
+            '<span class="state-tab-badge">' + count + '</span>' +
+            '</button>';
+    }).join("");
+}
+
+function total_state_count() {
+    var total = 0;
+    Object.keys(wo_state.state_counts).forEach(function (key) {
+        total += wo_state.state_counts[key] || 0;
+    });
+    return total;
+}
+
+function set_selected_state(state) {
+    if (wo_state.selected_state === state) {
+        return;
+    }
+    wo_state.selected_state = state;
+    save_selected_state();
+    render_state_tabs();
+    load_work_orders(false);
+}
+
+function restore_selected_state() {
+    var saved = "";
+    try {
+        saved = localStorage.getItem(STATE_KEY) || "";
+    } catch (e) {
+        saved = "";
+    }
+    var valid = STATE_TABS.some(function (tab) {
+        return tab.key === saved;
+    });
+    if (valid) {
+        wo_state.selected_state = saved;
+    }
+}
+
+function save_selected_state() {
+    try {
+        localStorage.setItem(STATE_KEY, wo_state.selected_state);
+    } catch (e) {
+        prod_debug("save_selected_state:error", e);
+    }
+}
+
+/* ---------------- Date range ---------------- */
+
+function set_wo_date_inputs(from_date, to_date) {
+    var from_input = document.getElementById("wo-from-date");
+    var to_input = document.getElementById("wo-to-date");
+    if (from_input) { from_input.value = from_date || ""; }
+    if (to_input) { to_input.value = to_date || ""; }
+}
+
+function update_wo_date_range_label() {
+    var label = document.getElementById("wo-date-range-label");
+    var clear_button = document.getElementById("wo-date-range-clear");
+    var has_range = !!(wo_state.selected_from_date || wo_state.selected_to_date);
+
+    if (label) {
+        label.textContent = get_selected_date_label();
+    }
+    if (clear_button) {
+        clear_button.classList.toggle("active", has_range);
+    }
+    update_app_header();
+}
+
+function open_wo_date_sheet() {
+    set_wo_date_inputs(wo_state.selected_from_date, wo_state.selected_to_date);
+    document.getElementById("wo-date-sheet").classList.add("active");
+}
+
+function close_wo_date_sheet() {
+    document.getElementById("wo-date-sheet").classList.remove("active");
+}
+
+function clear_wo_date_range(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    set_selected_range("", "");
+    close_wo_date_sheet();
+}
+
+function apply_wo_date_sheet() {
+    set_selected_range(
+        document.getElementById("wo-from-date").value,
+        document.getElementById("wo-to-date").value
+    );
+    close_wo_date_sheet();
+}
+
+function set_wo_date_quick(mode) {
+    var from_date = "";
+    var to_date = "";
+    var today = WSPWA.today();
+
+    if (mode === "today") {
+        from_date = today;
+        to_date = today;
+    } else if (mode === "tomorrow") {
+        from_date = WSPWA.addDays(today, 1);
+        to_date = from_date;
+    } else if (mode === "week") {
+        from_date = today;
+        to_date = WSPWA.addDays(today, 6);
+    }
+
+    set_wo_date_inputs(from_date, to_date);
+}
+
+function set_selected_range(from_date, to_date) {
+    from_date = from_date || "";
+    to_date = to_date || "";
+
+    if (from_date && to_date && from_date > to_date) {
+        var temp = from_date;
+        from_date = to_date;
+        to_date = temp;
+    }
+
+    wo_state.selected_from_date = from_date;
+    wo_state.selected_to_date = to_date;
+
+    set_wo_date_inputs(from_date, to_date);
+    update_wo_date_range_label();
+    load_work_orders(false);
+}
+
+function get_selected_date_label() {
+    if (!wo_state.selected_from_date && !wo_state.selected_to_date) {
+        return "All dates";
+    }
+    if (!wo_state.selected_from_date) {
+        return "Until " + WSPWA.formatDate(wo_state.selected_to_date);
+    }
+    if (!wo_state.selected_to_date) {
+        return "From " + WSPWA.formatDate(wo_state.selected_from_date);
+    }
+    if (wo_state.selected_from_date === wo_state.selected_to_date) {
+        return WSPWA.formatDate(wo_state.selected_from_date);
+    }
+    return WSPWA.formatDate(wo_state.selected_from_date) + " - " + WSPWA.formatDate(wo_state.selected_to_date);
+}
+
+/* ---------------- List ---------------- */
+
+function schedule_reload() {
+    clearTimeout(search_reload_timer);
+    search_reload_timer = setTimeout(function () {
+        load_work_orders(false);
+    }, 250);
+}
+
+function load_work_orders(append) {
+    append = !!append;
+
+    if (!append) {
+        wo_state.start = 0;
+    }
+
+    if (!append) {
+        var wrapper = document.getElementById("wo-list");
+        wrapper.className = "skeleton-stack";
+        wrapper.innerHTML = [
+            '<div class="skeleton-card"></div>',
+            '<div class="skeleton-card"></div>',
+            '<div class="skeleton-card"></div>'
+        ].join("");
+    } else {
+        set_load_more_loading(true);
+    }
+
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.get_my_work_orders",
+        args: {
+            workflow_state: wo_state.selected_state,
+            search: document.getElementById("search-filter").value || "",
+            from_date: wo_state.selected_from_date,
+            to_date: wo_state.selected_to_date,
+            limit: wo_state.limit,
+            start: wo_state.start,
+            member: get_selected_member()
+        },
+        callback: function (r) {
+            var data = r.message || {};
+            var rows = data.work_orders || [];
+            wo_state.work_orders = append ? wo_state.work_orders.concat(rows) : rows;
+            wo_state.total_count = data.total_count || 0;
+            wo_state.state_counts = data.state_counts || {};
+            wo_state.has_more = !!data.has_more;
+            wo_state.start = wo_state.work_orders.length;
+            render_state_tabs();
+            render_wo_list();
+        },
+        error: function (r) {
+            prod_debug("get_my_work_orders:error", r);
+            set_load_more_loading(false);
+            if (append) {
+                frappe.msgprint("Could not load more work orders. Please try again.");
+                return;
+            }
+            show_load_error("Could not load work orders. Please refresh or contact the office.");
+        }
+    });
+}
+
+function load_more_work_orders() {
+    if (!wo_state.has_more) {
+        return;
+    }
+    load_work_orders(true);
+}
+
+function render_wo_list() {
+    var wrapper = document.getElementById("wo-list");
+    var rows = wo_state.work_orders || [];
+
+    if (!rows.length) {
+        var member = wo_state.selected_member;
+        var msg = "No active work orders assigned to you.";
+        if (wo_state.is_admin && member === "__all__") {
+            msg = "No active work orders.";
+        } else if (wo_state.is_admin && member && member !== self_user_id()) {
+            msg = "No active work orders for this member.";
+        }
+        wrapper.className = "empty-state";
+        wrapper.innerHTML = msg;
+        return;
+    }
+
+    wrapper.className = "wo-stack";
+    wrapper.innerHTML = rows.map(render_wo_card).join("") + render_load_more_button(wo_state.has_more);
+    render_static_icons(wrapper);
+}
+
+function render_wo_card(wo) {
+    var percent = clamp_percent(wo.production_progress_percent);
+    var ready_class = wo.workflow_state === "Ready to Start" ? " is-ready" : "";
+    var qty_text = format_qty(wo.qty, wo.stock_uom);
+    var code_line = [wo.production_item, qty_text].filter(Boolean).join(" · ");
+
+    return `
+        <button class="wo-card${ready_class}" type="button" onclick="open_wo_details('${escape_attr(wo.name)}')">
+            <div class="wo-card-head">
+                <div style="min-width:0;">
+                    <h2 class="wo-item-name">${escape_html(wo.item_name || wo.production_item || wo.name)}</h2>
+                    <div class="wo-item-code">${escape_html(code_line)}</div>
+                </div>
+                <div class="wo-head-side">
+                    <span class="state-badge ${state_class(wo.workflow_state)}">${escape_html(wo.workflow_state || "")}</span>
+                    ${wo.production_team ? `<span class="wo-team"><span data-icon="users"></span>${escape_html(wo.production_team)}</span>` : ""}
+                </div>
+            </div>
+            ${render_card_schedule(wo)}
+            <div class="wo-meta-row">
+                <span class="wo-chip"><span data-icon="tag"></span>${escape_html(wo.name || "")}</span>
+                ${wo.sales_order ? `<span class="wo-chip"><span data-icon="file-text"></span>${escape_html(wo.sales_order)}</span>` : ""}
+            </div>
+            <div class="progress-wrap">
+                <div class="progress-head">
+                    <span class="progress-value">${percent}%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width:${percent}%;"></div>
+                </div>
+            </div>
+        </button>
+    `;
+}
+
+function render_card_schedule(wo) {
+    if (!wo.planned_start_date && !wo.planned_end_date) {
+        return '<div class="wo-schedule-empty">No planned schedule set</div>';
+    }
+
+    return `
+        <div class="wo-schedule">
+            <div class="wo-schedule-col start">
+                <div class="wo-schedule-label">Start</div>
+                <div class="wo-schedule-date">${escape_html(format_day(wo.planned_start_date) || "-")}</div>
+                <div class="wo-schedule-time">${escape_html(format_card_time(wo.planned_start_date) || "--")}</div>
+            </div>
+            <div class="wo-schedule-arrow"><span data-icon="arrow-right"></span></div>
+            <div class="wo-schedule-col end">
+                <div class="wo-schedule-label">End</div>
+                <div class="wo-schedule-date">${escape_html(format_day(wo.planned_end_date) || "-")}</div>
+                <div class="wo-schedule-time">${escape_html(format_card_time(wo.planned_end_date) || "--")}</div>
+            </div>
+        </div>
+    `;
+}
+
+function render_load_more_button(has_more) {
+    if (!has_more) {
+        return "";
+    }
+    return '<button class="load-more-button" id="wo-load-more" type="button" onclick="load_more_work_orders()">Load more</button>';
+}
+
+function set_load_more_loading(is_loading) {
+    var button = document.getElementById("wo-load-more");
+    if (!button) {
+        return;
+    }
+    button.disabled = !!is_loading;
+    button.textContent = is_loading ? "Loading more..." : "Load more";
+}
+
+function show_load_error(message) {
+    var wrapper = document.getElementById("wo-list");
+    wrapper.className = "empty-state";
+    wrapper.innerHTML = escape_html(message || "Could not load work orders.");
+}
+
+/* ---------------- Insights ---------------- */
+
+function load_insights(force) {
+    if (wo_state.insights_loaded && !force) {
+        render_insights_panel();
+        return;
+    }
+
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.get_work_order_insights",
+        args: {
+            member: get_selected_member()
+        },
+        callback: function (r) {
+            wo_state.insights = r.message || null;
+            wo_state.insights_loaded = true;
+            render_insights_panel();
+        },
+        error: function (r) {
+            prod_debug("get_work_order_insights:error", r);
+        }
+    });
+}
+
+function render_insights_panel() {
+    var data = wo_state.insights || {};
+    var counts = data.state_counts || {};
+
+    document.getElementById("insight-total").textContent = data.total || 0;
+    document.getElementById("insight-avg").textContent = (data.avg_progress || 0) + "%";
+    document.getElementById("insight-qty").textContent = format_qty(data.total_qty, "");
+    document.getElementById("insight-produced").textContent = format_qty(data.produced_qty, "");
+
+    var pills = STATE_TABS.filter(function (tab) {
+        return tab.key;
+    }).map(function (tab) {
+        return '<div class="day-pill"><strong>' + (counts[tab.key] || 0) + '</strong> ' + escape_html(tab.label) + '</div>';
+    }).join("");
+
+    document.getElementById("insight-pill-row").innerHTML = pills;
+}
+
+/* ---------------- Profile ---------------- */
+
+function render_profile_panel() {
+    var context = wo_state.context || {};
+    var name = context.full_name || context.user || "Workshop";
+    var email = context.user || "";
+
+    document.getElementById("profile-name").textContent = name;
+    document.getElementById("profile-user").textContent = email;
+
+    var avatar = document.getElementById("profile-avatar");
+    if (context.user_image) {
+        avatar.innerHTML = '<img src="' + escape_attr(context.user_image) + '" alt="">';
+    } else {
+        avatar.textContent = WSPWA.initials(name);
+    }
+
+    update_push_status();
+}
+
+/* ---------------- Push notifications ----------------
+   Mirrors the driver PWA. Subscribe/unsubscribe + test go through
+   worldshading.api.work_order_pwa.* (which reuse the shared per-user push
+   infra). Requires the app be served over HTTPS and, on iOS, installed to the
+   Home Screen. */
+
+function set_push_text(message) {
+    var status = document.getElementById("push-status");
+    if (status) {
+        status.textContent = message || "";
+    }
+}
+
+function is_push_supported() {
+    return !!(
+        "serviceWorker" in navigator &&
+        "PushManager" in window &&
+        "Notification" in window
+    );
+}
+
+function set_push_toggle_state(is_active) {
+    var enable_button = document.getElementById("push-enable-button");
+    if (!enable_button) {
+        return;
+    }
+    enable_button.classList.toggle("active", !!is_active);
+    enable_button.setAttribute("aria-pressed", is_active ? "true" : "false");
+}
+
+function set_push_buttons_loading(is_loading, message) {
+    var enable_button = document.getElementById("push-enable-button");
+    var test_button = document.getElementById("push-test-button");
+    if (enable_button) {
+        enable_button.disabled = !!is_loading;
+    }
+    if (test_button) {
+        test_button.disabled = !!is_loading;
+    }
+    if (message) {
+        set_push_text(message);
+    }
+}
+
+function update_push_status(message) {
+    var status = document.getElementById("push-status");
+    var enable_button = document.getElementById("push-enable-button");
+    var test_button = document.getElementById("push-test-button");
+
+    if (!status) {
+        return;
+    }
+
+    set_push_toggle_state(false);
+
+    if (!is_push_supported()) {
+        status.textContent = "Notifications are not supported on this browser. On iPhone, install the app to the Home Screen first.";
+        if (enable_button) { enable_button.disabled = true; }
+        if (test_button) { test_button.disabled = true; }
+        return;
+    }
+
+    if (Notification.permission === "denied") {
+        status.textContent = "Notifications are blocked for this site. Enable them from browser settings.";
+        if (enable_button) { enable_button.disabled = true; }
+        if (test_button) { test_button.disabled = true; }
+        return;
+    }
+
+    status.textContent = message || (
+        Notification.permission === "granted"
+            ? "Notifications are allowed but disabled on this device."
+            : "Enable reminders on this device."
+    );
+
+    if (enable_button) { enable_button.disabled = false; }
+    if (test_button) { test_button.disabled = true; }
+    refresh_push_subscription_state(message);
+}
+
+function refresh_push_subscription_state(message) {
+    if (!is_push_supported() || Notification.permission !== "granted") {
+        return;
+    }
+
+    navigator.serviceWorker.ready.then(function (registration) {
+        return registration.pushManager.getSubscription();
+    }).then(function (subscription) {
+        var test_button = document.getElementById("push-test-button");
+        var is_active = !!subscription;
+
+        set_push_toggle_state(is_active);
+
+        if (test_button) {
+            test_button.disabled = !is_active;
+        }
+
+        if (!message) {
+            set_push_text(is_active
+                ? "Notifications are enabled on this device."
+                : "Notifications are allowed but disabled on this device.");
+        }
+    }).catch(function () {
+        set_push_toggle_state(false);
+    });
+}
+
+function toggle_push_notifications() {
+    var enable_button = document.getElementById("push-enable-button");
+    var is_active = enable_button && enable_button.classList.contains("active");
+
+    if (is_active) {
+        disable_push_notifications();
+        return;
+    }
+
+    enable_push_notifications();
+}
+
+function request_notification_permission(callback) {
+    var completed = false;
+    var finish = function (permission) {
+        if (completed) {
+            return;
+        }
+        completed = true;
+        callback(permission);
+    };
+    var result = Notification.requestPermission(function (permission) {
+        finish(permission);
+    });
+    if (result && result.then) {
+        result.then(finish);
+    }
+}
+
+function enable_push_notifications() {
+    if (!is_push_supported()) {
+        update_push_status();
+        return;
+    }
+
+    set_push_buttons_loading(true, "Enabling notifications...");
+
+    request_notification_permission(function (permission) {
+        if (permission !== "granted") {
+            set_push_buttons_loading(false, "Notification permission was not granted.");
+            update_push_status("Notification permission was not granted.");
+            return;
+        }
+
+        frappe.call({
+            method: "worldshading.api.work_order_pwa.get_push_public_key",
+            callback: function (r) {
+                subscribe_browser_for_push(r.message);
+            },
+            error: function () {
+                set_push_buttons_loading(false, "Could not load push settings.");
+                update_push_status("Could not load push settings.");
+            }
+        });
+    });
+}
+
+function subscribe_browser_for_push(public_key) {
+    navigator.serviceWorker.ready.then(function (registration) {
+        return registration.pushManager.getSubscription().then(function (existing) {
+            if (existing) {
+                return existing;
+            }
+            return registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: url_base64_to_uint8_array(public_key)
+            });
+        });
+    }).then(function (subscription) {
+        save_push_subscription(subscription);
+    }).catch(function (error) {
+        prod_debug("push_subscribe:error", error);
+        set_push_buttons_loading(false, "Could not enable notifications.");
+        update_push_status("Could not enable notifications on this device.");
+    });
+}
+
+function save_push_subscription(subscription) {
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.save_push_subscription",
+        args: {
+            subscription: JSON.stringify(subscription.toJSON())
+        },
+        callback: function () {
+            set_push_buttons_loading(false, "Notifications enabled.");
+            set_push_toggle_state(true);
+            update_push_status("Notifications enabled on this device.");
+        },
+        error: function () {
+            set_push_buttons_loading(false, "Could not save notification device.");
+            update_push_status("Could not save this notification device.");
+        }
+    });
+}
+
+function disable_push_notifications() {
+    if (!is_push_supported()) {
+        update_push_status();
+        return;
+    }
+
+    set_push_buttons_loading(true, "Disabling notifications...");
+
+    navigator.serviceWorker.ready.then(function (registration) {
+        return registration.pushManager.getSubscription();
+    }).then(function (subscription) {
+        if (!subscription) {
+            set_push_buttons_loading(false, "Notifications disabled.");
+            set_push_toggle_state(false);
+            refresh_push_subscription_state("Notifications disabled on this device.");
+            return;
+        }
+
+        var endpoint = subscription.endpoint;
+        return subscription.unsubscribe().then(function () {
+            return disable_push_subscription(endpoint);
+        });
+    }).catch(function (error) {
+        prod_debug("push_disable:error", error);
+        set_push_buttons_loading(false, "Could not disable notifications.");
+        update_push_status("Could not disable notifications on this device.");
+    });
+}
+
+function disable_push_subscription(endpoint) {
+    return new Promise(function (resolve, reject) {
+        frappe.call({
+            method: "worldshading.api.work_order_pwa.disable_push_subscription",
+            args: {
+                endpoint: endpoint
+            },
+            callback: function () {
+                set_push_buttons_loading(false, "Notifications disabled.");
+                set_push_toggle_state(false);
+                refresh_push_subscription_state("Notifications disabled on this device.");
+                resolve();
+            },
+            error: function () {
+                set_push_buttons_loading(false, "Could not disable notification device.");
+                update_push_status("Could not disable this notification device.");
+                reject();
+            }
+        });
+    });
+}
+
+function send_test_push_notification() {
+    if (!is_push_supported() || Notification.permission !== "granted") {
+        update_push_status();
+        return;
+    }
+
+    set_push_buttons_loading(true, "Sending test notification...");
+
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.send_test_push",
+        callback: function () {
+            set_push_buttons_loading(false, "Test notification sent.");
+            update_push_status("Test notification sent.");
+        },
+        error: function () {
+            set_push_buttons_loading(false, "Could not send test notification.");
+            update_push_status("Could not send test notification. Enable notifications first.");
+        }
+    });
+}
+
+function url_base64_to_uint8_array(base64_string) {
+    var padding = "=".repeat((4 - base64_string.length % 4) % 4);
+    var base64 = (base64_string + padding)
+        .replace(/\-/g, "+")
+        .replace(/_/g, "/");
+    var raw_data = window.atob(base64);
+    var output_array = new Uint8Array(raw_data.length);
+
+    for (var i = 0; i < raw_data.length; ++i) {
+        output_array[i] = raw_data.charCodeAt(i);
+    }
+
+    return output_array;
+}
+
+/* ---------------- Detail ---------------- */
+
+function open_wo_details(name) {
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.get_work_order_details",
+        args: { name: name },
+        freeze: true,
+        freeze_message: "Opening work order...",
+        callback: function (r) {
+            wo_state.current_wo = r.message;
+            render_detail(r.message);
+            document.getElementById("detail-view").classList.add("active");
+            document.querySelector(".detail-shell").scrollTop = 0;
+        },
+        error: function (r) {
+            prod_debug("get_work_order_details:error", r);
+        }
+    });
+}
+
+function render_detail(wo) {
+    document.getElementById("detail-item").textContent = wo.item_name || wo.production_item || wo.name;
+    document.getElementById("detail-wo-id").textContent = wo.name;
+    document.getElementById("detail-state").textContent = wo.workflow_state || "";
+    document.getElementById("detail-state").className = "state-badge " + state_class(wo.workflow_state);
+    document.getElementById("detail-content").innerHTML = render_detail_content(wo);
+    render_detail_actions(wo);
+    render_static_icons(document.getElementById("detail-view"));
+}
+
+function render_detail_actions(wo) {
+    // API order is start / resume / pause / complete / stop. For In Progress
+    // that renders as Pause | Complete on the top row (Complete on the right,
+    // easiest to reach) with Stop spanning the row below.
+    var actions = wo.available_actions || [];
+    var footer = document.getElementById("detail-actions");
+
+    footer.innerHTML = actions.length
+        ? '<div class="wo-action-grid">' + actions.map(render_action_button).join("") + '</div>'
+        : "";
+
+    document.getElementById("detail-view").classList.toggle("has-actions", actions.length > 0);
+}
+
+function render_detail_content(wo) {
+    return `
+        ${render_hero(wo)}
+        ${render_progress_section(wo)}
+        ${render_required_items(wo.required_items || [])}
+        ${render_work_order_info(wo)}
+        ${render_team_members(wo.team_members || [])}
+        ${render_comments(wo.comments || [])}
+        ${wo.can_update ? render_comment_form() : ""}
+    `;
+}
+
+function render_hero(wo) {
+    return `
+        <section class="detail-hero">
+            <div class="hero-topline">
+                <div>
+                    <h1 class="hero-title">${escape_html(wo.item_name || wo.production_item || wo.name)}</h1>
+                    <div class="hero-id">${escape_html(wo.name || "")}</div>
+                </div>
+                <span class="state-badge ${state_class(wo.workflow_state)}">${escape_html(wo.workflow_state || "")}</span>
+            </div>
+            <div class="hero-meta-grid">
+                ${render_hero_meta("Item", wo.production_item)}
+                ${render_hero_meta("Qty To Make", format_qty(wo.qty, wo.stock_uom))}
+                ${render_hero_meta("Produced", format_qty(wo.produced_qty, wo.stock_uom))}
+                ${render_hero_meta("Sales Order", wo.sales_order)}
+            </div>
+        </section>
+    `;
+}
+
+function render_hero_meta(label, value) {
+    if (!value) {
+        return "";
+    }
+    return `
+        <div class="hero-meta-item">
+            <div class="hero-meta-label">${escape_html(label)}</div>
+            <div class="hero-meta-value">${escape_html(value)}</div>
+        </div>
+    `;
+}
+
+function render_action_button(action) {
+    var ui = ACTION_UI[action.key] || { button: "secondary-button", icon: "" };
+    return `
+        <button class="${ui.button} wo-action-btn" type="button" onclick="open_action_sheet('${escape_attr(action.key)}')">
+            ${ui.icon ? `<span data-icon="${escape_attr(ui.icon)}"></span>` : ""}${escape_html(ui.short || action.label)}
+        </button>
+    `;
+}
+
+function open_action_sheet(action_key) {
+    var wo = wo_state.current_wo;
+    if (!wo) {
+        return;
+    }
+
+    var action = (wo.available_actions || []).filter(function (row) {
+        return row.key === action_key;
+    })[0];
+
+    if (!action) {
+        return;
+    }
+
+    var ui = ACTION_UI[action_key] || { button: "primary-button", message: "" };
+
+    wo_state.pending_action = action;
+
+    document.getElementById("action-sheet-title").textContent = action.label;
+    document.getElementById("action-sheet-message").textContent = ui.message || ("Apply \"" + action.label + "\"?");
+    document.getElementById("action-sheet-note").value = "";
+
+    var confirm_button = document.getElementById("action-sheet-confirm");
+    confirm_button.className = "primary-button";
+    confirm_button.disabled = false;
+    confirm_button.textContent = "Confirm";
+
+    document.getElementById("action-sheet").classList.add("active");
+    render_static_icons(document.getElementById("action-sheet"));
+}
+
+function close_action_sheet() {
+    document.getElementById("action-sheet").classList.remove("active");
+    wo_state.pending_action = null;
+}
+
+function submit_action() {
+    var wo = wo_state.current_wo;
+    var action = wo_state.pending_action;
+    if (!wo || !action) {
+        return;
+    }
+
+    var note = (document.getElementById("action-sheet-note").value || "").trim();
+    var confirm_button = document.getElementById("action-sheet-confirm");
+    confirm_button.disabled = true;
+    confirm_button.textContent = "Working...";
+
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.apply_work_order_action",
+        args: {
+            name: wo.name,
+            action_key: action.key,
+            note: note
+        },
+        callback: function (r) {
+            wo_state.current_wo = r.message;
+            close_action_sheet();
+            render_detail(r.message);
+            WSPWA.toast(action.label + " done.", "green");
+            wo_state.insights_loaded = false;
+            load_work_orders(false);
+        },
+        error: function (r) {
+            prod_debug("apply_work_order_action:error", r);
+            confirm_button.disabled = false;
+            confirm_button.textContent = "Confirm";
+        }
+    });
+}
+
+function render_progress_section(wo) {
+    var percent = clamp_percent(wo.production_progress_percent);
+    return `
+        <section class="section">
+            <div class="section-title-row">
+                <h3>Progress</h3>
+                ${wo.can_update ? `<button class="secondary-button section-action-button" type="button" onclick="open_progress_sheet()"><span data-icon="edit"></span>Update</button>` : ""}
+            </div>
+            <div class="section-card">
+                <div class="progress-head">
+                    <span class="progress-label">Current Progress</span>
+                    <span class="progress-value">${percent}%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width:${percent}%;"></div>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function render_work_order_info(wo) {
+    return render_key_value_section("Details", [
+        ["Work Team", wo.production_team],
+        ["Priority", wo.production_priority],
+        ["Planned Start", format_full_datetime(wo.planned_start_date)],
+        ["Planned End", format_full_datetime(wo.planned_end_date)]
+    ]);
+}
+
+function render_key_value_section(title, rows) {
+    var visible = rows.filter(function (row) {
+        return row[1] !== null && row[1] !== undefined && row[1] !== "";
+    });
+
+    if (!visible.length) {
+        return "";
+    }
+
+    return `
+        <section class="section">
+            <h3>${escape_html(title)}</h3>
+            <div class="section-card">
+                <div class="detail-kv">
+                    ${visible.map(function (row) {
+                        return `
+                            <div class="detail-kv-row">
+                                <span class="detail-kv-label">${escape_html(row[0])}</span>
+                                <span class="detail-kv-value">${escape_html(row[1])}</span>
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function render_required_items(items) {
+    if (!items || !items.length) {
+        return "";
+    }
+
+    return `
+        <section class="section">
+            <h3>Raw Materials (${items.length})</h3>
+            <div class="section-card">
+                <div class="mat-list">
+                    ${items.map(render_required_item).join("")}
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function is_material_ready(item) {
+    var required = Number(item.required_qty) || 0;
+    var transferred = Number(item.transferred_qty) || 0;
+    return required > 0 && transferred >= required;
+}
+
+function render_required_item(item, index) {
+    var required = format_qty(item.required_qty, "");
+    var transferred = format_qty(item.transferred_qty, "");
+    var ready = is_material_ready(item);
+    var sub = [item.item_code, item.source_warehouse].filter(Boolean).join(" · ");
+
+    return `
+        <div class="mat-row">
+            <span class="mat-idx">${index + 1}</span>
+            <div class="mat-main">
+                <div class="mat-name">${escape_html(item.item_name || item.item_code || "")}</div>
+                ${sub ? `<div class="mat-sub">${escape_html(sub)}</div>` : ""}
+            </div>
+            <div class="mat-qty ${ready ? "is-ready" : "is-pending"}">
+                <div class="mat-qty-value">${escape_html(transferred)} / ${escape_html(required)}</div>
+                ${item.uom ? `<div class="mat-qty-uom">${escape_html(item.uom)}</div>` : ""}
+            </div>
+        </div>
+    `;
+}
+
+function render_team_members(members) {
+    if (!members || !members.length) {
+        return "";
+    }
+
+    return `
+        <section class="section">
+            <h3>Work Team</h3>
+            <div class="section-card">
+                <div class="people-list">
+                    ${members.map(function (member) {
+                        var unavailable = member.available ? "" : " is-unavailable";
+                        return '<span class="person-chip' + unavailable + '">' + escape_html(member.full_name || member.user) + '</span>';
+                    }).join("")}
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function render_comments(comments) {
+    comments = comments || [];
+
+    return `
+        <section class="section">
+            <h3>Updates</h3>
+            <div class="section-card">
+                <div class="timeline">
+                    ${comments.length ? comments.map(function (comment) {
+                        return `
+                            <div class="comment">
+                                <span class="timeline-dot" data-icon="message"></span>
+                                <div class="comment-content">
+                                    <div class="comment-meta">${escape_html(comment_meta(comment))}</div>
+                                    <div class="comment-body">${escape_html(strip_html(comment.content || ""))}</div>
+                                </div>
+                            </div>
+                        `;
+                    }).join("") : '<div class="comment-body">No updates yet.</div>'}
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function comment_meta(comment) {
+    return [
+        comment.owner_full_name || comment.owner,
+        ws_format_datetime(comment.creation || "")
+    ].filter(Boolean).join(" - ");
+}
+
+function render_comment_form() {
+    return `
+        <section class="section">
+            <h3>Add Update</h3>
+            <div class="section-card">
+                <div class="comment-compose">
+                    <textarea class="comment-box" id="new-comment" placeholder="Add a short production update"></textarea>
+                    <button class="primary-button" type="button" onclick="add_comment()" aria-label="Add update">
+                        <span data-icon="message"></span>
+                    </button>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function add_comment() {
+    var textarea = document.getElementById("new-comment");
+    var content = (textarea.value || "").trim();
+    var wo = wo_state.current_wo;
+
+    if (!wo) {
+        return;
+    }
+
+    if (!content) {
+        frappe.msgprint("Please write an update first.");
+        return;
+    }
+
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.add_work_order_comment",
+        args: {
+            name: wo.name,
+            content: content
+        },
+        freeze: true,
+        freeze_message: "Adding update...",
+        callback: function (r) {
+            wo_state.current_wo.comments = r.message || [];
+            textarea.value = "";
+            render_detail(wo_state.current_wo);
+            WSPWA.toast("Update added.", "green");
+        },
+        error: function (r) {
+            prod_debug("add_work_order_comment:error", r);
+        }
+    });
+}
+
+function close_detail() {
+    document.getElementById("detail-view").classList.remove("active");
+    wo_state.current_wo = null;
+}
+
+/* ---------------- Progress update sheet ---------------- */
+
+function open_progress_sheet() {
+    var wo = wo_state.current_wo;
+    if (!wo) {
+        return;
+    }
+
+    wo_state.progress_draft = clamp_percent(wo.production_progress_percent);
+
+    document.getElementById("progress-sheet-subtitle").textContent = wo.item_name || wo.production_item || wo.name;
+    document.getElementById("progress-range").value = wo_state.progress_draft;
+    update_progress_display(wo_state.progress_draft);
+    render_progress_quick();
+
+    document.getElementById("progress-sheet").classList.add("active");
+    render_static_icons(document.getElementById("progress-sheet"));
+}
+
+function close_progress_sheet() {
+    document.getElementById("progress-sheet").classList.remove("active");
+}
+
+function render_progress_quick() {
+    var row = document.getElementById("progress-quick-row");
+    var values = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    row.innerHTML = values.map(function (value) {
+        var active = value === wo_state.progress_draft ? " active" : "";
+        return '<button class="progress-quick' + active + '" type="button" onclick="set_progress_draft(' + value + ')">' + value + '</button>';
+    }).join("");
+}
+
+function on_progress_range_input(value) {
+    wo_state.progress_draft = clamp_percent(value);
+    update_progress_display(wo_state.progress_draft);
+    render_progress_quick();
+}
+
+function set_progress_draft(value) {
+    wo_state.progress_draft = clamp_percent(value);
+    document.getElementById("progress-range").value = wo_state.progress_draft;
+    update_progress_display(wo_state.progress_draft);
+    render_progress_quick();
+}
+
+function update_progress_display(value) {
+    document.getElementById("progress-sheet-number").textContent = value;
+}
+
+function save_progress() {
+    var wo = wo_state.current_wo;
+    if (!wo) {
+        return;
+    }
+
+    var value = clamp_percent(wo_state.progress_draft);
+    var button = document.getElementById("progress-save");
+    button.disabled = true;
+    button.textContent = "Saving...";
+
+    frappe.call({
+        method: "worldshading.api.work_order_pwa.update_work_order_progress",
+        args: {
+            name: wo.name,
+            production_progress_percent: value
+        },
+        callback: function (r) {
+            var result = r.message || {};
+            var saved = clamp_percent(result.production_progress_percent);
+
+            wo_state.current_wo.production_progress_percent = saved;
+            update_list_row_progress(wo.name, saved);
+
+            close_progress_sheet();
+            render_detail(wo_state.current_wo);
+            WSPWA.toast("Progress updated to " + saved + "%.", "green");
+        },
+        error: function (r) {
+            prod_debug("update_work_order_progress:error", r);
+            frappe.msgprint("Could not update progress. Please try again.");
+        },
+        always: function () {
+            button.disabled = false;
+            button.textContent = "Save";
+        }
+    });
+}
+
+function update_list_row_progress(name, value) {
+    wo_state.work_orders.forEach(function (wo) {
+        if (wo.name === name) {
+            wo.production_progress_percent = value;
+        }
+    });
+    render_wo_list();
+    wo_state.insights_loaded = false;
+}
+</script>
+
+{% endblock %}

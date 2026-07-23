@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*- 
-# not using now, consolidated wuth the quotation followup
+# not using now, consolidated with the quotation followup
 
 
 import frappe

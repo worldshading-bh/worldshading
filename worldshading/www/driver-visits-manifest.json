@@ -1,0 +1,22 @@
+{
+  "name": "World Shading Driver Visits",
+  "short_name": "WS Visits",
+  "start_url": "/driver-visits",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F7F9",
+  "theme_color": "#E54B2C",
+  "description": "Driver app for assigned World Shading service visits.",
+  "icons": [
+    {
+      "src": "/files/logo%20removed.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/files/logo%20removed.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

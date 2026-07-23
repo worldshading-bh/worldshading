@@ -92,7 +92,7 @@ frappe.ui.form.on('Material Request', {
       });
     }
 
-    _make_custom_buttons(frm);
+    // _make_custom_buttons(frm);
   },
 
   material_request_type: function (frm) {

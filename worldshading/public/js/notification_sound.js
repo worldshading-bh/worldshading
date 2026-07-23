@@ -15,7 +15,7 @@ frappe.provide("worldshading");
             if (data && data.subject) {
                 msg = data.subject; // this is the full message (e.g., "Manu Mohan assigned a new task ...")
             } else {
-                msg = __("You have a new notificationnnnn");
+                msg = __("You have a new notification");
             }
 
             // Optionally add clickable link if document info is available

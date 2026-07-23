@@ -3,4 +3,7 @@
 *.egg-info
 *.swp
 tags
-worldshading/docs/current
+worldshading/docs/current__pycache__/
+*.pyc
+*.log
+worldshading/integration/zkteco/last_sync.txt

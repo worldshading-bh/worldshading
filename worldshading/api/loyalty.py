@@ -33,7 +33,7 @@ def get_loyalty(customer_input, key=None):
     # ---------------------------
     if customer_input.isdigit():  
         # Search by mobile number (new: Customer.mobile_number field)
-        customer = frappe.db.get_value("Customer", {"mobile_number": customer_input}, "name")
+        customer = frappe.db.get_value("Customer", {"mobile_no": customer_input}, "name")
 
         if not customer:
             return {
@@ -49,7 +49,7 @@ def get_loyalty(customer_input, key=None):
         mobile = frappe.db.get_value(
             "Customer",
             customer,
-            "mobile_number"
+            "mobile_no"
         )
 
     # ---------------------------

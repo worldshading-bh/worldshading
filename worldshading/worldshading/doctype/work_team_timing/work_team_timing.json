@@ -1,0 +1,39 @@
+{
+ "actions": [],
+ "creation": "2026-07-21 10:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "start_time",
+  "end_time"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "start_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Start Time",
+   "reqd": 1
+  },
+  {
+   "columns": 4,
+   "fieldname": "end_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "End Time",
+   "reqd": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-21 10:00:00",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Work Team Timing",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

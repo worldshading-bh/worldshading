@@ -1,0 +1,164 @@
+{
+ "autoname": "field:team_name",
+ "creation": "2026-07-14 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "disabled",
+  "team_name",
+  "warehouse",
+  "team_size",
+  "column_break_3",
+  "team_type",
+  "work_type",
+  "capacity_section",
+  "max_concurrent_work_orders",
+  "holiday_list",
+  "column_break_8",
+  "working_hours",
+  "working_hours_summary",
+  "users_section",
+  "users"
+ ],
+ "fields": [
+  {
+   "fieldname": "team_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Team Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "team_size",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Team Size",
+   "options": "\nSmall\nMedium\nBig"
+  },
+  {
+   "default": "Production",
+   "fieldname": "team_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Team Type",
+   "options": "Production\nFixing",
+   "reqd": 1
+  },
+  {
+   "description": "The kind of work this team performs (drives the Sales Order work estimate).",
+   "fieldname": "work_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Work Type",
+   "options": "Work Type"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Disabled"
+  },
+  {
+   "fieldname": "capacity_section",
+   "fieldtype": "Section Break",
+   "label": "Capacity"
+  },
+  {
+   "default": "1",
+   "fieldname": "max_concurrent_work_orders",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Max Concurrent Work Orders"
+  },
+  {
+   "fieldname": "column_break_8",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "holiday_list",
+   "fieldtype": "Link",
+   "label": "Holiday List",
+   "options": "Holiday List"
+  },
+  {
+   "description": "Working Time :e.g. 09:00-12:00 and 18:00-20:00",
+   "fieldname": "working_hours",
+   "fieldtype": "Table",
+   "label": "Working Hours",
+   "options": "Work Team Timing"
+  },
+  {
+   "fieldname": "working_hours_summary",
+   "fieldtype": "Small Text",
+   "label": "Working Hours Summary",
+   "read_only": 1
+  },
+  {
+   "fieldname": "users_section",
+   "fieldtype": "Section Break",
+   "label": "Users"
+  },
+  {
+   "fieldname": "users",
+   "fieldtype": "Table",
+   "label": "Users",
+   "options": "Work Team User"
+  }
+ ],
+ "modified": "2026-07-22 09:39:20.083501",
+ "modified_by": "hilal@worldshading.com",
+ "module": "Worldshading",
+ "name": "Work Team",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Manufacturing Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "search_fields": "team_name,warehouse",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "team_name"
+}

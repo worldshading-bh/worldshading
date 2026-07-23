@@ -18,6 +18,13 @@ frappe.ui.form.CustomerQuickEntryForm = frappe.ui.form.QuickEntryForm.extend({
             mobile_field.df.reqd = 1;
             mobile_field.refresh();
         }
+        // 🔴 Force bold + red style for WhatsApp
+        let whatsapp_field = me.dialog.get_field("whatsapp_no");
+        if (whatsapp_field) {
+            whatsapp_field.df.reqd = 1;
+            whatsapp_field.df.read_only = 0;
+            whatsapp_field.refresh();
+        }
 
         // 🔴 Force bold + red style for First Name
         let fname_field = me.dialog.get_field("first_name");
@@ -54,12 +61,14 @@ frappe.ui.form.CustomerQuickEntryForm = frappe.ui.form.QuickEntryForm.extend({
                 // List of fields to hide/show
                 let fields_to_toggle = [
                     "customer_name",
+                    "cr_no",
                     "customer_group",
                     "territory",
                     "first_name",
                     "last_name",
                     "email_id",
                     "mobile_no",
+                    "whatsapp_no",
                     "address_line1",
                     "address_line2",
                     "pincode",
@@ -113,6 +122,17 @@ frappe.ui.form.CustomerQuickEntryForm = frappe.ui.form.QuickEntryForm.extend({
                 frappe.msgprint(__('Mobile Number is required'));
                 return;
             }
+            // ==================================================
+            // Company CR validation
+            // ==================================================
+
+            if (
+                values.customer_type === "Company" &&
+                !values.cr_no
+            ) {
+                frappe.msgprint(__('CR No is required for Company'));
+                return;
+            }
     
             me.save();
         });
@@ -135,7 +155,7 @@ frappe.ui.form.CustomerQuickEntryForm = frappe.ui.form.QuickEntryForm.extend({
                 label: __("Last Name"),
                 fieldname: "last_name",
                 fieldtype: "Data",
-                reqd: 0
+                reqd: 1
             },
             {
                 fieldtype: "Column Break"
@@ -146,6 +166,13 @@ frappe.ui.form.CustomerQuickEntryForm = frappe.ui.form.QuickEntryForm.extend({
                 fieldname: "mobile_no",
                 fieldtype: "Data",
                 reqd: 1
+            },
+            {
+                label: __("WhatsApp No"),
+                fieldname: "whatsapp_no",
+                fieldtype: "Data",
+                reqd: 1,
+                read_only: 0
             },
             {
                 label: __("Email Id"),

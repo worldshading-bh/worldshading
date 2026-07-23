@@ -39,12 +39,16 @@ def auto_update_followups():
 
     frappe.logger().info(f"[Followups] Waiting → Follow-up processed: {quotations_processed}")
 
-    # --- Handle Scheduled → Follow-up 1 ---
+    # --- Handle Scheduled → Follow-up 1 / Scheduled - Visitor → Pending Call - Visitor ---
     scheduled_processed = 0
+    scheduled_rules = {
+        "Scheduled": "Follow-up 1",
+        "Scheduled - Visitor": "Pending Call - Visitor"
+    }
     scheduled_qtns = frappe.get_all(
         "Quotation",
-        filters={"workflow_state": "Scheduled", "docstatus": 1},
-        fields=["name", "transition_date", "valid_till", "status"]
+        filters={"workflow_state": ["in", list(scheduled_rules.keys())], "docstatus": 1},
+        fields=["name", "workflow_state", "transition_date", "valid_till", "status"]
     )
 
     for q in scheduled_qtns:
@@ -60,18 +64,19 @@ def auto_update_followups():
         #check today is >= transition date, used date field instead of datetime
         if getdate(now) >= getdate(q.transition_date):
             qtn_doc = frappe.get_doc("Quotation", q.name)
-            qtn_doc.workflow_state = "Follow-up 1"
+            qtn_doc.workflow_state = scheduled_rules.get(q.workflow_state)
             qtn_doc.save(ignore_permissions=True)
             frappe.db.commit()
             scheduled_processed += 1
 
-    frappe.logger().info(f"[Followups] Scheduled → Follow-up processed: {scheduled_processed}")
+    frappe.logger().info(f"[Followups] Scheduled transitions processed: {scheduled_processed}")
 
     # --- Sync Expired Quotations ---
-    ASSIGNEES = [
-        "hussainaljad@worldshading.com",
-        "Shakeel.worldshading@gmail.com",
-    ]
+    expiry_assignees = _get_quotation_expiry_assignees()
+
+    if not expiry_assignees:
+        frappe.logger().info("[Followups] Expired quotation assign skipped: no assignees configured.")
+        return
 
     expired_processed = 0
     expired_qtns = frappe.get_all(
@@ -94,7 +99,7 @@ def auto_update_followups():
                 frappe.db.set_value("ToDo", t.name, "status", "Closed")
 
             # Create new todos
-            for user in ASSIGNEES:
+            for user in expiry_assignees:
                 todo = frappe.get_doc({
                     "doctype": "ToDo",
                     "owner": user,
@@ -112,3 +117,26 @@ def auto_update_followups():
             expired_processed += 1
 
     frappe.logger().info(f"[Followups] Expired sync processed: {expired_processed}")
+
+
+def _get_quotation_expiry_assignees():
+    settings = frappe.get_single("WS Settings")
+
+    if not settings.get("enable_quotation_expiry_assign"):
+        return []
+
+    valid_users = frappe.get_all("User", filters={"enabled": 1}, fields=["name"])
+    valid_users = [u["name"] for u in valid_users]
+
+    user_list = [
+        d.user for d in settings.get("users_to_assign_qer") or []
+        if d.user in valid_users and d.user not in ("Administrator", "Guest")
+    ]
+
+    if not user_list:
+        frappe.log_error(
+            "No valid users found in WS Settings (Quotation Expiry Reminder).",
+            "Quotation Expiry ToDo Script"
+        )
+
+    return user_list
