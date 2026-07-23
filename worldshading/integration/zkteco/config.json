@@ -1,10 +1,10 @@
 {
-  "device_api": "http://109.63.116.44:5000",
+  "device_api": "http://109.63.116.44:*****",
   "device_user": "worldshading",
-  "device_pass": "Ws50601020*",
+  "device_pass": "*****",
   "erp_url": "https://erp.worldshading.com",
   "erp_api_key": "d5b6d4b6f321560",
-  "erp_api_secret": "681e393f58946bf",
+  "erp_api_secret": "*****",
   "max_logs": 50,
-  "_note": "erp_api_secret above was REVOKED on 2026-07-23 and is INVALID. Before resuming, create a dedicated integration user (not Administrator) and regenerate erp_api_key/erp_api_secret here."
+  "_note": "Integration PAUSED. Secrets masked with ***** on 2026-07-23. Before resuming, fill device_pass + port, and create a dedicated integration user (not Administrator) to regenerate erp_api_key/erp_api_secret."
 }
