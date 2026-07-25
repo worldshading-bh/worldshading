@@ -276,7 +276,7 @@ def send_welcome_message(to_number):
 # # GEMINI SETTINGS
 # # ==================================================
 
-# GEMINI_API_KEY = "AIzaSyDndp_nl_yLUFJ3M0BtP9BrUIsPV9RomSs"
+# GEMINI_API_KEY = "AIzaSyDndp_nl_yLUFJ3***************"
 
 # GEMINI_URL = (
 #     "https://generativelanguage.googleapis.com/v1beta/models/"
