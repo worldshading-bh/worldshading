@@ -20,7 +20,7 @@
  "is_standard": 1,
  "login_required": 0,
  "max_attachment_size": 25,
- "modified": "2026-07-25 09:10:32.547885",
+ "modified": "2026-07-26 10:44:57.708576",
  "modified_by": "hilal@worldshading.com",
  "module": "Worldshading",
  "name": "service-visit",
@@ -52,7 +52,7 @@
    "label": "Type",
    "max_length": 0,
    "max_value": 0,
-   "options": "\nMeasurement\nConsultation\nInspection\nFixing\nInstallation Follow-up\nComplaint Visit",
+   "options": "\nMeasurement\nConsultation\nInspection\nFixing\nInstallation Follow-up\nComplaint Visit\nQuotation",
    "read_only": 0,
    "reqd": 1,
    "show_in_filter": 0
