@@ -250,22 +250,24 @@ def _is_submitted_link(doctype, name):
 
 
 def unlink_quotation_from_visit(doc, method=None):
-	"""Before Quotation is deleted, clear Service Visit quotation if it points to this doc."""
+	"""Before Quotation is deleted, clear every Service Visit pointing to it."""
 
-	if not doc.get("service_visit"):
-		return
-
-	sv = doc.service_visit
-
-	if frappe.db.get_value("Service Visit", sv, "quotation") == doc.name:
-
+	for sv in _get_service_visits_linked_to_quotation(doc.name):
 		frappe.db.set_value(
 			"Service Visit",
-			sv,
+			sv.name,
 			"quotation",
 			None,
 			update_modified=False,
 		)
+
+
+def _get_service_visits_linked_to_quotation(quotation):
+	return frappe.get_all(
+		"Service Visit",
+		filters={"quotation": quotation},
+		fields=["name"]
+	)
 
 
 def unlink_sales_order_from_visit(doc, method=None):
@@ -288,25 +290,19 @@ def unlink_sales_order_from_visit(doc, method=None):
 
 
 def unlink_quotation_on_cancel(doc, method=None):
-	"""Before Quotation is cancelled, clear Service Visit quotation link."""
+	"""Before Quotation is cancelled, clear every Service Visit pointing to it."""
 
-	if not doc.get("service_visit"):
-		return
-
-	sv = doc.service_visit
-
-	if frappe.db.get_value("Service Visit", sv, "quotation") == doc.name:
-
+	for sv in _get_service_visits_linked_to_quotation(doc.name):
 		frappe.db.set_value(
 			"Service Visit",
-			sv,
+			sv.name,
 			"quotation",
 			None,
 			update_modified=False,
 		)
 
 		_set_service_visit_workflow_state(
-			sv,
+			sv.name,
 			"Pending Quotation",
 			["Quotation Created", "Lost", "Expired"],
 			"Quotation <b>{0}</b> was cancelled.".format(doc.name)
