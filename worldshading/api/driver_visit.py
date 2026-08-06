@@ -4,9 +4,15 @@ import frappe
 import telnetlib
 import time
 from datetime import date
-from frappe.utils import date_diff, get_bench_path, get_datetime, getdate, now_datetime, nowdate
+from frappe.utils import cint, date_diff, flt, get_bench_path, get_datetime, getdate, now_datetime, nowdate
 from frappe.utils.html_utils import sanitize_html
 from worldshading.api.utility import merge_documents
+from worldshading.api.service_visit_commission import (
+    get_commission_result,
+    get_coordinator_commission_result,
+    get_month_invoice_map,
+    get_paid_amounts
+)
 from worldshading.worldshading.report.employee_service_visit_performance.employee_service_visit_performance import get_summary_values
 from worldshading.worldshading.report.employee_service_visit_performance.employee_service_visit_performance import get_visit_rows
 
@@ -64,8 +70,24 @@ FOLLOWUP_QUOTATION_ACTIONS = {
     "request_payment": {
         "label": "Request Payment",
         "actions": ["Request Payment"]
+    },
+    "book_revisit": {
+        "label": "Book Revisit",
+        "actions": ["Book Revisit"]
     }
 }
+
+REVISIT_LOST_REASON = "Revisit Requested"
+
+REVISIT_COPY_FIELDS = [
+    "time",
+    "customer", "customer_name", "customer_type", "cr_no", "first_name", "last_name",
+    "mobile_number", "whatsapp_no", "email_id", "google_maps_link", "location_latitude",
+    "location_longitude", "google_place_id", "location_address", "location_method",
+    "project_name", "flat_no", "road_no", "building_no", "site_address", "block",
+    "city", "country", "customer_address", "address_display", "contact_person",
+    "type", "subject"
+]
 
 
 PBX_AMI_HOST = "109.63.116.44"
@@ -481,25 +503,65 @@ def get_driver_monthly_insights(month=None, visitor=None):
         "user": user
     }
     rows = get_visit_rows(filters)
+
+    # get_visit_rows returns one row per (assigned user x visit) because the report it
+    # backs is per-employee. Without a user filter that double counts every visit taken
+    # by two people, so collapse to distinct visits for the combined view.
+    if not user:
+        rows = _dedupe_visit_rows(rows)
+
     summary = get_summary_values(rows, filters)
+
+    # Money figures come from the commission engine, valued on everything invoiced to
+    # date (no cutoff) - the same basis the Commission Payout settles on, so the PWA and
+    # the payout always tell one story. Commission is per-visitor, so the CEO's combined
+    # "All visitors" view keeps the report totals and simply shows no commission.
+    today = getdate(nowdate())
+    commission = get_commission_result(user, month, cutoff_date=today) if user else None
+    # Only populated for a staff row whose role is Coordinator; everyone else gets None
+    # and the PWA simply doesn't render the card. The "All visitors" view has no single
+    # coordinator, so it gets None too.
+    coordinator = get_coordinator_commission_result(
+        user, month, cutoff_date=today) if user else None
+
+    if coordinator and not coordinator.get("is_coordinator"):
+        coordinator = None
+
+    if user and (commission or coordinator):
+        _attach_settlement(user, commission, coordinator, today)
+
+    if commission:
+        total_visits = commission.get("total_visits") or 0
+        invoiced_visits = commission.get("converted_visits") or 0
+        success_percent = commission.get("success_percent") or 0
+        invoice_value = commission.get("invoice_value") or 0
+        visit_list = commission.get("visit_list") or []
+    else:
+        invoice_map = get_month_invoice_map(
+            [d.get("service_visit") for d in rows], month, cutoff_date=today)
+        visit_list = _build_visit_list(rows, invoice_map)
+        total_visits = len(rows)
+        invoiced_visits = len([d for d in visit_list if d.get("is_invoiced")])
+        invoice_value = max(sum([flt(d.get("invoice_net_total")) for d in visit_list]), 0)
+        success_percent = round((float(invoiced_visits) / float(total_visits)) * 100, 2) if total_visits else 0
 
     return {
         "month": month,
         "from_date": from_date,
         "to_date": to_date,
-        "total_visits": summary.get("total_visits") or 0,
-        "invoiced_visits": summary.get("invoiced_visits") or 0,
-        "success_percent": summary.get("success_percent") or 0,
-        "invoice_value": summary.get("attributed_invoice_value") or 0,
-        "commission_percentage": summary.get("commission_percentage") or 0,
-        "commission_amount": summary.get("commission_amount") or 0,
+        "total_visits": total_visits,
+        "invoiced_visits": invoiced_visits,
+        "success_percent": success_percent,
+        "invoice_value": invoice_value,
         "avg_visits_per_day": summary.get("avg_visits_per_working_day") or 0,
         "pending_quotation_count": summary.get("pending_quotation_count") or 0,
         "quotation_created_count": summary.get("quotation_created_count") or 0,
         "ordered_count": summary.get("ordered_count") or 0,
         "lost_count": summary.get("lost_count") or 0,
         "expired_count": summary.get("expired_count") or 0,
-        "invoiced_visit_list": _get_invoiced_visit_list(rows),
+        "commission": commission,
+        "coordinator": coordinator,
+        "visit_list": visit_list,
         "currency": frappe.defaults.get_global_default("currency") or "BHD"
     }
 
@@ -689,6 +751,37 @@ def apply_followup_quotation_action(name, action_key, note=None, transition_date
         doc.set("transition_date", get_datetime(transition_date.replace("T", " ")))
         doc.save(ignore_permissions=True)
 
+    revisit_visit = None
+
+    if action_key == "book_revisit":
+        if not note:
+            frappe.throw("Comment is required - explain why a revisit is needed.")
+
+        revisit_visit = _create_revisit_service_visit(doc, note)
+        reason_name = frappe.db.get_value(
+            "Quotation Lost Reason", {"order_lost_reason": REVISIT_LOST_REASON}) \
+            or frappe.db.get_value("Quotation Lost Reason", REVISIT_LOST_REASON)
+
+        # status=Lost (not just the workflow state) makes the quotation invisible to
+        # both expiry schedulers forever. status is not editable after submit, so it
+        # moves via db_set like every other server-side transition, and the existing
+        # sync is invoked directly to walk the original Service Visit to Lost.
+        doc.db_set("status", "Lost")
+
+        if reason_name:
+            _set_quotation_lost_details(doc, reason_name, note)
+
+        from worldshading.events.service_visit_link import sync_quotation_status_to_visit
+        sync_quotation_status_to_visit(doc)
+
+        _add_comment(
+            "Quotation",
+            doc.name,
+            "<b>Book Revisit</b><br><br>New visit <b>{0}</b> created in Pending Schedule."
+            "<br><br>{1}".format(revisit_visit, sanitize_html(note))
+        )
+        note = ""
+
     if action_key == "lost":
         if not lost_reason:
             frappe.throw("Lost reason is required.")
@@ -717,7 +810,61 @@ def apply_followup_quotation_action(name, action_key, note=None, transition_date
 
     apply_workflow(doc, action)
 
-    return get_followup_quotation_details(doc.name)
+    result = get_followup_quotation_details(doc.name)
+
+    if revisit_visit:
+        result["revisit_visit"] = revisit_visit
+
+    return result
+
+
+def _create_revisit_service_visit(quotation, note):
+    """Clone the quotation's original visit into a fresh Pending Schedule draft.
+
+    Mirrors the web-form entry shape (draft, Pending Schedule, no Taken By, no
+    coordinator) so it flows through the coordinator's normal scheduling pipeline and
+    the actor-based stamping credits whoever schedules it.
+    """
+    if not quotation.get("service_visit"):
+        frappe.throw("This quotation has no linked Service Visit to revisit.")
+
+    existing = frappe.db.get_value("Service Visit", {
+        "parent_service_visit": quotation.service_visit,
+        "is_follow_up": 1,
+        "docstatus": ["<", 2],
+        "workflow_state": "Pending Schedule"
+    })
+
+    if existing:
+        frappe.throw("Revisit {0} is already waiting to be scheduled for this visit.".format(existing))
+
+    original = frappe.get_doc("Service Visit", quotation.service_visit)
+    revisit = frappe.new_doc("Service Visit")
+
+    for fieldname in REVISIT_COPY_FIELDS:
+        if revisit.meta.has_field(fieldname) and original.get(fieldname):
+            revisit.set(fieldname, original.get(fieldname))
+
+    revisit.is_follow_up = 1
+    revisit.parent_service_visit = original.name
+    revisit.date = nowdate()
+
+    if revisit.meta.has_field("source"):
+        revisit.source = "ERP"
+
+    revisit.insert(ignore_permissions=True)
+    # The workflow engine refuses Draft -> Pending Schedule as a document edit, so move
+    # the state the same way every other server-side transition in this app does.
+    revisit.db_set("workflow_state", "Pending Schedule")
+
+    _add_comment(
+        "Service Visit",
+        revisit.name,
+        "<b>Revisit</b> of {0}, booked from Quotation <b>{1}</b>.<br><br>{2}".format(
+            original.name, quotation.name, sanitize_html(note))
+    )
+
+    return revisit.name
 
 
 def _set_quotation_lost_details(doc, lost_reason, note):
@@ -1368,28 +1515,73 @@ def _format_pbx_call_comment(result):
     return "<br>".join(lines)
 
 
-def _get_invoiced_visit_list(rows):
-    invoiced_rows = []
+def _attach_settlement(user, commission, coordinator, today):
+    """Add paid/pending against the payout ledger to the commission blocks.
+
+    The running month is still accruing, so it carries no settlement state - only
+    finished months show paid or pending in the PWA.
+    """
+    reference = commission or coordinator
+    from_date = getdate(reference.get("from_date"))
+    is_current = (from_date.year, from_date.month) == (today.year, today.month)
+    paid = get_paid_amounts(user, from_date.year, from_date.month)
+
+    if commission is not None:
+        earned = flt(commission.get("visitor_amount"))
+        commission["is_current_month"] = 1 if is_current else 0
+        commission["paid_amount"] = paid["Visitor"]
+        commission["pending_amount"] = round(max(earned - paid["Visitor"], 0), 3)
+
+    if coordinator is not None:
+        earned = flt(coordinator.get("total_amount"))
+        coordinator["is_current_month"] = 1 if is_current else 0
+        coordinator["paid_amount"] = paid["Coordinator"]
+        coordinator["pending_amount"] = round(max(earned - paid["Coordinator"], 0), 3)
+
+
+def _dedupe_visit_rows(rows):
+    seen = {}
+    unique_rows = []
 
     for row in rows:
-        if not row.get("normal_invoice_count"):
+        name = row.get("service_visit")
+
+        if name and seen.get(name):
             continue
 
-        invoiced_rows.append({
+        seen[name] = True
+        unique_rows.append(row)
+
+    return unique_rows
+
+
+def _build_visit_list(rows, invoice_map):
+    """Every visit for the combined view, carrying per-invoice detail where it exists."""
+    visit_rows = []
+
+    for row in rows:
+        invoice = invoice_map.get(row.get("service_visit")) or {}
+        normal_count = cint(invoice.get("normal_count"))
+
+        visit_rows.append({
             "service_visit": row.get("service_visit"),
             "visit_date": row.get("visit_date"),
             "customer_name": row.get("customer_name"),
             "visit_type": row.get("visit_type"),
             "workflow_state": row.get("workflow_state"),
-            "sales_invoice": row.get("sales_invoice"),
-            "invoice_date": row.get("invoice_date"),
-            "invoice_net_total": row.get("invoice_net_total") or 0
+            "sales_invoice": ", ".join([
+                d.get("sales_invoice") for d in invoice.get("invoices") or []]),
+            "invoices": invoice.get("invoices") or [],
+            "normal_count": normal_count,
+            "is_invoiced": 1 if normal_count else 0,
+            "invoice_date": invoice.get("invoice_date"),
+            "invoice_net_total": flt(invoice.get("net_value"))
         })
 
     return sorted(
-        invoiced_rows,
+        visit_rows,
         key=lambda row: (
-            row.get("invoice_date") or row.get("visit_date") or "",
+            str(row.get("visit_date") or ""),
             row.get("service_visit") or ""
         ),
         reverse=True
@@ -1882,7 +2074,8 @@ def _get_followup_quotation_actions(doc):
     actions = []
     transitions = _get_transition_actions(doc)
 
-    for key in ["request_payment", "lost", "follow_up", "call_client", "send_quotation"]:
+    for key in ["request_payment", "lost", "book_revisit", "follow_up", "call_client",
+                "send_quotation"]:
         config = FOLLOWUP_QUOTATION_ACTIONS.get(key)
         action = _match_action(config.get("actions"), transitions)
 

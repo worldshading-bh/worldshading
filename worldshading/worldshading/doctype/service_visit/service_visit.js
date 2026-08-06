@@ -1440,6 +1440,7 @@ function ws_update_workflow_schedule_on_server(options, validity_date, reference
                 options.frm.doc.docstatus = r.message.docstatus;
                 options.frm.doc.workflow_state = r.message.workflow_state;
                 options.frm.doc.skip_confirmation = r.message.skip_confirmation;
+                options.frm.doc.visit_coordinator = r.message.visit_coordinator;
             }
 
             options.frm.doc.__unsaved = 0;

@@ -1,0 +1,160 @@
+{
+ "creation": "2026-07-30 14:58:36.503893",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "employee",
+  "employee_name",
+  "user",
+  "component",
+  "description",
+  "earned_month",
+  "amounts_section",
+  "earned_amount",
+  "previously_paid",
+  "amounts_column",
+  "amount",
+  "service_visit_section",
+  "total_visits",
+  "invoiced_visits",
+  "success_percent",
+  "service_visit_column",
+  "invoice_value",
+  "commission_rate",
+  "qualified",
+  "min_visits"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "description": "Filled automatically from the employee",
+   "fetch_from": "employee.user_id",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User"
+  },
+  {
+   "columns": 2,
+   "fieldname": "component",
+   "fieldtype": "Select",
+   "label": "Component",
+   "options": "\nVisitor\nCoordinator"
+  },
+  {
+   "columns": 2,
+   "fieldname": "earned_month",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Earned Month",
+   "options": "\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amounts_section",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "fieldname": "earned_amount",
+   "fieldtype": "Currency",
+   "label": "Earned Amount"
+  },
+  {
+   "fieldname": "previously_paid",
+   "fieldtype": "Currency",
+   "label": "Previously Paid"
+  },
+  {
+   "fieldname": "amounts_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "service_visit_section",
+   "fieldtype": "Section Break",
+   "label": "Service Visit"
+  },
+  {
+   "fieldname": "total_visits",
+   "fieldtype": "Int",
+   "label": "Total Visits"
+  },
+  {
+   "fieldname": "invoiced_visits",
+   "fieldtype": "Int",
+   "label": "Invoiced Visits"
+  },
+  {
+   "fieldname": "success_percent",
+   "fieldtype": "Percent",
+   "label": "Success Rate"
+  },
+  {
+   "fieldname": "service_visit_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoice_value",
+   "fieldtype": "Currency",
+   "label": "Invoice Value"
+  },
+  {
+   "fieldname": "commission_rate",
+   "fieldtype": "Percent",
+   "label": "Commission Rate"
+  },
+  {
+   "default": "0",
+   "fieldname": "qualified",
+   "fieldtype": "Check",
+   "label": "Qualified"
+  },
+  {
+   "fieldname": "min_visits",
+   "fieldtype": "Int",
+   "label": "Minimum Visits"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Description"
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-07-30 16:54:00.924113",
+ "modified_by": "hilal@worldshading.com",
+ "module": "Worldshading",
+ "name": "Commission Payout Detail",
+ "owner": "Administrator",
+ "permissions": [],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

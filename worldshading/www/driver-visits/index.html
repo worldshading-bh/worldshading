@@ -196,6 +196,8 @@
 
     .followup-workflow-strip {
         margin: 0 0 14px;
+        /* Four states here (Call / Outcome / Payment / Ordered); the visit strip keeps 3. */
+        grid-template-columns: repeat(4, 1fr);
     }
 
     .filters {
@@ -333,34 +335,120 @@
         line-height: 1.45;
     }
 
-    .day-glance {
-        border-radius: 24px;
-        background: rgba(255, 255, 255, 0.58);
-        padding: 13px;
-        box-shadow: inset 0 0 0 1px rgba(16, 24, 40, 0.06);
+    .month-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
     }
 
-    .day-glance-head {
+    .insight-results {
+        display: grid;
+        gap: 14px;
+        margin-top: 14px;
+    }
+
+    .insight-block-head {
         display: flex;
-        align-items: flex-start;
+        align-items: baseline;
         justify-content: space-between;
-        gap: 12px;
+        gap: 10px;
+        margin-bottom: 10px;
     }
 
-    .day-glance-date {
-        border-radius: 999px;
-        background: var(--soft);
+    .list-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .list-head-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .list-chevron {
+        display: inline-flex;
+        color: var(--faint);
+        transition: transform 0.2s ease;
+    }
+
+    .list-section.is-collapsed .list-chevron {
+        transform: rotate(-90deg);
+    }
+
+    .list-section.is-collapsed .invoice-list,
+    .list-section.is-collapsed .list-more {
+        display: none;
+    }
+
+    .list-more {
+        display: block;
+        width: 100%;
+        margin-top: 10px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+        padding: 10px;
         color: var(--ink-soft);
-        padding: 8px 10px;
-        font-size: 12px;
+        font-size: 12.5px;
         font-weight: 850;
+    }
+
+    .list-more:active {
+        background: var(--soft);
+    }
+
+    .visit-row-state {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    /* A stat tile rendered as a <button>: strip the control styling and re-block the
+       spans, which are phrasing content inside a button. */
+    .insight-card.is-tappable {
+        display: block;
+        width: 100%;
+        border: 0;
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+        transition: transform 0.16s ease;
+    }
+
+    .insight-card.is-tappable .insight-value,
+    .insight-card.is-tappable .insight-label {
+        display: block;
+    }
+
+    .insight-card.is-tappable:active {
+        transform: scale(0.97);
+    }
+
+    .insight-block-title {
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 850;
+    }
+
+    .insight-block-note {
+        color: var(--muted);
+        font-size: 11.5px;
+        font-weight: 750;
         white-space: nowrap;
     }
 
     .day-pill-row {
         display: flex;
         gap: 6px;
-        margin-top: 12px;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
     }
@@ -391,14 +479,24 @@
         margin-top: 14px;
     }
 
-    .month-row {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-        margin-top: 12px;
+    /* Stat tiles sit inside a section card here, so drop the core's standalone-card
+       treatment - otherwise they read as cards nested in cards. */
+    .insight-results .insight-grid {
+        margin-top: 0;
+    }
+
+    .insight-results .insight-card {
+        border-radius: 18px;
+        background: var(--soft);
+        padding: 13px;
+        box-shadow: none;
     }
 
     .month-input {
+        /* iOS renders input[type=month] as a native control and ignores the border and
+           radius unless the default appearance is switched off. */
+        -webkit-appearance: none;
+        appearance: none;
         min-height: 46px;
         border: 1px solid rgba(16, 24, 40, 0.08);
         border-radius: 16px;
@@ -407,7 +505,154 @@
         color: var(--ink);
         font-size: 16px;
         font-weight: 750;
+        text-align: center;
         outline: 0;
+    }
+
+    /* Matches the dark logo tile in the header; --primary is the brand accent. */
+    .commission-card {
+        margin-top: 14px;
+        border-radius: 24px;
+        background: linear-gradient(150deg, var(--ink) 0%, #1D2939 100%);
+        padding: 17px;
+        color: #fff;
+        box-shadow: var(--shadow);
+    }
+
+    .commission-head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: start;
+        gap: 10px;
+    }
+
+    .commission-title {
+        font-size: 15px;
+        font-weight: 850;
+    }
+
+    .commission-period {
+        margin-top: 3px;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 11.5px;
+        font-weight: 750;
+    }
+
+    .commission-amount {
+        font-size: 23px;
+        font-weight: 900;
+        line-height: 1.1;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .commission-amount.is-blocked {
+        color: rgba(255, 255, 255, 0.42);
+    }
+
+    .commission-gate {
+        margin-top: 14px;
+    }
+
+    .commission-gate-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+        font-weight: 800;
+    }
+
+    .commission-gate-count {
+        color: rgba(255, 255, 255, 0.72);
+    }
+
+    .commission-track {
+        margin-top: 7px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+        overflow: hidden;
+    }
+
+    .commission-track span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: #12B76A;
+        transition: width 0.3s ease;
+    }
+
+    /* Brand orange while the visit target is still short of the minimum. */
+    .commission-track.is-blocked span {
+        background: var(--primary);
+    }
+
+    .commission-steps {
+        margin-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.13);
+        padding-top: 4px;
+    }
+
+    .commission-step {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 0;
+        font-size: 12.5px;
+        font-weight: 750;
+    }
+
+    .commission-step-label {
+        color: rgba(255, 255, 255, 0.62);
+    }
+
+    .commission-step-value {
+        font-weight: 850;
+        white-space: nowrap;
+    }
+
+    .commission-step.is-total {
+        border-top: 1px solid rgba(255, 255, 255, 0.13);
+        margin-top: 4px;
+        padding-top: 11px;
+        font-size: 13.5px;
+    }
+
+    .commission-step.is-total .commission-step-label {
+        color: #fff;
+        font-weight: 850;
+    }
+
+    .sheet-warning {
+        margin: 10px 0 0;
+        border-radius: 12px;
+        background: var(--pending-bg);
+        color: var(--pending-fg);
+        padding: 10px 12px;
+        font-size: 12.5px;
+        font-weight: 700;
+        line-height: 1.45;
+    }
+
+    .commission-step-value.is-paid {
+        color: #7CE0AC;
+    }
+
+    .commission-step-value.is-pending {
+        color: #F2B45C;
+    }
+
+    .commission-note {
+        margin-top: 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.09);
+        padding: 9px 11px;
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 11.5px;
+        font-weight: 700;
+        line-height: 1.45;
     }
 
     .invoice-list-card {
@@ -439,6 +684,20 @@
         background: #eef1f6;
     }
 
+    /* Lets the customer/meta column shrink so the ellipsis actually engages instead of
+       the long name forcing the row wider. */
+    .invoice-visit {
+        min-width: 0;
+    }
+
+    .invoice-customer,
+    .invoice-meta {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .invoice-customer {
         color: var(--ink);
         font-size: 14px;
@@ -454,7 +713,19 @@
         line-height: 1.35;
     }
 
+    .invoice-docs {
+        display: grid;
+        gap: 8px;
+        justify-items: end;
+    }
+
+    .invoice-doc {
+        display: block;
+        text-align: right;
+    }
+
     .invoice-amount {
+        display: block;
         color: var(--ink);
         font-size: 13px;
         font-weight: 850;
@@ -463,15 +734,93 @@
         white-space: nowrap;
     }
 
+    .invoice-amount.is-return {
+        color: var(--stop-fg);
+    }
+
+    .invoice-amount.is-muted {
+        color: var(--faint);
+    }
+
+    /* Coordinator hero: stat tiles inside the dark card */
+    .coordinator-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 14px;
+    }
+
+    .coordinator-stat {
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.09);
+        padding: 10px 11px;
+    }
+
+    .coordinator-stat-value {
+        font-size: 17px;
+        font-weight: 900;
+        line-height: 1.1;
+    }
+
+    .coordinator-stat-label {
+        margin-top: 4px;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    /* Per-visitor rows: avatar + details + money */
+    .visitor-row {
+        grid-template-columns: auto 1fr auto;
+        align-items: start;
+    }
+
+    .visitor-avatar {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: var(--done-bg);
+        color: var(--done-fg);
+        font-size: 12px;
+        font-weight: 850;
+    }
+
+    .visitor-row.is-blocked .visitor-avatar {
+        background: var(--soft);
+        color: var(--muted);
+    }
+
+    .visitor-progress {
+        display: block;
+        margin-top: 7px;
+        max-width: 150px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--line);
+        overflow: hidden;
+    }
+
+    .visitor-progress span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--primary);
+    }
+
     .invoice-number {
-        margin-top: 5px;
+        display: block;
+        margin-bottom: 2px;
         color: var(--muted);
         font-size: 11px;
         font-weight: 800;
         line-height: 1.25;
         text-align: right;
-        max-width: 120px;
-        word-break: break-word;
+        white-space: nowrap;
     }
 
     .profile-pill {
@@ -1990,6 +2339,10 @@
                 Outcome
                 <span class="workflow-tab-badge" data-followup-state-badge="Call Outcome - Visitor"></span>
             </button>
+            <button class="workflow-tab" type="button" data-followup-state="Pending Payment">
+                Payment
+                <span class="workflow-tab-badge" data-followup-state-badge="Pending Payment"></span>
+            </button>
             <button class="workflow-tab" type="button" data-followup-state="Ordered">
                 Ordered
                 <span class="workflow-tab-badge is-hidden" data-followup-state-badge="Ordered"></span>
@@ -2017,68 +2370,150 @@
     </section>
 
     <section class="app-panel" id="insights-panel">
-        <div class="day-glance">
-            <div class="day-glance-head">
-                <div>
-                    <div class="day-glance-title">Selected day</div>
-                    <div class="day-glance-subtitle">A quick status view for the loaded route.</div>
-                </div>
-                <div class="day-glance-date" id="insight-day-date"></div>
-            </div>
-            <div class="day-pill-row">
-                <div class="day-pill"><strong id="insight-total">0</strong> Visits</div>
-                <div class="day-pill"><strong id="insight-completed">0</strong> Completed</div>
-                <div class="day-pill"><strong id="insight-pending">0</strong> Pending</div>
-                <div class="day-pill"><strong id="insight-lost">0</strong> Lost</div>
-            </div>
-        </div>
         <div class="section-card month-card">
-            <div class="profile-title">Monthly insights</div>
-            <div class="profile-subtitle">Load month-wise visits, invoice value, and commission only when needed.</div>
             <div class="month-row">
                 <input class="month-input" id="insight-month" type="month">
-                <button class="secondary-button" id="insight-load-button" type="button" onclick="load_monthly_insights()">Load</button>
+                <button class="secondary-button" id="insight-load-button" type="button" onclick="load_monthly_insights(true)">Load</button>
             </div>
         </div>
-        <div id="monthly-insights-state" class="empty-state" style="margin-top:14px;">Choose a month and tap Load.</div>
-        <div class="insight-grid is-hidden" id="monthly-insights-grid">
-            <div class="insight-card">
-                <div class="insight-value" id="monthly-total">0</div>
-                <div class="insight-label">Total Visits</div>
+        <div id="monthly-insights-state" class="empty-state is-hidden" style="margin-top:14px;"></div>
+        <div class="insight-results is-hidden" id="monthly-insights-results">
+        <div class="commission-card is-hidden" id="coordinator-card">
+            <div class="commission-head">
+                <div>
+                    <div class="commission-title">Coordinator commission</div>
+                    <div class="commission-period" id="coordinator-period"></div>
+                </div>
+                <div class="commission-amount" id="coordinator-amount">0.000</div>
             </div>
-            <div class="insight-card">
-                <div class="insight-value" id="monthly-invoiced">0</div>
-                <div class="insight-label">Invoiced</div>
+            <div class="commission-steps" style="margin-top:0;border-top:0;padding-top:0;">
+                <div class="commission-step is-hidden" id="coordinator-paid-row">
+                    <span class="commission-step-label">Paid</span>
+                    <span class="commission-step-value is-paid" id="coordinator-paid">0.000</span>
+                </div>
+                <div class="commission-step is-hidden" id="coordinator-pending-row">
+                    <span class="commission-step-label">Pending</span>
+                    <span class="commission-step-value is-pending" id="coordinator-pending">0.000</span>
+                </div>
             </div>
-            <div class="insight-card">
-                <div class="insight-value" id="monthly-success">0%</div>
-                <div class="insight-label">Success Rate</div>
+            <div class="coordinator-stats">
+                <div class="coordinator-stat">
+                    <div class="coordinator-stat-value" id="coordinator-visits">0</div>
+                    <div class="coordinator-stat-label">Visits</div>
+                </div>
+                <div class="coordinator-stat">
+                    <div class="coordinator-stat-value" id="coordinator-visitor-count">0</div>
+                    <div class="coordinator-stat-label">Visitors</div>
+                </div>
+                <div class="coordinator-stat">
+                    <div class="coordinator-stat-value" id="coordinator-qualified-count">0</div>
+                    <div class="coordinator-stat-label">Qualified</div>
+                </div>
             </div>
-            <div class="insight-card">
-                <div class="insight-value" id="monthly-invoice-value">0.000</div>
-                <div class="insight-label">Invoice Value</div>
+            <div class="commission-note is-hidden" id="coordinator-note"></div>
+        </div>
+        <div class="section-card list-section is-hidden" id="coordinator-visitors-section">
+            <button class="list-head" type="button" onclick="toggle_visit_section('coordinator')">
+                <span class="insight-block-title">Per visitor calculation</span>
+                <span class="list-head-right">
+                    <span class="insight-block-note" id="coordinator-visitors-count"></span>
+                    <span class="list-chevron"><svg class="ws-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+                </span>
+            </button>
+            <div class="invoice-list" id="coordinator-visitors-list"></div>
+            <button class="list-more is-hidden" type="button" id="coordinator-visitors-more" onclick="show_more_visits('coordinator')"></button>
+        </div>
+        <div class="commission-card is-hidden" id="commission-card">
+            <div class="commission-head">
+                <div>
+                    <div class="commission-title">Commission</div>
+                    <div class="commission-period" id="commission-period"></div>
+                </div>
+                <div class="commission-amount" id="commission-amount">0.000</div>
             </div>
-            <div class="insight-card" id="monthly-commission-card">
-                <div class="insight-value" id="monthly-commission">0.000</div>
-                <div class="insight-label" id="monthly-commission-label">Commission</div>
+            <div class="commission-gate">
+                <div class="commission-gate-row">
+                    <span id="commission-gate-label">Visits</span>
+                    <span class="commission-gate-count" id="commission-gate-count">0 / 0</span>
+                </div>
+                <div class="commission-track" id="commission-track"><span id="commission-track-fill"></span></div>
             </div>
-            <div class="insight-card">
-                <div class="insight-value" id="monthly-avg">0</div>
-                <div class="insight-label">Avg Visits / Day</div>
+            <div class="commission-steps">
+                <div class="commission-step">
+                    <span class="commission-step-label">Success rate</span>
+                    <span class="commission-step-value" id="commission-success">0%</span>
+                </div>
+                <div class="commission-step">
+                    <span class="commission-step-label">Invoice value</span>
+                    <span class="commission-step-value" id="commission-value">0.000</span>
+                </div>
+                <div class="commission-step is-total">
+                    <span class="commission-step-label" id="commission-share-label">Commission rate</span>
+                    <span class="commission-step-value" id="commission-share">0.000</span>
+                </div>
+                <div class="commission-step is-hidden" id="commission-paid-row">
+                    <span class="commission-step-label">Paid</span>
+                    <span class="commission-step-value is-paid" id="commission-paid">0.000</span>
+                </div>
+                <div class="commission-step is-hidden" id="commission-pending-row">
+                    <span class="commission-step-label">Pending</span>
+                    <span class="commission-step-value is-pending" id="commission-pending">0.000</span>
+                </div>
             </div>
-            <div class="insight-card">
-                <div class="insight-value" id="monthly-ordered">0</div>
-                <div class="insight-label">Ordered</div>
+            <div class="commission-note is-hidden" id="commission-note"></div>
+        </div>
+        <div class="section-card" id="performance-section">
+            <div class="insight-block-head">
+                <div class="insight-block-title">Performance</div>
+                <div class="insight-block-note" id="insight-period-note"></div>
             </div>
-            <div class="insight-card">
-                <div class="insight-value" id="monthly-lost-expired">0 / 0</div>
-                <div class="insight-label">Lost / Expired</div>
+            <div class="insight-grid">
+                <button class="insight-card is-tappable" type="button" onclick="jump_to_visit_section('all')">
+                    <span class="insight-value" id="monthly-total">0</span>
+                    <span class="insight-label">Visits Done</span>
+                </button>
+                <div class="insight-card">
+                    <div class="insight-value" id="monthly-invoiced">0</div>
+                    <div class="insight-label">Invoiced</div>
+                </div>
+                <div class="insight-card">
+                    <div class="insight-value" id="monthly-success">0%</div>
+                    <div class="insight-label">Success Rate</div>
+                </div>
+                <div class="insight-card">
+                    <div class="insight-value" id="monthly-invoice-value">0.000</div>
+                    <div class="insight-label">Invoice Value</div>
+                </div>
+            </div>
+            <div class="day-pill-row" style="margin-top:12px;">
+                <div class="day-pill is-hidden" id="monthly-upcoming-pill"><strong id="monthly-upcoming">0</strong> Upcoming</div>
+                <div class="day-pill"><strong id="monthly-ordered">0</strong> Ordered</div>
+                <div class="day-pill"><strong id="monthly-lost-expired">0 / 0</strong> Lost / Expired</div>
+                <div class="day-pill"><strong id="monthly-avg">0</strong> Avg / Day</div>
             </div>
         </div>
-        <div class="section-card invoice-list-card is-hidden" id="invoiced-visits-card">
-            <div class="profile-title">Invoiced service visits</div>
-            <div class="profile-subtitle">Visits from this month that have submitted invoices.</div>
+        <div class="section-card list-section" id="invoiced-section">
+            <button class="list-head" type="button" onclick="toggle_visit_section('invoiced')">
+                <span class="insight-block-title">Invoiced service visits</span>
+                <span class="list-head-right">
+                    <span class="insight-block-note" id="invoiced-visits-count"></span>
+                    <span class="list-chevron"><svg class="ws-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+                </span>
+            </button>
             <div class="invoice-list" id="invoiced-visits-list"></div>
+            <button class="list-more is-hidden" type="button" id="invoiced-more" onclick="show_more_visits('invoiced')"></button>
+        </div>
+        <div class="section-card list-section" id="all-visits-section">
+            <button class="list-head" type="button" onclick="toggle_visit_section('all')">
+                <span class="insight-block-title">All service visits</span>
+                <span class="list-head-right">
+                    <span class="insight-block-note" id="all-visits-count"></span>
+                    <span class="list-chevron"><svg class="ws-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+                </span>
+            </button>
+            <div class="invoice-list" id="all-visits-list"></div>
+            <button class="list-more is-hidden" type="button" id="all-visits-more" onclick="show_more_visits('all')"></button>
+        </div>
         </div>
     </section>
 
@@ -2174,6 +2609,7 @@
 <div class="sheet-backdrop" id="action-sheet">
     <div class="sheet">
         <h3 id="sheet-title"></h3>
+        <p class="sheet-warning is-hidden" id="sheet-warning"></p>
         <input class="file-input" id="sheet-files" type="file" multiple>
         <div class="upload-panel" id="sheet-upload-panel">
             <div class="upload-head">
@@ -2376,7 +2812,11 @@ frappe.ready(function () {
     setup_driver_app();
     load_driver_context();
     load_driver_visits();
-    load_followup_quotations(false);
+
+    // Quotations and Insights load on first visit to their tab, not at startup.
+    if (driver_state.active_tab === "followup") {
+        load_followup_quotations(false);
+    }
 });
 
 function setup_pwa() {
@@ -2616,35 +3056,30 @@ function refresh_current_view() {
     }
 
     if (driver_state.active_tab === "insights") {
-        render_insights_panel();
+        load_monthly_insights(true);
         return;
     }
 
     load_driver_visits();
 }
 
+// The Insights tab is monthly only - the day-by-day view lives on the Visits tab and was
+// duplicating it here. Opening the tab loads the chosen month straight away.
 function render_insights_panel() {
-    var visits = driver_state.visits || [];
-    var completed = count_visits_by_state(visits, ["complete", "completed"]);
-    var pending = count_visits_by_state(visits, ["pending", "reschedule"]);
-    var lost = count_visits_by_state(visits, ["lost"]);
+    var input = document.getElementById("insight-month");
 
-    set_text("insight-total", visits.length);
-    set_text("insight-completed", completed);
-    set_text("insight-pending", pending);
-    set_text("insight-lost", lost);
-    set_text("insight-day-date", get_selected_date_label());
+    if (input && !input.value) {
+        input.value = ws_current_month();
+    }
+
+    load_monthly_insights();
 }
 
-function count_visits_by_state(visits, keywords) {
+function count_visits_by_state(visits, states) {
     var count = 0;
 
     visits.forEach(function (visit) {
-        var state = (visit.workflow_state || "").toLowerCase();
-
-        if (keywords.some(function (keyword) {
-            return state.indexOf(keyword) !== -1;
-        })) {
+        if (states.indexOf(visit.workflow_state || "") !== -1) {
             count += 1;
         }
     });
@@ -2657,7 +3092,7 @@ function render_profile_panel() {
     var visits = driver_state.visits || [];
     var full_name = driver.full_name || driver.user || "Driver";
     var initials = get_initials(full_name);
-    var active = count_visits_by_state(visits, ["ready", "out"]);
+    var active = count_visits_by_state(visits, ["Ready To Visit", "Out For Visit"]);
 
     render_profile_avatar(driver.user_image, initials);
     set_text("profile-name", full_name);
@@ -2982,15 +3417,23 @@ function url_base64_to_uint8_array(base64_string) {
     return output_array;
 }
 
-function load_monthly_insights() {
-    var month = document.getElementById("insight-month").value || ws_current_month();
+var INSIGHTS_CACHE_TTL_MS = 60000;
 
-    if (driver_state.insights_cache[month]) {
-        render_monthly_insights(driver_state.insights_cache[month]);
+function load_monthly_insights(force) {
+    var month = document.getElementById("insight-month").value || ws_current_month();
+    var cached = driver_state.insights_cache[month];
+    var is_current_month = month === ws_current_month();
+
+    // A past month stops changing once its cutoff passes, so it is cached indefinitely.
+    // The running month is re-fetched after a short TTL: fresh enough to trust, without
+    // hitting the API every time the tab is opened.
+    if (!force && cached && (!is_current_month
+        || (new Date().getTime() - (cached.loaded_at || 0)) < INSIGHTS_CACHE_TTL_MS)) {
+        render_monthly_insights(cached);
         return;
     }
 
-    set_monthly_insights_loading(true, "Loading monthly insights...");
+    set_monthly_insights_loading(true, "Loading " + format_month_label(month) + "...");
 
     frappe.call({
         method: "worldshading.api.driver_visit.get_driver_monthly_insights",
@@ -3000,6 +3443,7 @@ function load_monthly_insights() {
         },
         callback: function (r) {
             var data = r.message || {};
+            data.loaded_at = new Date().getTime();
             driver_state.insights_cache[month] = data;
             render_monthly_insights(data);
         },
@@ -3009,10 +3453,22 @@ function load_monthly_insights() {
     });
 }
 
+function format_month_label(month) {
+    var parts = (month || "").split("-");
+
+    if (parts.length !== 2) {
+        return month || "";
+    }
+
+    var names = ["January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"];
+
+    return (names[parseInt(parts[1], 10) - 1] || "") + " " + parts[0];
+}
+
 function set_monthly_insights_loading(is_loading, message) {
     var state = document.getElementById("monthly-insights-state");
-    var grid = document.getElementById("monthly-insights-grid");
-    var invoiced_card = document.getElementById("invoiced-visits-card");
+    var results = document.getElementById("monthly-insights-results");
     var button = document.getElementById("insight-load-button");
 
     if (state) {
@@ -3020,12 +3476,8 @@ function set_monthly_insights_loading(is_loading, message) {
         state.classList.toggle("is-hidden", !message);
     }
 
-    if (grid && is_loading) {
-        grid.classList.add("is-hidden");
-    }
-
-    if (invoiced_card && is_loading) {
-        invoiced_card.classList.add("is-hidden");
+    if (results && is_loading) {
+        results.classList.add("is-hidden");
     }
 
     if (button) {
@@ -3037,53 +3489,395 @@ function set_monthly_insights_loading(is_loading, message) {
 function render_monthly_insights(data) {
     set_monthly_insights_loading(false, "");
 
-    document.getElementById("monthly-insights-grid").classList.remove("is-hidden");
+    document.getElementById("monthly-insights-results").classList.remove("is-hidden");
+
+    set_text("insight-period-note", format_month_label(data.month));
 
     set_text("monthly-total", data.total_visits || 0);
     set_text("monthly-invoiced", data.invoiced_visits || 0);
     set_text("monthly-success", format_percent_value(data.success_percent || 0));
     set_text("monthly-invoice-value", format_money_value(data.invoice_value || 0, data.currency));
-    set_text("monthly-commission", format_money_value(data.commission_amount || 0, data.currency));
-    set_text("monthly-commission-label", "Commission (" + format_percent_value(data.commission_percentage || 0) + ")");
     set_text("monthly-avg", format_decimal_value(data.avg_visits_per_day || 0));
     set_text("monthly-ordered", data.ordered_count || 0);
     set_text("monthly-lost-expired", (data.lost_count || 0) + " / " + (data.expired_count || 0));
-    render_invoiced_visit_list(data.invoiced_visit_list || [], data.currency);
 
-    document.getElementById("monthly-commission-card").classList.toggle(
-        "is-hidden",
-        !(data.commission_percentage || data.commission_amount)
-    );
+    // Visits booked later this month: shown so the count that dropped out of "Visits
+    // Done" is still visible, rather than appearing to have vanished.
+    var upcoming = (data.commission || {}).upcoming_visits || 0;
+    set_text("monthly-upcoming", upcoming);
+    document.getElementById("monthly-upcoming-pill").classList.toggle("is-hidden", !upcoming);
+
+    render_commission_card(data.commission, data.currency, !!data.coordinator);
+    render_visit_sections(data);
 }
 
-function render_invoiced_visit_list(visits, currency) {
-    var card = document.getElementById("invoiced-visits-card");
-    var list = document.getElementById("invoiced-visits-list");
+var VISIT_LIST_INITIAL = 3;
+var VISIT_LIST_STEP = 10;
 
-    if (!card || !list) {
+var VISIT_SECTIONS = {
+    invoiced: {
+        list_id: "invoiced-visits-list",
+        count_id: "invoiced-visits-count",
+        more_id: "invoiced-more",
+        section_id: "invoiced-section",
+        empty: "No invoiced service visits for this month.",
+        render: render_visit_row,
+        unit: "visit"
+    },
+    all: {
+        list_id: "all-visits-list",
+        count_id: "all-visits-count",
+        more_id: "all-visits-more",
+        section_id: "all-visits-section",
+        empty: "No service visits for this month.",
+        render: render_visit_row,
+        unit: "visit"
+    },
+    coordinator: {
+        list_id: "coordinator-visitors-list",
+        count_id: "coordinator-visitors-count",
+        more_id: "coordinator-visitors-more",
+        section_id: "coordinator-visitors-section",
+        empty: "No visits coordinated this month.",
+        render: render_coordinator_visitor_row,
+        unit: "visitor"
+    }
+};
+
+function render_visit_sections(data) {
+    var visits = data.visit_list || [];
+    var coordinator = data.coordinator || null;
+    // Captured before the reassignment below, so a collapsed section stays collapsed
+    // when the month is reloaded.
+    var previous = driver_state.visit_sections || {};
+
+    function was_collapsed(key, fallback) {
+        return previous[key] ? previous[key].collapsed : fallback;
+    }
+
+    // The whole month is already in memory, so "show more" is a local reveal - it never
+    // goes back to the server.
+    driver_state.visit_sections = {
+        invoiced: {
+            rows: visits.filter(function (visit) { return visit.is_invoiced; }),
+            limit: VISIT_LIST_INITIAL,
+            collapsed: was_collapsed("invoiced", false)
+        },
+        all: {
+            rows: visits,
+            limit: VISIT_LIST_INITIAL,
+            collapsed: was_collapsed("all", true)
+        },
+        coordinator: {
+            rows: coordinator ? (coordinator.visitors || []) : [],
+            limit: VISIT_LIST_INITIAL,
+            collapsed: was_collapsed("coordinator", false)
+        }
+    };
+
+    driver_state.visit_sections_currency = data.currency;
+
+    apply_insights_mode(!!coordinator);
+    render_coordinator_card(coordinator, data.currency);
+    render_visit_section("invoiced");
+    render_visit_section("all");
+    render_visit_section("coordinator");
+}
+
+function render_coordinator_card(coordinator, currency) {
+    var card = document.getElementById("coordinator-card");
+    var section = document.getElementById("coordinator-visitors-section");
+
+    if (!card || !section) return;
+
+    // Nothing here for anyone whose staff row is not a Coordinator.
+    if (!coordinator) {
+        card.classList.add("is-hidden");
+        section.classList.add("is-hidden");
+        return;
+    }
+
+    card.classList.remove("is-hidden");
+    section.classList.remove("is-hidden");
+
+    var visitors = coordinator.visitors || [];
+    var blocked = visitors.filter(function (v) { return !v.is_qualified; }).length;
+
+    set_text("coordinator-amount", format_money_value(coordinator.total_amount || 0, currency));
+    set_text("coordinator-period", format_month_label(coordinator.month));
+    render_settlement_rows("coordinator", coordinator, currency);
+    set_text("coordinator-visits", coordinator.coordinated_visits || 0);
+    set_text("coordinator-visitor-count", visitors.length);
+    set_text("coordinator-qualified-count", visitors.length - blocked);
+
+    document.getElementById("coordinator-amount")
+        .classList.toggle("is-blocked", !(coordinator.total_amount > 0));
+
+    var note = document.getElementById("coordinator-note");
+    var message = "";
+
+    if (blocked) {
+        message = blocked + (blocked === 1 ? " visitor has" : " visitors have")
+            + " not reached the minimum visits yet.";
+    }
+    // The "Closes <date>" line in the header already covers the still-open month.
+
+    note.classList.toggle("is-hidden", !message);
+    note.textContent = message;
+}
+
+// Paid / Pending lines against the payout ledger. The running month is still accruing,
+// so it shows neither; a settled month shows a green Paid line; anything owed shows an
+// orange Pending line (with Paid above it when partly settled).
+function render_settlement_rows(prefix, block, currency) {
+    var paid_row = document.getElementById(prefix + "-paid-row");
+    var pending_row = document.getElementById(prefix + "-pending-row");
+
+    if (!paid_row || !pending_row) return;
+
+    var paid = block.paid_amount || 0;
+    var pending = block.pending_amount || 0;
+    // A payment shows as soon as it exists, even mid-month (the run is often posted on
+    // the last day). Pending only appears once the month is over - before that the
+    // difference is still accruing, not owed.
+    var show_paid = paid > 0.004;
+    var show_pending = !block.is_current_month && pending > 0.004;
+
+    set_text(prefix + "-paid", format_money_value(paid, currency)
+        + (show_paid && !show_pending ? " ✓" : ""));
+    set_text(prefix + "-pending", format_money_value(pending, currency));
+    paid_row.classList.toggle("is-hidden", !show_paid);
+    pending_row.classList.toggle("is-hidden", !show_pending);
+}
+
+// A coordinator's Insights page is entirely about the visitors she schedules, so her own
+// visitor-side blocks are hidden. For everyone else nothing here changes.
+function apply_insights_mode(is_coordinator) {
+    // Deliberately excludes commission-card: render_commission_card owns that one. If
+    // this toggled it too, the later call here would un-hide it in All-visitors mode and
+    // leave the previously selected visitor's figures on screen.
+    ["performance-section", "invoiced-section", "all-visits-section"].forEach(function (id) {
+        var element = document.getElementById(id);
+
+        if (element) {
+            element.classList.toggle("is-hidden", !!is_coordinator);
+        }
+    });
+}
+
+function render_coordinator_visitor_row(visitor, currency) {
+    // Her effective rate on this visitor's invoice value, mirroring the visitor card.
+    var rate = (visitor.invoice_value || 0)
+        ? (visitor.amount || 0) / visitor.invoice_value * 100 : 0;
+    var reason = visitor.is_qualified
+        ? "Rate " + parseFloat(rate).toFixed(2) + "%"
+        : (visitor.status === "below_threshold"
+            ? visitor.visits_short_of_minimum + " more needed"
+            : "Not on commission");
+    var progress = "";
+
+    if (!visitor.is_qualified && visitor.status === "below_threshold" && visitor.min_monthly_visits) {
+        var percent = Math.min(
+            (visitor.total_visits || 0) / visitor.min_monthly_visits * 100, 100);
+        progress = `
+            <span class="invoice-meta">${visitor.total_visits} / ${visitor.min_monthly_visits} visits</span>
+            <span class="visitor-progress"><span style="width:${percent}%"></span></span>
+        `;
+    }
+
+    return `
+        <div class="invoice-row visitor-row${visitor.is_qualified ? "" : " is-blocked"}">
+            <span class="visitor-avatar">${escape_html(get_initials(visitor.full_name || visitor.user))}</span>
+            <span class="invoice-visit">
+                <span class="invoice-customer">${escape_html(visitor.full_name || visitor.user)}</span>
+                <span class="invoice-meta">${visitor.total_visits} visits · ${visitor.converted_visits} invoiced · ${escape_html(format_percent_value(visitor.success_percent || 0))}</span>
+                <span class="invoice-meta">Invoice ${escape_html(format_money_value(visitor.invoice_value || 0, currency))}</span>
+                ${progress}
+            </span>
+            <span class="invoice-docs">
+                <span class="invoice-doc">
+                    <span class="invoice-number">${escape_html(reason)}</span>
+                    <span class="invoice-amount${visitor.is_qualified ? "" : " is-muted"}">${escape_html(format_money_value(visitor.amount || 0, currency))}</span>
+                </span>
+            </span>
+        </div>
+    `;
+}
+
+function render_visit_section(key) {
+    var config = VISIT_SECTIONS[key];
+    var state = (driver_state.visit_sections || {})[key];
+
+    if (!config || !state) return;
+
+    var section = document.getElementById(config.section_id);
+    var list = document.getElementById(config.list_id);
+    var more = document.getElementById(config.more_id);
+    var rows = state.rows || [];
+    var shown = rows.slice(0, state.limit);
+    var remaining = rows.length - shown.length;
+
+    if (section) {
+        section.classList.toggle("is-collapsed", !!state.collapsed);
+    }
+
+    var unit = config.unit || "visit";
+    set_text(config.count_id, rows.length
+        ? rows.length + " " + unit + (rows.length === 1 ? "" : "s") : "");
+
+    if (list) {
+        list.innerHTML = rows.length
+            ? shown.map(function (row) {
+                return config.render(row, driver_state.visit_sections_currency);
+            }).join("")
+            : '<div class="empty-state" style="margin-top:0;">' + escape_html(config.empty) + "</div>";
+    }
+
+    if (more) {
+        more.classList.toggle("is-hidden", remaining <= 0);
+        more.textContent = remaining > 0
+            ? "Show " + Math.min(remaining, VISIT_LIST_STEP) + " more of " + remaining
+            : "";
+    }
+}
+
+function toggle_visit_section(key) {
+    var state = (driver_state.visit_sections || {})[key];
+
+    if (!state) return;
+
+    state.collapsed = !state.collapsed;
+    render_visit_section(key);
+}
+
+function jump_to_visit_section(key) {
+    var config = VISIT_SECTIONS[key];
+    var state = (driver_state.visit_sections || {})[key];
+
+    if (!config || !state) return;
+
+    state.collapsed = false;
+    state.limit = VISIT_LIST_INITIAL;
+    render_visit_section(key);
+
+    var section = document.getElementById(config.section_id);
+
+    if (!section) return;
+
+    // The app header is position:sticky, so scrollIntoView would park the section
+    // underneath it. Offset by the header's measured height instead of a fixed guess,
+    // since the greeting line can wrap.
+    var header = document.querySelector(".app-header");
+    var offset = header ? header.getBoundingClientRect().height : 0;
+    var top = section.getBoundingClientRect().top + window.pageYOffset - offset - 12;
+
+    window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+}
+
+function show_more_visits(key) {
+    var state = (driver_state.visit_sections || {})[key];
+
+    if (!state) return;
+
+    state.limit += VISIT_LIST_STEP;
+    render_visit_section(key);
+}
+
+function render_visit_row(visit, currency) {
+    return `
+        <button class="invoice-row" type="button" onclick="open_visit_details('${escape_attr(visit.service_visit)}')">
+            <span class="invoice-visit">
+                <span class="invoice-customer">${escape_html(visit.customer_name || visit.service_visit)}</span>
+                <span class="invoice-meta">${escape_html(ws_format_date(visit.visit_date))} · ${escape_html(visit.visit_type || "Service Visit")} · ${escape_html(visit.service_visit || "")}</span>
+            </span>
+            ${(visit.invoices || []).length
+                ? `<span class="invoice-docs">${render_invoice_docs(visit, currency)}</span>`
+                : `<span class="visit-row-state"><span class="state-badge ${state_class(visit.workflow_state)}">${escape_html(visit.workflow_state || "")}</span></span>`}
+        </button>
+    `;
+}
+
+function render_commission_card(commission, currency, is_coordinator) {
+    var card = document.getElementById("commission-card");
+
+    if (!card) return;
+
+    // Hidden for anyone not on the commission scheme, for a coordinator (their earnings
+    // are on the coordinator card), and for the combined All-visitors view, which has no
+    // single person to attribute commission to.
+    if (is_coordinator || !commission || !commission.commission_enabled) {
+        card.classList.add("is-hidden");
         return;
     }
 
     card.classList.remove("is-hidden");
 
-    if (!visits.length) {
-        list.innerHTML = '<div class="empty-state" style="margin-top:0;">No invoiced service visits for this month.</div>';
-        return;
+    var qualified = !!commission.is_qualified;
+    var minimum = commission.min_monthly_visits || 0;
+    var visits = commission.total_visits || 0;
+    var short_by = commission.visits_short_of_minimum || 0;
+    var progress = minimum ? Math.min((visits / minimum) * 100, 100) : 100;
+
+    set_text("commission-amount", format_money_value(commission.visitor_amount || 0, currency));
+    document.getElementById("commission-amount").classList.toggle("is-blocked", !qualified);
+
+    set_text("commission-period", format_month_label(commission.month));
+    render_settlement_rows("commission", commission, currency);
+
+    set_text("commission-gate-label", qualified ? "Minimum visits met" : "Visits");
+    set_text("commission-gate-count", visits + " / " + minimum);
+    document.getElementById("commission-track-fill").style.width = progress + "%";
+    document.getElementById("commission-track").classList.toggle("is-blocked", !qualified);
+
+    set_text("commission-success", format_percent_value(commission.success_percent || 0)
+        + "  (" + (commission.converted_visits || 0) + " of " + visits + ")");
+    set_text("commission-value", format_money_value(commission.invoice_value || 0, currency));
+
+    // The label shows the EFFECTIVE rate on invoice value (pool % x success x share),
+    // not the internal 60% pool split - "60%" read as 60% of the invoice and set
+    // expectations ~60x too high. For husain: 10% x 16.67% x 60% = 1%.
+    var effective_rate = (commission.pool_percent || 0) / 100
+        * (commission.success_percent || 0)
+        * (commission.visitor_share_percent || 0) / 100;
+    // Fixed two decimals rather than format_percent_value, which strips ".00" - at a
+    // ~1% effective rate the decimals are the meaningful part.
+    set_text("commission-share-label", "Commission rate ("
+        + parseFloat(effective_rate || 0).toFixed(2) + "%)");
+    set_text("commission-share", format_money_value(commission.visitor_amount || 0, currency));
+
+    var note = document.getElementById("commission-note");
+    var message = "";
+
+    if (!qualified && short_by) {
+        message = short_by + " more " + (short_by === 1 ? "visit" : "visits")
+            + " this month to qualify for commission.";
+    }
+    // For a qualified visitor the "Closes <date>" line in the header already says the
+    // month is still open - no note needed, keeps the card compact.
+
+    note.classList.toggle("is-hidden", !message);
+    note.textContent = message;
+}
+
+function render_invoice_docs(visit, currency) {
+    // Each invoice carries its own value, so a visit invoiced twice shows both numbers
+    // with their own amounts instead of one merged total.
+    var invoices = visit.invoices || [];
+
+    if (!invoices.length) {
+        invoices = [{
+            sales_invoice: visit.sales_invoice || "",
+            net_total: visit.invoice_net_total || 0,
+            is_return: 0
+        }];
     }
 
-    list.innerHTML = visits.map(function (visit) {
+    return invoices.map(function (invoice) {
         return `
-            <button class="invoice-row" type="button" onclick="open_visit_details('${escape_attr(visit.service_visit)}')">
-                <span>
-                    <span class="invoice-customer">${escape_html(visit.customer_name || visit.service_visit)}</span>
-                    <span class="invoice-meta">${escape_html(ws_format_date(visit.visit_date))} · ${escape_html(visit.visit_type || "Service Visit")}</span>
-                    <span class="invoice-meta">${escape_html(visit.service_visit || "")}</span>
-                </span>
-                <span>
-                    <span class="invoice-amount">${escape_html(format_money_value(visit.invoice_net_total || 0, currency))}</span>
-                    <span class="invoice-number">${escape_html(visit.sales_invoice || "")}</span>
-                </span>
-            </button>
+            <span class="invoice-doc">
+                <span class="invoice-number">${escape_html(invoice.sales_invoice || "")}${invoice.is_return ? " · Return" : ""}</span>
+                <span class="invoice-amount${invoice.is_return ? " is-return" : ""}">${escape_html(format_money_value(invoice.net_total || 0, currency))}</span>
+            </span>
         `;
     }).join("");
 }
@@ -3143,6 +3937,11 @@ function load_driver_context() {
                 if (driver_state.active_tab === "insights") {
                     render_insights_panel();
                 }
+            } else if (driver_state.active_tab === "insights") {
+                // Opening the app straight onto a restored Insights tab: the panel is
+                // shown but nothing has loaded it, so it would render empty. Deferred to
+                // this callback so the visitor context is known before the call goes out.
+                render_insights_panel();
             }
         },
         error: function (r) {
@@ -3635,7 +4434,6 @@ function load_driver_visits(append) {
             driver_state.visit_start = driver_state.visits.length;
             build_filter_options();
             render_visit_list();
-            render_insights_panel();
             render_profile_panel();
         },
         error: function (r) {
@@ -3937,7 +4735,7 @@ function build_followup_filter_options() {
 }
 
 function get_followup_workflow_states() {
-    return ["Pending Call - Visitor", "Call Outcome - Visitor", "Ordered"];
+    return ["Pending Call - Visitor", "Call Outcome - Visitor", "Pending Payment", "Ordered"];
 }
 
 function set_selected_followup_state(state) {
@@ -4890,6 +5688,7 @@ function action_icon(action_key) {
     if (action_key === "lost") return "x";
     if (action_key === "follow_up") return "calendar";
     if (action_key === "request_payment") return "payment";
+    if (action_key === "book_revisit") return "calendar";
     return "check";
 }
 
@@ -5073,6 +5872,7 @@ function open_action_sheet(action_key) {
     document.getElementById("sheet-followup-panel").classList.remove("active");
     document.getElementById("sheet-lost-panel").classList.remove("active");
     document.getElementById("sheet-manual-call").classList.remove("active");
+    document.getElementById("sheet-warning").classList.add("is-hidden");
     render_sheet_files();
     set_sheet_processing(false);
     document.getElementById("action-sheet").classList.add("active");
@@ -5091,7 +5891,17 @@ function open_quotation_action_sheet(action_key) {
     driver_state.pending_files = [];
     document.getElementById("sheet-title").textContent = action.label;
     document.getElementById("sheet-note").value = "";
-    document.getElementById("sheet-note").placeholder = action_key === "lost" ? "Lost note (optional)" : "Comment (optional)";
+    document.getElementById("sheet-note").placeholder = action_key === "lost"
+        ? "Lost note (optional)"
+        : action_key === "book_revisit"
+            ? "Why is a revisit needed? (required)"
+            : "Comment (optional)";
+
+    var warning = document.getElementById("sheet-warning");
+    warning.textContent = action_key === "book_revisit"
+        ? "This will close this quotation as LOST (reason: Revisit Requested) and create a new Service Visit."
+        : "";
+    warning.classList.toggle("is-hidden", action_key !== "book_revisit");
     document.getElementById("sheet-files").value = "";
     document.getElementById("sheet-files").onchange = null;
     document.getElementById("sheet-upload-panel").classList.remove("active");
@@ -5383,6 +6193,11 @@ function submit_quotation_action(already_called_customer, already_called_note) {
         return;
     }
 
+    if (action.key === "book_revisit" && !note) {
+        frappe.msgprint("Comment is required - explain why a revisit is needed.");
+        return;
+    }
+
     set_sheet_processing(true, "Updating quotation...");
 
     frappe.call({
@@ -5400,6 +6215,13 @@ function submit_quotation_action(already_called_customer, already_called_note) {
             driver_state.current_quotation = r.message;
             render_quotation_detail(r.message);
             load_followup_quotations(true);
+
+            if (r.message && r.message.revisit_visit) {
+                frappe.show_alert({
+                    message: "Revisit booked: " + r.message.revisit_visit,
+                    indicator: "green"
+                });
+            }
         },
         error: function () {
             set_sheet_processing(false);

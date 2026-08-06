@@ -26,6 +26,8 @@
   "time",
   "validity_date",
   "assigned_users",
+  "visit_coordinator",
+  "is_direct_quotation",
   "customer_source",
   "source",
   "attachments_section",
@@ -484,10 +486,25 @@
    "fieldname": "project_name",
    "fieldtype": "Data",
    "label": "Project Name"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "visit_coordinator",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Visit Coordinator",
+   "options": "User"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "is_direct_quotation",
+   "fieldtype": "Check",
+   "label": "Is Direct Quotation"
   }
  ],
  "is_submittable": 1,
- "modified": "2026-07-13 09:54:57.831875",
+ "modified": "2026-08-05 15:32:06.200777",
  "modified_by": "hilal@worldshading.com",
  "module": "Worldshading",
  "name": "Service Visit",

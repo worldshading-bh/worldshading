@@ -22,11 +22,6 @@ frappe.query_reports["Employee Service Visit Performance"] = {
             reqd: 1
         },
         {
-            fieldname: "commission_percentage",
-            label: __("Commission %"),
-            fieldtype: "Float"
-        },
-        {
             fieldname: "city",
             label: __("City"),
             fieldtype: "Link",
@@ -60,7 +55,7 @@ frappe.query_reports["Employee Service Visit Performance"] = {
             return value;
         }
 
-        if (data.is_total_row) {
+        if (data.is_total_row || data.is_month_row) {
             return '<span style="font-weight:700;">' + value + '</span>';
         }
 
@@ -108,6 +103,10 @@ function get_total_row(rows) {
 }
 
 function get_summary_html(total_row) {
+    if (total_row.summary_mode === "coordinator") {
+        return get_coordinator_summary_html(total_row);
+    }
+
     var cards = [
         {
             label: __("Total Visits"),
@@ -130,10 +129,23 @@ function get_summary_html(total_row) {
             indicator: "green"
         },
         {
-            label: __("Commission") + " (" + format_percent(total_row.summary_commission_percentage) + ")",
-            value: format_summary_currency(total_row.summary_commission_amount),
-            indicator: "green",
-            hidden: !flt(total_row.summary_commission_percentage)
+            // Pool = invoice value x pool % x success rate. Not a flat percentage.
+            label: __("Commission Pool") + " (" + format_percent(total_row.summary_pool_percent) + " x success)",
+            value: format_summary_currency(total_row.summary_pool_amount),
+            indicator: "blue",
+            hidden: !total_row.summary_commission_status
+        },
+        {
+            label: __("Visitor Share"),
+            value: format_summary_currency(total_row.summary_visitor_amount),
+            indicator: total_row.summary_commission_status === "qualified" ? "green" : "grey",
+            hidden: !total_row.summary_commission_status
+        },
+        {
+            label: __("Coordinator Share"),
+            value: format_summary_currency(total_row.summary_coordinator_amount),
+            indicator: total_row.summary_commission_status === "qualified" ? "green" : "grey",
+            hidden: !total_row.summary_commission_status
         },
         {
             label: __("Avg Visits / Day"),
@@ -168,6 +180,49 @@ function get_summary_html(total_row) {
             continue;
         }
 
+        html += get_summary_card_html(cards[i]);
+    }
+    html += '</div>';
+
+    return html;
+}
+
+function get_coordinator_summary_html(total_row) {
+    var cards = [
+        {
+            label: __("Total Commission"),
+            value: format_summary_currency(total_row.summary_total_amount),
+            indicator: "green"
+        },
+        {
+            label: __("Visits Coordinated"),
+            value: total_row.summary_coordinated_visits || 0,
+            indicator: "blue"
+        },
+        {
+            label: __("Qualified Sources"),
+            value: (total_row.summary_qualified || 0) + " of " + (total_row.summary_sources || 0),
+            indicator: "blue"
+        },
+        {
+            label: __("Direct Quotations"),
+            value: (total_row.summary_direct_visits || 0) + " / " + (total_row.summary_direct_invoiced || 0) + " " + __("invoiced"),
+            indicator: "blue"
+        },
+        {
+            label: __("Paid"),
+            value: format_summary_currency(total_row.summary_paid),
+            indicator: "green"
+        },
+        {
+            label: __("Pending"),
+            value: format_summary_currency(total_row.summary_pending),
+            indicator: flt(total_row.summary_pending) > 0 ? "orange" : "green"
+        }
+    ];
+
+    var html = '<div class="employee-service-visit-summary">';
+    for (var i = 0; i < cards.length; i++) {
         html += get_summary_card_html(cards[i]);
     }
     html += '</div>';

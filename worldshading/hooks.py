@@ -302,7 +302,12 @@ doc_events = {
     },
     "Service Visit": {
         "before_insert": "worldshading.worldshading.doctype.service_visit.service_visit.process_webform_customer",
-        "after_insert": "worldshading.worldshading.doctype.service_visit.service_visit.merge_webform_reference_images"
+        "after_insert": "worldshading.worldshading.doctype.service_visit.service_visit.merge_webform_reference_images",
+        "before_submit": "worldshading.worldshading.doctype.service_visit.service_visit.set_visit_coordinator_on_submit"
+    },
+    "Journal Entry": {
+        "on_trash": "worldshading.worldshading.doctype.commission_payout.commission_payout.unlink_journal_entry",
+        "before_cancel": "worldshading.worldshading.doctype.commission_payout.commission_payout.unlink_journal_entry"
     }
 }
 

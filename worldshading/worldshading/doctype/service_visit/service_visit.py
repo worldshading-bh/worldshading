@@ -15,6 +15,13 @@ class ServiceVisit(Document):
     def validate(self):
         set_skip_confirmation(self)
 
+    def before_submit(self):
+        auto_flag_direct_quotation(self)
+
+    def before_update_after_submit(self):
+        stamp_coordinator_on_workflow_action(self)
+        auto_flag_direct_quotation(self)
+
 
 def get_service_visit_visitor(source):
 	for row in source.get("assigned_users") or []:
@@ -228,7 +235,7 @@ from frappe.utils import flt
 
 import frappe
 from frappe import _
-from frappe.utils import nowdate, flt, getdate, add_days
+from frappe.utils import nowdate, flt, getdate, add_days, cint
 
 from erpnext.accounts.doctype.journal_entry.journal_entry import (
     get_default_bank_cash_account
@@ -243,14 +250,104 @@ def set_skip_confirmation(doc):
         return
 
     today = getdate(nowdate())
-    tomorrow = add_days(today, 1)
+    confirmation_cutoff = add_days(today, 1)
+
+    # On Thursday, include Saturday because Friday is a weekly holiday.
+    if today.weekday() == 3:
+        confirmation_cutoff = add_days(today, 2)
+
     visit_date = getdate(doc.date)
-    doc.skip_confirmation = 1 if today <= visit_date <= tomorrow else 0
+    doc.skip_confirmation = 1 if today <= visit_date <= confirmation_cutoff else 0
 
 
 def set_value_if_field_exists(doc, fieldname, value):
     if value and doc.meta.has_field(fieldname):
         doc.set(fieldname, value)
+
+
+NEVER_SCHEDULED_STATES = (None, "", "Draft", "Pending Schedule")
+
+
+def _get_coordinator_role_users():
+    return [
+        row.user for row in frappe.get_single("WS Settings").service_visit_staff_capacity
+        if (row.get("role") or "") == "Coordinator" and cint(row.get("active")) and row.get("user")
+    ]
+
+
+def stamp_coordinator_on_workflow_action(doc):
+    """Actor-based stamping on workflow actions after submit.
+
+    A coordinator performing any state change on an unstamped visit becomes its
+    coordinator - "her click adds her name". Plain edits without a state change never
+    stamp, and an existing coordinator is never overwritten.
+    """
+    if not doc.meta.has_field("visit_coordinator") or doc.get("visit_coordinator"):
+        return
+
+    before = doc.get_doc_before_save()
+
+    if not before or before.get("workflow_state") == doc.get("workflow_state"):
+        return
+
+    if frappe.session.user in _get_coordinator_role_users():
+        doc.visit_coordinator = frappe.session.user
+
+
+def auto_flag_direct_quotation(doc, method=None):
+    """Tick is_direct_quotation when a quotation is requested without any scheduling.
+
+    Fires on the transition into Pending Quotation from Draft / Pending Schedule - the
+    verified fingerprint of the direct flow. Flags when the visit carries no real
+    visitor (Taken By empty or coordinator-only), or when the actor performing the
+    transition is a commission-enabled coordinator (their direct work is theirs even if
+    they also put their own name in Taken By). Only ever sets the flag, never clears it,
+    so a manual untick sticks.
+    """
+    if not doc.meta.has_field("is_direct_quotation") or cint(doc.get("is_direct_quotation")):
+        return
+
+    if doc.get("workflow_state") != "Pending Quotation":
+        return
+
+    before = doc.get_doc_before_save()
+    previous_state = before.get("workflow_state") if before else None
+
+    if previous_state not in NEVER_SCHEDULED_STATES:
+        return
+
+    coordinator_users = set()
+    enabled_coordinators = set()
+
+    for row in frappe.get_single("WS Settings").service_visit_staff_capacity:
+        if (row.get("role") or "") != "Coordinator" or not row.get("user"):
+            continue
+
+        coordinator_users.add(row.user)
+
+        if cint(row.get("commission_enabled")):
+            enabled_coordinators.add(row.user)
+
+    takers = set(row.user for row in doc.get("assigned_users") or [] if row.user)
+    no_real_visitor = not (takers - coordinator_users)
+
+    if no_real_visitor or frappe.session.user in enabled_coordinators:
+        doc.is_direct_quotation = 1
+
+
+def set_visit_coordinator_on_submit(doc, method=None):
+    """Stamp the coordinator ONLY when the actor doing the submit is a coordinator.
+
+    Strictly actor-based by design (user decision 2026-08-09): commission credit follows
+    the person who performed the action, never a proxy default. A cashier or web-form
+    submit leaves the field empty - the visit earns nobody's coordinator commission
+    until a coordinator acts on it (or sets the field manually).
+    """
+    if not doc.meta.has_field("visit_coordinator") or doc.get("visit_coordinator"):
+        return
+
+    if frappe.session.user in _get_coordinator_role_users():
+        doc.visit_coordinator = frappe.session.user
 
 
 @frappe.whitelist()
@@ -281,13 +378,21 @@ def update_service_visit_workflow_schedule(
         child = doc.append("assigned_users", {})
         child.user = user
 
+    # Whoever schedules the visit is its coordinator, and the coordinator share of the
+    # commission follows this field. Only stamped when empty, so re-scheduling a visit
+    # later cannot move credit off the original coordinator or rewrite a closed month.
+    # The field stays editable for the cases that never pass through here.
+    if not doc.get("visit_coordinator"):
+        set_value_if_field_exists(doc, "visit_coordinator", frappe.session.user)
+
     doc.save(ignore_permissions=True)
 
     return {
         "name": doc.name,
         "docstatus": doc.docstatus,
         "workflow_state": doc.workflow_state,
-        "skip_confirmation": doc.get("skip_confirmation")
+        "skip_confirmation": doc.get("skip_confirmation"),
+        "visit_coordinator": doc.get("visit_coordinator")
     }
 
 
