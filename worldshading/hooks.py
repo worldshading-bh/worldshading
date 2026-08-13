@@ -225,7 +225,8 @@ doctype_js = {
     "Material Request": "public/js/material_request.js",
     "Quotation": "public/js/production_bom.js",
     "Sales Order": "public/js/production_bom.js",
-    "Work Order": "public/js/work_order_team.js"
+    "Work Order": "public/js/work_order_team.js",
+    "Request for Quotation": "public/js/request_for_quotation.js"
 }
 
 
@@ -254,6 +255,10 @@ doc_events = {
         "on_submit": "worldshading.api.whatsapp.handle_whatsapp_event",
         "after_insert": "worldshading.api.whatsapp.handle_whatsapp_event",
         "on_update_after_submit": "worldshading.api.whatsapp.handle_whatsapp_event",
+    },
+    
+    "Request for Quotation": {
+        "validate": "worldshading.api.request_for_quotation.validate_supplier_item_groups"
     },
 
     "Material Request": {
