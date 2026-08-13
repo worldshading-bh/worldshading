@@ -179,6 +179,30 @@ through custom automation (e.g. split delivery notes, parent vs packed
 items handling). 
 
 
+====
+7,
+====
+
+📁 File Modified:
+Path: frappe-bench/apps/erpnext/erpnext/stock/get_item_details.py
+
+🔧 Function Modified:
+get_item_price(args, item_code, ignore_party=False)
+
+🛠️ Change Summary:
+Added a filter to the standard Item Price query so disabled Item Price records
+are not selected for transaction pricing.
+
+✅ Added:
+    and ifnull(disabled, 0)=0 /* ws overrides */
+
+🧠 Reason:
+Item Price uses a custom approval workflow. Prices remain disabled until they
+reach the Active state and must not be automatically exposed in sales documents
+before final approval.
+
+📅 Date of Change:
+2026-08-08
 
 
 

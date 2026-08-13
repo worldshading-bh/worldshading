@@ -91,8 +91,7 @@
    "fetch_from": "customer.customer_name",
    "fieldname": "customer_name",
    "fieldtype": "Data",
-   "label": "Customer Name",
-   "read_only": 1
+   "label": "Customer Name"
   },
   {
    "fieldname": "mobile_number",
@@ -504,7 +503,7 @@
   }
  ],
  "is_submittable": 1,
- "modified": "2026-08-05 15:32:06.200777",
+ "modified": "2026-08-12 10:39:24.720164",
  "modified_by": "hilal@worldshading.com",
  "module": "Worldshading",
  "name": "Service Visit",

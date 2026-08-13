@@ -46,6 +46,19 @@ COORDINATOR_ROLES = ("Coordinator", "Both")
 CURRENCY_PRECISION = 3
 
 
+def round_cash(amount):
+    """Round a payable amount to the nearest 100 fils (0.100 BHD), half up.
+
+    Commission is paid in cash, so every FINAL amount the engine emits is a clean cash
+    figure. This is the only place rounding happens: settlement deltas and pending are
+    differences of already-rounded values, so they stay 100-fils multiples and always
+    settle to exactly zero. Intermediate figures (pool, invoice value) stay exact.
+    """
+    import math
+
+    return round(math.floor(flt(amount) * 10 + 0.5) / 10.0, 3)
+
+
 def _get_settings_doc():
     """WS Settings via the document cache - the coordinator path resolves per-user config
     for a dozen visitors in one request, and a fresh DB load each time cost ~2s."""
@@ -296,9 +309,9 @@ def get_commission_result_for_range(user, from_date, to_date, pool_percent=None,
         # blocked visitor what they are leaving on the table.
         "pool_amount": round(pool_amount, CURRENCY_PRECISION),
         "visitor_share_percent": config["visitor_share"],
-        "visitor_amount": round(visitor_amount, CURRENCY_PRECISION),
+        "visitor_amount": round_cash(visitor_amount),
         "coordinator_share_percent": coordinator_share,
-        "coordinator_amount": round(coordinator_amount, CURRENCY_PRECISION),
+        "coordinator_amount": round_cash(coordinator_amount),
 
         # Every cohort visit, invoiced or not. The invoiced subset is derived on the
         # client from is_invoiced rather than shipped twice.
@@ -404,8 +417,8 @@ def get_coordinator_commission_result(user, month=None, cutoff_date=None):
         # Share of that visitor's value this coordinator is responsible for. 1.0 while
         # she schedules everything; it is what prevents double paying once there are two.
         weight = (max(entry["coordinated_value"], 0.0) / invoice_value) if invoice_value else 0.0
-        amount = (pool_amount * (coordinator_share / 100.0) * weight
-                  if status == STATUS_QUALIFIED else 0.0)
+        amount = round_cash(pool_amount * (coordinator_share / 100.0) * weight) \
+            if status == STATUS_QUALIFIED else 0.0
         total_amount += amount
 
         breakdown.append({
@@ -422,7 +435,7 @@ def get_coordinator_commission_result(user, month=None, cutoff_date=None):
             "pool_amount": round(pool_amount, CURRENCY_PRECISION),
             "coordinated_visits": entry["coordinated_visits"],
             "weight_percent": round(weight * 100.0, 2),
-            "amount": round(amount, CURRENCY_PRECISION)
+            "amount": round_cash(amount)
         })
 
     # Earners first, then the biggest missed opportunity.
@@ -507,7 +520,7 @@ def _get_direct_quotation_result(user, config, settings, from_date, to_date, cut
         "pool_amount": round(earned, CURRENCY_PRECISION),
         "coordinated_visits": total_visits,
         "weight_percent": 100.0,
-        "amount": round(earned, CURRENCY_PRECISION) if qualified else 0.0
+        "amount": round_cash(earned) if qualified else 0.0
     }
 
 

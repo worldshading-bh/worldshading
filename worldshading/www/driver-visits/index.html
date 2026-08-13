@@ -200,6 +200,18 @@
         grid-template-columns: repeat(4, 1fr);
     }
 
+    .followup-search-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 72px;
+        gap: 10px;
+    }
+
+    .followup-all-filter {
+        min-height: 46px;
+        border: 1px solid rgba(16, 24, 40, 0.08);
+        background: rgba(255, 255, 255, 0.9);
+    }
+
     .filters {
         display: grid;
         grid-template-columns: 1fr;
@@ -2349,9 +2361,14 @@
             </button>
         </div>
         <div class="followup-filters">
-            <div class="search-wrap">
-                <span data-icon="search"></span>
-                <input class="search-input" id="followup-search" type="search" placeholder="Search customer or quotation">
+            <div class="followup-search-row">
+                <div class="search-wrap">
+                    <span data-icon="search"></span>
+                    <input class="search-input" id="followup-search" type="search" placeholder="Search customer or quotation">
+                </div>
+                <button class="workflow-tab followup-all-filter" type="button" data-followup-state="All">
+                    All
+                </button>
             </div>
             <div class="visitor-filter-wrap" id="followup-visitor-filter-wrap">
                 <select class="filter-select" id="followup-visitor-filter" aria-label="Visitor"></select>
@@ -4662,7 +4679,7 @@ function load_followup_quotations(force, append) {
     frappe.call({
         method: "worldshading.api.driver_visit.get_my_followup_quotations",
         args: {
-            workflow_state: driver_state.selected_followup_state,
+            workflow_state: driver_state.selected_followup_state === "All" ? "" : driver_state.selected_followup_state,
             search: document.getElementById("followup-search").value || "",
             from_date: driver_state.selected_followup_from_date,
             to_date: driver_state.selected_followup_to_date,
@@ -4720,7 +4737,7 @@ function normalize_followup_response(message) {
 function filter_followup_response_rows(quotations) {
     var state = driver_state.selected_followup_state;
 
-    if (!state) {
+    if (!state || state === "All") {
         return quotations || [];
     }
 
@@ -4735,7 +4752,7 @@ function build_followup_filter_options() {
 }
 
 function get_followup_workflow_states() {
-    return ["Pending Call - Visitor", "Call Outcome - Visitor", "Pending Payment", "Ordered"];
+    return ["Pending Call - Visitor", "Call Outcome - Visitor", "Pending Payment", "Ordered", "All"];
 }
 
 function set_selected_followup_state(state) {
