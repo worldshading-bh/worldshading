@@ -1,0 +1,149 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Payment") }}{% endblock %}
+
+{% block page_content %}
+<div class="ws-pay-choose">
+	{% if blocked %}
+		<div class="ws-pay-choose__icon ws-pay-choose__icon--blocked" aria-hidden="true">!</div>
+		<h1 class="ws-pay-choose__heading">{{ _("This payment link is closed") }}</h1>
+		<p class="ws-pay-choose__message">{{ blocked }}</p>
+	{% else %}
+		{% if amount %}
+		<p class="ws-pay-choose__amount">{{ amount }}</p>
+		{% endif %}
+		{% if reference %}
+		<p class="ws-pay-choose__reference">{{ reference }}</p>
+		{% endif %}
+
+		<h1 class="ws-pay-choose__heading">{{ heading }}</h1>
+
+		<ul class="ws-pay-choose__list">
+			{% for method in methods %}
+			<li>
+				<a class="ws-pay-choose__option"
+				   href="/api/method/worldshading.payments.web.checkout?t={{ token | urlencode }}&m={{ method.gateway | urlencode }}">
+					<span class="ws-pay-choose__label">{{ method.label }}</span>
+					{% if method.description %}
+					<span class="ws-pay-choose__hint">{{ method.description }}</span>
+					{% endif %}
+					<span class="ws-pay-choose__chevron" aria-hidden="true">&rsaquo;</span>
+				</a>
+			</li>
+			{% endfor %}
+		</ul>
+
+		<p class="ws-pay-choose__note">
+			{{ _("You will be taken to your bank's secure page to complete the payment.") }}
+		</p>
+	{% endif %}
+</div>
+
+<style>
+.ws-pay-choose {
+	max-width: 30rem;
+	margin: 3rem auto;
+	padding: 2rem 1.5rem;
+	border: 1px solid #e5e7eb;
+	border-radius: 10px;
+	text-align: center;
+}
+
+.ws-pay-choose__icon--blocked {
+	width: 4rem;
+	height: 4rem;
+	line-height: 4rem;
+	margin: 0 auto 1.25rem;
+	border-radius: 50%;
+	font-size: 1.75rem;
+	font-weight: 700;
+	color: #fff;
+	background: #b91c1c;
+}
+
+.ws-pay-choose__amount {
+	font-size: 2rem;
+	font-weight: 700;
+	margin: 0;
+}
+
+.ws-pay-choose__reference {
+	color: #6b7280;
+	font-size: 0.8125rem;
+	font-family: monospace;
+	margin: 0.25rem 0 1.5rem;
+}
+
+.ws-pay-choose__heading {
+	font-size: 1.125rem;
+	font-weight: 600;
+	color: #374151;
+	margin: 0 0 1.25rem;
+}
+
+.ws-pay-choose__message {
+	color: #4b5563;
+	line-height: 1.6;
+	margin: 0;
+}
+
+.ws-pay-choose__list {
+	list-style: none;
+	margin: 0 0 1.25rem;
+	padding: 0;
+	text-align: left;
+}
+
+.ws-pay-choose__list li + li { margin-top: 0.75rem; }
+
+.ws-pay-choose__option {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 1rem 1.125rem;
+	border: 1px solid #d1d5db;
+	border-radius: 8px;
+	text-decoration: none;
+	color: #111827;
+	transition: border-color .15s, box-shadow .15s;
+}
+
+.ws-pay-choose__option:hover,
+.ws-pay-choose__option:focus {
+	border-color: #111827;
+	box-shadow: 0 1px 4px rgba(0,0,0,.08);
+	text-decoration: none;
+	color: #111827;
+}
+
+.ws-pay-choose__label {
+	font-weight: 600;
+	flex: 1;
+}
+
+.ws-pay-choose__hint {
+	color: #6b7280;
+	font-size: 0.8125rem;
+	flex: 1;
+	text-align: right;
+	padding-right: 0.5rem;
+}
+
+.ws-pay-choose__chevron {
+	color: #9ca3af;
+	font-size: 1.5rem;
+	line-height: 1;
+}
+
+.ws-pay-choose__note {
+	color: #6b7280;
+	font-size: 0.8125rem;
+	margin: 0;
+}
+
+@media (max-width: 30rem) {
+	.ws-pay-choose__option { flex-wrap: wrap; }
+	.ws-pay-choose__hint { text-align: left; flex-basis: 100%; padding: 0.25rem 0 0; }
+}
+</style>
+{% endblock %}

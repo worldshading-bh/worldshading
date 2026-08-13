@@ -1,0 +1,289 @@
+{
+ "autoname": "field:gateway_name",
+ "creation": "2026-08-10 11:00:00",
+ "description": "One row per payment gateway. Replaces the per-gateway Settings doctypes: adding a gateway is a record, not a new doctype. Frappe finds this through the Payment Gateway record's Gateway Settings / Gateway Controller fields.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "gateway_name",
+  "gateway_type",
+  "column_break_head",
+  "enabled",
+  "presentation_section",
+  "method_label",
+  "method_description",
+  "column_break_presentation",
+  "sort_order",
+  "heading",
+  "accounting_section",
+  "deposit_account",
+  "column_break_accounting",
+  "mode_of_payment",
+  "link_section",
+  "link_valid_days",
+  "benefit_section",
+  "environment",
+  "tranportal_id",
+  "tranportal_password",
+  "column_break_benefit",
+  "resource_key",
+  "api_endpoint",
+  "mpgs_section",
+  "mpgs_merchant_id",
+  "mpgs_merchant_name",
+  "mpgs_api_password",
+  "column_break_mpgs",
+  "mpgs_api_host",
+  "mpgs_api_version",
+  "mpgs_webhook_secret",
+  "help_section",
+  "help_html"
+ ],
+ "fields": [
+  {
+   "description": "Must match the Payment Gateway record exactly -- that is how Frappe links the two.",
+   "fieldname": "gateway_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Gateway Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "Router takes no money -- it only shows the customer the method chooser.",
+   "fieldname": "gateway_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Type",
+   "options": "Router\nBenefit\nKFH MPGS",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "A gateway appears on the customer's chooser only while this is ticked.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type != \"Router\"",
+   "fieldname": "presentation_section",
+   "fieldtype": "Section Break",
+   "label": "How This Appears To The Customer"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type != \"Router\"",
+   "description": "The button text on the chooser, e.g. \"Debit Card\".",
+   "fieldname": "method_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Method Label"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type != \"Router\"",
+   "description": "Optional line under the button.",
+   "fieldname": "method_description",
+   "fieldtype": "Data",
+   "label": "Method Description"
+  },
+  {
+   "fieldname": "column_break_presentation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "10",
+   "depends_on": "eval:doc.gateway_type != \"Router\"",
+   "description": "Lower numbers appear first.",
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "label": "Display Order"
+  },
+  {
+   "default": "Choose how you would like to pay",
+   "depends_on": "eval:doc.gateway_type == \"Router\"",
+   "description": "Shown at the top of the chooser page.",
+   "fieldname": "heading",
+   "fieldtype": "Data",
+   "label": "Chooser Heading"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type != \"Router\"",
+   "fieldname": "accounting_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type != \"Router\"",
+   "description": "Where money taken through THIS gateway is deposited. Overrides the account on the Payment Request, which belongs to the router and says nothing about which gateway actually took the payment.",
+   "fieldname": "deposit_account",
+   "fieldtype": "Link",
+   "label": "Deposit Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_accounting",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type != \"Router\"",
+   "description": "Stamped on the Payment Entry created when a payment is captured.",
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Mode of Payment",
+   "options": "Mode of Payment"
+  },
+  {
+   "fieldname": "link_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Links"
+  },
+  {
+   "default": "30",
+   "description": "How long a payment link stays usable, from when it was issued. 0 means it never expires. A link is refused anyway once the request is paid or cancelled.",
+   "fieldname": "link_valid_days",
+   "fieldtype": "Int",
+   "label": "Link Valid For (Days)"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"Benefit\"",
+   "fieldname": "benefit_section",
+   "fieldtype": "Section Break",
+   "label": "BENEFIT Credentials"
+  },
+  {
+   "default": "Test",
+   "depends_on": "eval:doc.gateway_type == \"Benefit\"",
+   "fieldname": "environment",
+   "fieldtype": "Select",
+   "label": "Environment",
+   "options": "Test\nProduction"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"Benefit\"",
+   "fieldname": "tranportal_id",
+   "fieldtype": "Data",
+   "label": "Tranportal ID"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"Benefit\"",
+   "fieldname": "tranportal_password",
+   "fieldtype": "Password",
+   "label": "Tranportal Password"
+  },
+  {
+   "fieldname": "column_break_benefit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"Benefit\"",
+   "description": "32 characters, used as the AES key. Never appears in any log.",
+   "fieldname": "resource_key",
+   "fieldtype": "Password",
+   "label": "Terminal Resource Key"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"Benefit\"",
+   "description": "Leave blank to use the default for the selected environment.",
+   "fieldname": "api_endpoint",
+   "fieldtype": "Data",
+   "label": "API Endpoint Override"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"KFH MPGS\"",
+   "fieldname": "mpgs_section",
+   "fieldtype": "Section Break",
+   "label": "KFH MPGS Credentials"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"KFH MPGS\"",
+   "fieldname": "mpgs_merchant_id",
+   "fieldtype": "Data",
+   "label": "Merchant ID"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"KFH MPGS\"",
+   "description": "Generated in Merchant Administration under Admin > Integration Settings, by an operator holding the \"May Configure Integration Settings\" privilege. Not the portal login.",
+   "fieldname": "mpgs_api_password",
+   "fieldtype": "Password",
+   "label": "API Password"
+  },
+  {
+   "fieldname": "column_break_mpgs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"KFH MPGS\"",
+   "description": "e.g. https://test-bh-kfh.mtf.gateway.mastercard.com",
+   "fieldname": "mpgs_api_host",
+   "fieldtype": "Data",
+   "label": "API Host"
+  },
+  {
+   "default": "100",
+   "depends_on": "eval:doc.gateway_type == \"KFH MPGS\"",
+   "description": "Confirmed by probing the gateway: 100 is the highest this deployment accepts (101+ return 404 on /information).",
+   "fieldname": "mpgs_api_version",
+   "fieldtype": "Data",
+   "label": "API Version"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"KFH MPGS\"",
+   "description": "Generate this in Merchant Administration under Admin > Webhook Notifications, and set the Notification URL there to /api/method/worldshading.payments.web.mpgs_webhook on this site. The gateway sends it back in the X-Notification-Secret header so we can tell a real notification from a forged one.",
+   "fieldname": "mpgs_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Notification Secret"
+  },
+  {
+   "depends_on": "eval:doc.gateway_type == \"KFH MPGS\"",
+   "description": "Shown to the payer on the hosted payment page, so use the trading name.",
+   "fieldname": "mpgs_merchant_name",
+   "fieldtype": "Data",
+   "label": "Merchant Display Name"
+  },
+  {
+   "fieldname": "help_section",
+   "fieldtype": "Section Break",
+   "label": "Setup"
+  },
+  {
+   "fieldname": "help_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p>Saving creates or updates the matching <b>Payment Gateway</b> record and points it back here, so Frappe can find this row.</p><p>Point your <b>Payment Gateway Account</b> at the <b>Router</b> gateway so payment links offer the customer a choice of method.</p><p>Reference: <code>Documentation/payments/</code></p></div>"
+  }
+ ],
+ "modified": "2026-08-10 11:00:00",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "WS Payment Gateway",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "quick_entry": 0,
+ "search_fields": "gateway_type,method_label",
+ "sort_field": "sort_order",
+ "sort_order": "ASC",
+ "track_changes": 1
+}
