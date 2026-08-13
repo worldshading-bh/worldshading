@@ -184,6 +184,10 @@ scheduler_events = {
             "worldshading.scheduler_events.service_visit_scheduler.auto_update_service_visits"
         ],
 
+        "*/15 * * * *": [
+            "worldshading.payments.reconcile.run"
+        ],
+
         "*/5 * * * *": [
             "worldshading.scheduler_events.service_visit_scheduler.send_service_visit_reminders",
             "worldshading.scheduler_events.work_order_scheduler.send_work_order_reminders"

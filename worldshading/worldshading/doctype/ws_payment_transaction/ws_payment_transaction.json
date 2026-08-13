@@ -1,0 +1,339 @@
+{
+ "autoname": "WSPAY-.YYYY.-.#####",
+ "creation": "2026-08-09 09:00:00",
+ "description": "One online payment attempt. Holds the gateway correlation keys, the raw payloads the BENEFIT guide requires us to keep, and the settlement flag that stops a payment being posted twice.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "gateway",
+  "status",
+  "attempt",
+  "needs_review",
+  "column_break_head",
+  "track_id",
+  "payment_id",
+  "reference_section",
+  "payment_request",
+  "reference_doctype",
+  "reference_name",
+  "column_break_reference",
+  "amount",
+  "currency",
+  "token",
+  "payer_section",
+  "payer_name",
+  "payer_email",
+  "column_break_payer",
+  "customer_ip",
+  "gateway_response_section",
+  "result",
+  "auth_response_code",
+  "auth_code",
+  "column_break_response",
+  "transaction_id",
+  "reference_number",
+  "gateway_message",
+  "session_id",
+  "success_indicator",
+  "settlement_section",
+  "settled",
+  "payment_entry",
+  "column_break_settlement",
+  "settled_on",
+  "payload_section",
+  "redirect_url",
+  "notification_payload",
+  "result_payload"
+ ],
+ "fields": [
+  {
+   "fieldname": "gateway",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Gateway",
+   "read_only": 1
+  },
+  {
+   "default": "Initiated",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Initiated\nRedirected\nCaptured\nFailed\nDenied By Risk\nCancelled\nVoided\nExpired",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The gateway never told us how this ended and reconciliation could not find out. The money may or may not have been taken -- check the gateway portal before assuming it was not.",
+   "fieldname": "needs_review",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Needs Review",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "description": "Which try this is on the same payment link. A declined card followed by a retry produces attempt 1 and attempt 2, each with its own track ID.",
+   "fieldname": "attempt",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Attempt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Numeric merchant reference sent to the gateway. BENEFIT requires this to be numeric, so ERPNext document names cannot be used.",
+   "fieldname": "track_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Track ID",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "payment_id",
+   "fieldtype": "Data",
+   "label": "Gateway Payment ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_section",
+   "fieldtype": "Section Break",
+   "label": "Reference"
+  },
+  {
+   "fieldname": "payment_request",
+   "fieldtype": "Link",
+   "label": "Payment Request",
+   "options": "Payment Request",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Document Type",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_reference",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "description": "Identifies the payment LINK, not the attempt. Shared by every attempt made through the same link, so it is indexed but deliberately not unique. The attempt is identified by Track ID.",
+   "fieldname": "token",
+   "fieldtype": "Data",
+   "label": "Link Token",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "payer_section",
+   "fieldtype": "Section Break",
+   "label": "Payer"
+  },
+  {
+   "fieldname": "payer_name",
+   "fieldtype": "Data",
+   "label": "Payer Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payer_email",
+   "fieldtype": "Data",
+   "label": "Payer Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_payer",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Integration Guide chapter 7 requires transaction logs to include the customer IP.",
+   "fieldname": "customer_ip",
+   "fieldtype": "Data",
+   "label": "Customer IP",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gateway_response_section",
+   "fieldtype": "Section Break",
+   "label": "Gateway Response"
+  },
+  {
+   "description": "CAPTURED is the only success for a purchase.",
+   "fieldname": "result",
+   "fieldtype": "Data",
+   "label": "Result",
+   "read_only": 1
+  },
+  {
+   "fieldname": "auth_response_code",
+   "fieldtype": "Data",
+   "label": "Auth Response Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "auth_code",
+   "fieldtype": "Data",
+   "label": "Auth Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_response",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "transaction_id",
+   "fieldtype": "Data",
+   "label": "Gateway Transaction ID",
+   "read_only": 1
+  },
+  {
+   "description": "RRN",
+   "fieldname": "reference_number",
+   "fieldtype": "Data",
+   "label": "Reference Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gateway_message",
+   "fieldtype": "Small Text",
+   "label": "Gateway Message",
+   "read_only": 1
+  },
+  {
+   "description": "MPGS checkout session. The launcher page passes this to Mastercard's Checkout library.",
+   "fieldname": "session_id",
+   "fieldtype": "Data",
+   "label": "Session ID",
+   "read_only": 1
+  },
+  {
+   "description": "MPGS returns this when the session is created; the value that comes back on the return URL must match it for the payment to be treated as successful. Stored before the customer leaves, because there is no other way to read that result.",
+   "fieldname": "success_indicator",
+   "fieldtype": "Data",
+   "label": "Success Indicator",
+   "read_only": 1
+  },
+  {
+   "fieldname": "settlement_section",
+   "fieldtype": "Section Break",
+   "label": "Settlement"
+  },
+  {
+   "default": "0",
+   "description": "Set inside a row lock. This is what stops one payment becoming two Payment Entries when the notification and the final redirect both arrive.",
+   "fieldname": "settled",
+   "fieldtype": "Check",
+   "label": "Settled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_settlement",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "settled_on",
+   "fieldtype": "Datetime",
+   "label": "Settled On",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "payload_section",
+   "fieldtype": "Section Break",
+   "label": "Raw Payloads"
+  },
+  {
+   "fieldname": "redirect_url",
+   "fieldtype": "Small Text",
+   "label": "Redirect URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notification_payload",
+   "fieldtype": "Code",
+   "label": "Notification Payload",
+   "read_only": 1
+  },
+  {
+   "fieldname": "result_payload",
+   "fieldtype": "Code",
+   "label": "Decrypted Result",
+   "read_only": 1
+  }
+ ],
+ "modified": "2026-08-09 09:00:00",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "WS Payment Transaction",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "quick_entry": 0,
+ "search_fields": "track_id,payment_id,payment_request,status",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "title_field": "track_id",
+ "track_changes": 0
+}

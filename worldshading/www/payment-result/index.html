@@ -1,0 +1,80 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ heading }}{% endblock %}
+
+{% block page_content %}
+<div class="ws-payment-result ws-payment-result--{{ state }}">
+	<div class="ws-payment-result__icon" aria-hidden="true">
+		{% if state == "success" %}&#10003;{% elif state == "pending" %}&#8226;&#8226;&#8226;{% else %}&#33;{% endif %}
+	</div>
+
+	<h1 class="ws-payment-result__heading">{{ heading }}</h1>
+
+	{% if amount %}
+	<p class="ws-payment-result__amount">{{ amount }}</p>
+	{% endif %}
+
+	<p class="ws-payment-result__message">{{ message }}</p>
+
+	{% if reference %}
+	<p class="ws-payment-result__reference">
+		Reference: <span>{{ reference }}</span>
+	</p>
+	{% endif %}
+</div>
+
+<style>
+.ws-payment-result {
+	max-width: 32rem;
+	margin: 3rem auto;
+	padding: 2rem 1.5rem;
+	text-align: center;
+	border: 1px solid #e5e7eb;
+	border-radius: 10px;
+}
+
+.ws-payment-result__icon {
+	width: 4rem;
+	height: 4rem;
+	line-height: 4rem;
+	margin: 0 auto 1.25rem;
+	border-radius: 50%;
+	font-size: 1.75rem;
+	font-weight: 700;
+	color: #fff;
+	background: #6b7280;
+}
+
+.ws-payment-result--success .ws-payment-result__icon { background: #15803d; }
+.ws-payment-result--pending .ws-payment-result__icon { background: #b45309; font-size: 1.25rem; }
+.ws-payment-result--failed  .ws-payment-result__icon { background: #b91c1c; }
+
+.ws-payment-result__heading {
+	font-size: 1.5rem;
+	margin: 0 0 0.5rem;
+}
+
+.ws-payment-result__amount {
+	font-size: 1.75rem;
+	font-weight: 700;
+	margin: 0 0 1rem;
+}
+
+.ws-payment-result__message {
+	color: #4b5563;
+	line-height: 1.6;
+	margin: 0 0 1.5rem;
+}
+
+.ws-payment-result__reference {
+	font-size: 0.8125rem;
+	color: #6b7280;
+	margin: 0;
+}
+
+.ws-payment-result__reference span {
+	font-family: monospace;
+	color: #111827;
+}
+</style>
+{% endblock %}
