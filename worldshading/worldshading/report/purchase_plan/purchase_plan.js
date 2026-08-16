@@ -10,13 +10,19 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	}
 
 	$(wrapper).addClass("purchase-plan-sticky-columns");
-	var row_index_cell = $(wrapper).find(".dt-row-header .dt-cell--col-0")[0];
-	var row_index_width = row_index_cell ? row_index_cell.getBoundingClientRect().width : 40;
+	var row_index_width = 50;
+	var item_cell = $(wrapper).find(".dt-row-header .dt-cell--col-1")[0];
+	var item_width = item_cell ? item_cell.getBoundingClientRect().width : 120;
+	var item_name_cell = $(wrapper).find(".dt-row-header .dt-cell--col-2")[0];
+	var item_name_width = item_name_cell ? item_name_cell.getBoundingClientRect().width : 200;
 	wrapper.style.setProperty("--purchase-plan-row-index-width", row_index_width + "px");
+	wrapper.style.setProperty("--purchase-plan-item-width", item_width + "px");
+	wrapper.style.setProperty("--purchase-plan-item-name-width", item_name_width + "px");
 	var update_sticky_header = function () {
 		var scroll_left = datatable.bodyScrollable.scrollLeft;
 		$(wrapper).find(
-			".dt-header .dt-cell--col-0, .dt-header .dt-cell--col-1"
+			".dt-header .dt-cell--col-0, .dt-header .dt-cell--col-1, " +
+			".dt-header .dt-cell--col-2, .dt-header .dt-cell--col-3"
 		).css("transform", "translateX(" + scroll_left + "px)");
 	};
 	$(datatable.bodyScrollable)
@@ -29,18 +35,51 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	if (!document.getElementById("purchase-plan-sticky-columns-style")) {
 		$("<style id='purchase-plan-sticky-columns-style'>" +
 			".purchase-plan-sticky-columns .dt-cell--col-0{" +
-				"position:sticky;left:0;z-index:3;background:#fff;}" +
+				"position:sticky;left:0;z-index:3;background:#fff;" +
+				"width:50px;min-width:50px;max-width:50px;flex:0 0 50px;}" +
 			".purchase-plan-sticky-columns .dt-cell--col-1{" +
-				"position:sticky;left:var(--purchase-plan-row-index-width);z-index:2;background:#fff;}" +
+				"position:sticky;left:var(--purchase-plan-row-index-width);z-index:3;background:#fff;}" +
+			".purchase-plan-sticky-columns .dt-cell--col-2{" +
+				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width));z-index:3;background:#fff;}" +
+			".purchase-plan-sticky-columns .dt-cell--col-3{" +
+				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width));z-index:3;background:#fff;}" +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-0," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-1," +
+			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-2," +
+			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-3," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-0," +
-			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-1{" +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-1," +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-2," +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-3{" +
 				"position:relative;left:auto;z-index:5;background:#f7fafc;}" +
-			".purchase-plan-sticky-columns .dt-cell--col-1{" +
+			".purchase-plan-sticky-columns .dt-cell--col-3{" +
 				"box-shadow:2px 0 2px rgba(0,0,0,0.08);}" +
 			"</style>").appendTo("head");
 	}
+
+	var important_columns = {
+		"Available Quantity": "#eef6ff",
+		"On Purchase": "#fff7e6",
+		"Expected Order Quantity": "#edf9f0",
+		"Priority Month": "#f5f0ff"
+	};
+	var important_column_rules = [];
+	$(wrapper).find(".dt-row-header .dt-cell").each(function () {
+		var header = $(this).text().trim();
+		var background_color = important_columns[header];
+		var column_class = (this.className.match(/dt-cell--col-\d+/) || [])[0];
+		if (background_color && column_class) {
+			important_column_rules.push(
+				".purchase-plan-sticky-columns ." + column_class +
+				"{background:" + background_color + " !important;}"
+			);
+		}
+	});
+	var important_style = $("#purchase-plan-important-columns-style");
+	if (!important_style.length) {
+		important_style = $("<style id='purchase-plan-important-columns-style'></style>").appendTo("head");
+	}
+	important_style.text(important_column_rules.join(""));
 }
 
 
@@ -218,6 +257,24 @@ frappe.query_reports["Purchase Plan"] = {
 				}
 			},
 					},
+		{
+			"fieldname": "supplier",
+			"label": __("Supplier"),
+			"fieldtype": "Link",
+			"options": "Supplier"
+		},
+		{
+			"fieldname": "supplier_group",
+			"label": __("Supplier Group"),
+			"fieldtype": "Link",
+			"options": "Supplier Group"
+		},
+		{
+			"fieldname": "supplier_country",
+			"label": __("Supplier Country"),
+			"fieldtype": "Link",
+			"options": "Country"
+		},
 							{
 			"fieldname": "item",
 			"label": __("Item"),
@@ -269,17 +326,12 @@ frappe.query_reports["Purchase Plan"] = {
 			"fieldtype": "Link",
 			"options": "Country"
 		},
-		{
-			"fieldname": "supplier",
-			"label": __("Supplier"),
-			"fieldtype": "Link",
-			"options": "Supplier"
-		},
 							{
 			"fieldname": "months_to_arrive",
-			"label": __("Months to Arrive"),
+			"label": __("How Many Months to Arrive?"),
 			"fieldtype": "Data",
 			"reqd": 1,
+			"description": __("Estimated months from placing the purchase order until the stock becomes available."),
 					},
 							{
 			"fieldname": "percentage",
@@ -289,20 +341,11 @@ frappe.query_reports["Purchase Plan"] = {
 					},
 			{
 			"fieldname": "minimum_months",
-			"label": __("Minimum Months"),
+			"label": __("Min Stock for How Many Months?"),
 			"fieldtype": "Data",
 			"reqd": 1,
+			"description": __("Months of average sales used for one minimum-stock reserve. The order calculation applies this reserve twice."),
 					},
-		{
-			"fieldname": "uom_conversion",
-			"label": "UOM Conversion",
-			"fieldtype": "Float"
-		},
-		{
-			"fieldname": "long_meter",
-			"label": "Long Meter",
-			"fieldtype": "Int"
-		},
 		{
 			"fieldname": "include_repack_to_parent",
 			"label": __("Include Repack to Parent"),
@@ -344,7 +387,7 @@ frappe.query_reports["Purchase Plan"] = {
 		if (column.fieldname == "expected_order_quantity" && data && data.expected_order_quantity < 0) {
 			value = "<span style='color:red'>" + value + "</span>";
 		}
-		if (column.fieldname == "long_meter_to_roll" && data && data.long_meter_to_roll < 0) {
+		if (column.fieldname == "priority_month" && data && parseInt(flt(data.priority_month), 10) === 0) {
 			value = "<span style='color:red'>" + value + "</span>";
 		}
 

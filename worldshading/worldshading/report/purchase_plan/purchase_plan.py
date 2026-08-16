@@ -161,13 +161,14 @@ def get_columns(filters):
 			'fieldname': 'item',
 			'label': _('Item'),
 			'fieldtype': 'Link',
-			'options': 'Item'
+			'options': 'Item',
+			'width': 80
 		},
 		{
 			'fieldname': 'item_name',
 			'label': _('Item Name'),
 			'fieldtype': 'Data',
-
+			'width': 200
 		},
 		{
 			'fieldname': 'unit',
@@ -331,18 +332,6 @@ def get_columns(filters):
 		}
 
 	])
-	if filters and filters.get('uom_conversion'):
-		columns.append({
-			'fieldname': 'meter',
-			'label': _('Meter'),
-			'fieldtype': 'Float'
-		})
-	columns.append({
-		'fieldname': 'long_meter_to_roll',
-		'label': _('Long Meter to Roll'),
-		'fieldtype':'Float',
-
-	},)
 
 	return columns
 
@@ -394,11 +383,18 @@ def get_child_item_group_options(txt='', parent_groups=None):
 
 def get_data(filters):
 	data = []
-	item_filters = {}
+	item_filters = {
+		'is_stock_item': 1,
+		'is_fixed_asset': 0
+	}
 	if filters.get('item'):
 		item_filters.update({'item_code': filters.get('item')})
-	if filters.get('supplier'):
-		supplier_item_codes = get_supplier_item_codes(filters.get('supplier'))
+	if filters.get('supplier') or filters.get('supplier_group') or filters.get('supplier_country'):
+		supplier_item_codes = get_supplier_item_codes(
+			filters.get('supplier'),
+			filters.get('supplier_group'),
+			filters.get('supplier_country')
+		)
 		if filters.get('item') and filters.get('item') not in supplier_item_codes:
 			return data
 		if not filters.get('item'):
@@ -440,7 +436,11 @@ def get_data(filters):
 	purchase_item_codes = repack_context.get('purchase_item_codes')
 	items = frappe.get_all(
 		'Item',
-		filters={'item_code': ['in', purchase_item_codes]},
+		filters={
+			'item_code': ['in', purchase_item_codes],
+			'is_stock_item': 1,
+			'is_fixed_asset': 0
+		},
 		fields=['name', 'item_code', 'item_name', 'stock_uom'],
 		order_by='item_code asc'
 	)
@@ -490,8 +490,6 @@ def get_data(filters):
 		last_sales_invoice_date = last_sales_date_by_item.get(item.item_code, '')
 		reorder_quantity = reorder_quantity_by_item.get(item.item_code, 0)
 		minimum_purchase_qty = reorder_level_by_item.get(item.item_code, 0)
-		long_meter_to_roll = 0.0
-
 		adjusted_total_sales = (
 			total_sales + estimated_out_of_stock_sales_qty + converted_repack_demand
 		)
@@ -516,17 +514,11 @@ def get_data(filters):
 		period_expected_sales = monthly_sales * float(filters.months_to_arrive)
 		shortage_happened = (planning_available_qty + on_purchase) - period_expected_sales
 		minimum_qty = round_whole_qty(monthly_sales * float(filters.minimum_months))
+		usable_balance_after_arrival = max(shortage_happened, 0)
 		expected_order_quantity = (
-			shortage_happened - minimum_qty - minimum_qty - minimum_purchase_qty
+			usable_balance_after_arrival - minimum_qty - minimum_qty - minimum_purchase_qty
 		)
 		priority_month = (planning_available_qty + on_purchase) / monthly_sales if monthly_sales > 0 else 0
-		if filters.get('long_meter'):
-			long_meter_to_roll = expected_order_quantity / filters.get('long_meter')
-		if filters.get('uom_conversion'):
-			meter = expected_order_quantity / filters.get('uom_conversion')
-		else:
-			meter = None
-
 		row = [
 			item.name, item.item_name, item.stock_uom, last_purchase_invoice_date,
 			last_sales_invoice_date, total_sales
@@ -554,12 +546,32 @@ def get_data(filters):
 			shortage_happened, minimum_purchase_qty, reorder_quantity, expected_order_quantity,
 			priority_month
 		])
-		data.append(row + ([meter] if filters.get('uom_conversion') else []) + [long_meter_to_roll])
+		data.append(row)
 
 	return data
 
 
-def get_supplier_item_codes(supplier):
+def get_supplier_item_codes(supplier=None, supplier_group=None, supplier_country=None):
+	supplier_filters = {}
+	if supplier:
+		supplier_filters['name'] = supplier
+	if supplier_group:
+		supplier_filters['supplier_group'] = [
+			'in', get_supplier_groups_with_children(supplier_group)
+		]
+	if supplier_country:
+		supplier_filters['country'] = supplier_country
+
+	suppliers = frappe.get_all(
+		'Supplier',
+		filters=supplier_filters,
+		fields=['name'],
+		limit_page_length=0
+	)
+	supplier_names = [row.name for row in suppliers]
+	if not supplier_names:
+		return []
+
 	rows = frappe.db.sql("""
 		SELECT DISTINCT
 			pii.item_code
@@ -568,11 +580,30 @@ def get_supplier_item_codes(supplier):
 			ON pi.name = pii.parent
 		WHERE
 			pi.docstatus = 1
-			AND pi.supplier = %(supplier)s
+			AND pi.supplier IN %(suppliers)s
 			AND pii.item_code IS NOT NULL
 			AND pii.item_code != ''
-	""", {'supplier': supplier}, as_dict=1)
+	""", {'suppliers': tuple(supplier_names)}, as_dict=1)
 	return [row.item_code for row in rows]
+
+
+def get_supplier_groups_with_children(supplier_group):
+	all_groups = set([supplier_group])
+	groups_to_check = [supplier_group]
+	while groups_to_check:
+		parent_group = groups_to_check.pop(0)
+		children = frappe.get_all(
+			'Supplier Group',
+			filters={'parent_supplier_group': parent_group},
+			fields=['name'],
+			limit_page_length=0
+		)
+		for child in children:
+			if child.name not in all_groups:
+				all_groups.add(child.name)
+				groups_to_check.append(child.name)
+
+	return list(all_groups)
 
 
 def get_repack_context(filtered_item_codes):
