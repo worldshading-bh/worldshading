@@ -58,7 +58,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	}
 
 	var important_columns = {
-		"Available Quantity": "#eef6ff",
+		"Available Total Qty": "#eef6ff",
 		"On Purchase": "#fff7e6",
 		"Expected Order Quantity": "#edf9f0",
 		"Priority Month": "#f5f0ff"
@@ -110,13 +110,63 @@ function show_item_reorder_dialog(report) {
 		warehouse_reorder_qty: 1,
 		material_request_type: "Purchase"
 	}];
+	var count_request_timer = null;
+	var update_selection_count = function () {
+		clearTimeout(count_request_timer);
+		count_request_timer = setTimeout(function () {
+			var selected_item_group = dialog.get_value("item_group");
+			var count_field = dialog.fields_dict.selection_count;
+			if (!selected_item_group) {
+				count_field.$wrapper.html(
+					'<p class="text-muted">' +
+					__("Select an Item Group to see the matching item count.") +
+					'</p>'
+				);
+				return;
+			}
+			count_field.$wrapper.html(
+				'<p class="text-muted">' + __("Checking matching items...") + '</p>'
+			);
+			frappe.call({
+				method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_item_reorder_selection_count",
+				args: {
+					item_values: JSON.stringify(item_values),
+					item_groups: JSON.stringify([selected_item_group])
+				},
+				callback: function (response) {
+					count_field.$wrapper.html(
+						'<p class="text-success"><strong>' +
+						__("{0} matching report Items will be updated.", [response.message || 0]) +
+						'</strong></p>'
+					);
+				}
+			});
+		}, 300);
+	};
 	var dialog = new frappe.ui.Dialog({
 		title: __("Update Item Reorder"),
 		fields: [
 			{
 				fieldtype: "HTML",
 				options: '<p class="text-muted">' +
-					__("{0} report items with Min greater than zero will be updated.", [item_values.length]) +
+					__("Select the Item Group to update. A parent group includes all its child groups. There are {0} eligible report items before applying this selection.", [item_values.length]) +
+					'</p>'
+			},
+			{
+				fieldname: "item_group",
+				fieldtype: "Link",
+				options: "Item Group",
+				label: __("Item Group to Update"),
+				reqd: 1,
+				onchange: function () {
+					update_selection_count();
+				}
+			},
+			{
+				fieldname: "selection_count",
+				fieldtype: "HTML",
+				options: '<p class="text-muted">' +
+					__("Select an Item Group to see the matching item count.") +
 					'</p>'
 			},
 			{
@@ -185,6 +235,11 @@ function show_item_reorder_dialog(report) {
 		primary_action_label: __("Update Items"),
 		primary_action: function () {
 			var values = dialog.get_values();
+			var selected_item_group = values && values.item_group ? values.item_group : null;
+			if (!selected_item_group) {
+				frappe.msgprint(__("Please select an Item Group."));
+				return;
+			}
 			var configuration = values && values.reorder_configuration
 				? values.reorder_configuration[0] : null;
 			if (!configuration || !configuration.warehouse_group || !configuration.warehouse) {
@@ -195,33 +250,44 @@ function show_item_reorder_dialog(report) {
 				frappe.msgprint(__("Re-order Qty must be greater than zero."));
 				return;
 			}
-			frappe.confirm(
-				__("Update reorder levels for {0} Items with Re-order Qty {1} and request for {2}?", [
-					item_values.length, configuration.warehouse_reorder_qty, configuration.warehouse
-				]),
-				function () {
-					frappe.call({
-						method: "worldshading.worldshading.report.purchase_plan.purchase_plan.queue_item_reorder_update",
-						freeze: true,
-						freeze_message: __("Queueing Item reorder update..."),
-						args: {
-							item_values: JSON.stringify(item_values),
-							warehouse_group: configuration.warehouse_group,
-							warehouse: configuration.warehouse,
-							reorder_qty: configuration.warehouse_reorder_qty
-						},
-						callback: function (response) {
-							if (response.message) {
-								dialog.hide();
-								frappe.show_alert({
-									message: __("Reorder update queued for {0} Items.", [response.message.queued_items]),
-									indicator: "green"
-								}, 10);
+			frappe.call({
+				method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_item_reorder_selection_count",
+				args: {
+					item_values: JSON.stringify(item_values),
+					item_groups: JSON.stringify([selected_item_group])
+				},
+				callback: function (count_response) {
+					var selected_item_count = count_response.message || 0;
+					frappe.confirm(
+						__("Update reorder levels for {0} Items in the selected Item Group with Re-order Qty {1} and request for {2}?", [
+							selected_item_count, configuration.warehouse_reorder_qty, configuration.warehouse
+						]),
+						function () {
+							frappe.call({
+								method: "worldshading.worldshading.report.purchase_plan.purchase_plan.queue_item_reorder_update",
+								freeze: true,
+								freeze_message: __("Queueing Item reorder update..."),
+								args: {
+									item_values: JSON.stringify(item_values),
+									warehouse_group: configuration.warehouse_group,
+									warehouse: configuration.warehouse,
+									item_groups: JSON.stringify([selected_item_group]),
+									reorder_qty: configuration.warehouse_reorder_qty
+								},
+								callback: function (response) {
+									if (response.message) {
+										dialog.hide();
+										frappe.show_alert({
+											message: __("Reorder update queued for {0} Items.", [response.message.queued_items]),
+											indicator: "green"
+										}, 10);
+									}
+								}
+							});
 							}
-						}
-					});
+					);
 				}
-			);
+			});
 		}
 	});
 	dialog.show();

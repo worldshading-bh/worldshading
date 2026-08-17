@@ -43,8 +43,15 @@ def validate_reorder_warehouses(warehouse_group, warehouse):
 		frappe.throw(_('Warehouse Group and Request for Warehouse must belong to the same company.'))
 
 
-def get_valid_reorder_items(item_values):
+def get_valid_reorder_items(item_values, item_groups=None, allow_empty=False):
 	item_values = frappe.parse_json(item_values) if isinstance(item_values, str) else item_values
+	item_groups = frappe.parse_json(item_groups) if isinstance(item_groups, str) else item_groups
+	if isinstance(item_groups, str):
+		item_groups = [item_groups]
+	item_groups = [group for group in (item_groups or []) if group]
+	if not item_groups:
+		frappe.throw(_('Please select at least one Item Group.'))
+	allowed_item_groups = get_item_groups_with_children(item_groups)
 	items_by_code = {}
 	for row in item_values or []:
 		item_code = row.get('item') if isinstance(row, dict) else None
@@ -59,18 +66,29 @@ def get_valid_reorder_items(item_values):
 
 	existing_items = frappe.get_all(
 		'Item',
-		filters={'name': ['in', list(items_by_code)]},
+		filters={
+			'name': ['in', list(items_by_code)],
+			'item_group': ['in', allowed_item_groups]
+		},
 		fields=['name']
 	)
 	existing_item_codes = set(row.name for row in existing_items)
-	missing_items = sorted(set(items_by_code) - existing_item_codes)
-	if missing_items:
-		frappe.throw(_('The following Items no longer exist: {0}').format(', '.join(missing_items)))
+	if not existing_item_codes:
+		if allow_empty:
+			return []
+		frappe.throw(_('No report Items with Min greater than zero belong to the selected Item Group.'))
 
 	return [
 		{'item': item_code, 'minimum_qty': items_by_code[item_code]}
-		for item_code in sorted(items_by_code)
+		for item_code in sorted(existing_item_codes)
 	]
+
+
+@frappe.whitelist()
+def get_item_reorder_selection_count(item_values, item_groups):
+	if not frappe.has_permission('Item', 'write'):
+		frappe.throw(_('You do not have permission to update Item reorder levels.'), frappe.PermissionError)
+	return len(get_valid_reorder_items(item_values, item_groups, allow_empty=True))
 
 
 def validate_reorder_row_conflicts(item_values, warehouse_group, warehouse):
@@ -96,7 +114,7 @@ def validate_reorder_row_conflicts(item_values, warehouse_group, warehouse):
 
 
 @frappe.whitelist()
-def queue_item_reorder_update(item_values, warehouse_group, warehouse, reorder_qty=1):
+def queue_item_reorder_update(item_values, warehouse_group, warehouse, item_groups, reorder_qty=1):
 	if not frappe.has_permission('Item', 'write'):
 		frappe.throw(_('You do not have permission to update Item reorder levels.'), frappe.PermissionError)
 
@@ -104,7 +122,7 @@ def queue_item_reorder_update(item_values, warehouse_group, warehouse, reorder_q
 	if reorder_qty <= 0:
 		frappe.throw(_('Re-order Qty must be greater than zero.'))
 	validate_reorder_warehouses(warehouse_group, warehouse)
-	valid_items = get_valid_reorder_items(item_values)
+	valid_items = get_valid_reorder_items(item_values, item_groups)
 	validate_reorder_row_conflicts(valid_items, warehouse_group, warehouse)
 	frappe.enqueue(
 		'worldshading.worldshading.report.purchase_plan.purchase_plan.apply_item_reorder_update',
@@ -113,17 +131,18 @@ def queue_item_reorder_update(item_values, warehouse_group, warehouse, reorder_q
 		item_values=valid_items,
 		warehouse_group=warehouse_group,
 		warehouse=warehouse,
+		item_groups=item_groups,
 		reorder_qty=reorder_qty
 	)
 	return {'queued_items': len(valid_items)}
 
 
-def apply_item_reorder_update(item_values, warehouse_group, warehouse, reorder_qty=1):
+def apply_item_reorder_update(item_values, warehouse_group, warehouse, item_groups, reorder_qty=1):
 	reorder_qty = flt(reorder_qty)
 	if reorder_qty <= 0:
 		frappe.throw(_('Re-order Qty must be greater than zero.'))
 	validate_reorder_warehouses(warehouse_group, warehouse)
-	valid_items = get_valid_reorder_items(item_values)
+	valid_items = get_valid_reorder_items(item_values, item_groups)
 	validate_reorder_row_conflicts(valid_items, warehouse_group, warehouse)
 	created = 0
 	updated = 0
