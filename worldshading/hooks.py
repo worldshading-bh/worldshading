@@ -265,6 +265,7 @@ doc_events = {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
     },
     "Stock Entry": {
+        "validate": "worldshading.api.repack_validation.validate_repack_quantities",
         "on_submit": "worldshading.api.work_order_team.update_work_order_state"
     },
     "Work Order": {
