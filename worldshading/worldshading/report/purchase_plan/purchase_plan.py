@@ -27,6 +27,126 @@ def round_whole_qty(value):
 	return int(value + 0.5) if value >= 0 else -int(abs(value) + 0.5)
 
 
+@frappe.whitelist()
+def make_request_for_quotation(source_name=None):
+	if not frappe.has_permission('Request for Quotation', 'create'):
+		frappe.throw(
+			_('You do not have permission to create a Request for Quotation.'),
+			frappe.PermissionError
+		)
+
+	args = frappe.flags.args or frappe._dict()
+	item_values = frappe.parse_json(args.get('item_values')) \
+		if isinstance(args.get('item_values'), str) else args.get('item_values')
+	items_by_code = {}
+	for row in item_values or []:
+		item_code = row.get('item_code') if isinstance(row, dict) else None
+		qty = round_whole_qty(row.get('qty')) if isinstance(row, dict) else 0
+		if item_code and qty > 0:
+			items_by_code[item_code] = qty
+
+	if not items_by_code:
+		frappe.throw(_('There are no report Items with a purchase requirement.'))
+	if len(items_by_code) > 100:
+		frappe.throw(_(
+			'A maximum of 100 Items can be added to one RFQ. Apply Purchase Plan filters first.'
+		))
+
+	items = frappe.get_list(
+		'Item',
+		filters={
+			'name': ['in', list(items_by_code)],
+			'disabled': 0,
+			'is_stock_item': 1,
+			'is_fixed_asset': 0
+		},
+		fields=['name', 'item_name', 'description', 'stock_uom'],
+		limit_page_length=0
+	)
+	valid_item_codes = set(row.name for row in items)
+	invalid_item_codes = sorted(set(items_by_code) - valid_item_codes)
+	if invalid_item_codes:
+		frappe.throw(_(
+			'These Items are unavailable or you do not have permission to use them: {0}'
+		).format(', '.join(invalid_item_codes)))
+
+	supplier = args.get('supplier')
+	supplier_values = None
+	if supplier:
+		supplier_values = frappe.get_list(
+			'Supplier',
+			filters={
+				'name': supplier,
+				'disabled': 0,
+				'prevent_rfqs': 0
+			},
+			fields=['name', 'supplier_name'],
+			limit_page_length=1
+		)
+		if not supplier_values:
+			frappe.throw(_('The selected Supplier cannot be used for an RFQ.'))
+
+	company = frappe.defaults.get_user_default('Company') \
+		or frappe.db.get_single_value('Global Defaults', 'default_company')
+	if not company:
+		frappe.throw(_('Please set a default Company before creating the RFQ.'))
+
+	warehouse = args.get('warehouse')
+	if not warehouse:
+		frappe.throw(_('Please select a Warehouse for the RFQ Items.'))
+	warehouse_values = frappe.get_list(
+		'Warehouse',
+		filters={
+			'name': warehouse,
+			'is_group': 0,
+			'disabled': 0,
+			'company': company
+		},
+		fields=['name'],
+		limit_page_length=1
+	)
+	if not warehouse_values:
+		frappe.throw(_(
+			'The selected Warehouse is unavailable or does not belong to {0}.'
+		).format(company))
+
+	rfq = frappe.new_doc('Request for Quotation')
+	rfq.company = company
+	rfq.transaction_date = nowdate()
+	rfq.status = 'Draft'
+	rfq.message_for_supplier = _(
+		'Please quote your best price and delivery schedule for the following items.'
+	)
+
+	if supplier_values:
+		party_details = frappe.get_attr(
+			'erpnext.accounts.party.get_party_details'
+		)(party=supplier_values[0].name, party_type='Supplier') or {}
+		rfq.append('suppliers', {
+			'supplier': supplier_values[0].name,
+			'supplier_name': supplier_values[0].supplier_name,
+			'contact': party_details.get('contact_person'),
+			'email_id': party_details.get('contact_email')
+		})
+
+	items_by_name = dict((row.name, row) for row in items)
+	for item_code in sorted(items_by_code):
+		item = items_by_name[item_code]
+		rfq.append('items', {
+			'item_code': item.name,
+			'item_name': item.item_name,
+			'description': item.description or item.item_name or item.name,
+			'qty': items_by_code[item_code],
+			'uom': item.stock_uom,
+			'stock_uom': item.stock_uom,
+			'conversion_factor': 1,
+			'schedule_date': nowdate(),
+			'warehouse': warehouse_values[0].name
+		})
+
+	return rfq
+
+
 def validate_reorder_warehouses(warehouse_group, warehouse):
 	warehouse_group_values = frappe.db.get_value(
 		'Warehouse', warehouse_group, ['is_group', 'disabled', 'company'], as_dict=1
@@ -206,6 +326,12 @@ def get_columns(filters):
 			'label': _('Last Sale Date'),
 			'fieldtype':'Date',
 
+		},
+		{
+			'fieldname': 'sales_invoice_count',
+			'label': _('No. of Sales Invoices'),
+			'fieldtype': 'Int',
+			'width': 100
 		},
 		{
 			'fieldname': 'total_sales',
@@ -466,11 +592,13 @@ def get_data(filters):
 
 	stock_by_item = get_stock_by_item(item_codes)
 	total_sales_by_item = get_total_sales_by_item(item_codes, filters)
+	sales_invoice_count_by_item = get_sales_invoice_count_by_item(item_codes, filters)
 	if filters.get('include_out_of_stock_sales'):
 		out_of_stock_by_item = get_out_of_stock_values(
 			item_codes,
 			filters,
-			total_sales_by_item
+			total_sales_by_item,
+			sales_invoice_count_by_item
 		)
 	else:
 		out_of_stock_by_item = {}
@@ -487,7 +615,6 @@ def get_data(filters):
 		repack_context.get('target_to_sources')
 	)
 	last_purchase_date_by_item = get_last_purchase_dates(purchase_item_codes)
-
 	for item in items:
 		total_sales = total_sales_by_item.get(item.item_code, 0)
 		out_of_stock_values = out_of_stock_by_item.get(item.item_code, {})
@@ -507,6 +634,7 @@ def get_data(filters):
 		available_qty = stock.get('actual_qty', 0)
 		last_purchase_invoice_date = last_purchase_date_by_item.get(item.item_code, '')
 		last_sales_invoice_date = last_sales_date_by_item.get(item.item_code, '')
+		sales_invoice_count = sales_invoice_count_by_item.get(item.item_code, 0)
 		reorder_quantity = reorder_quantity_by_item.get(item.item_code, 0)
 		minimum_purchase_qty = reorder_level_by_item.get(item.item_code, 0)
 		adjusted_total_sales = (
@@ -540,7 +668,7 @@ def get_data(filters):
 		priority_month = (planning_available_qty + on_purchase) / monthly_sales if monthly_sales > 0 else 0
 		row = [
 			item.name, item.item_name, item.stock_uom, last_purchase_invoice_date,
-			last_sales_invoice_date, total_sales
+			last_sales_invoice_date, sales_invoice_count, total_sales
 		]
 		if filters.get('include_out_of_stock_sales'):
 			row.extend([
@@ -876,7 +1004,59 @@ def get_total_sales_by_item(item_codes, filters):
 	return total_sales_by_item
 
 
-def get_out_of_stock_values(item_codes, filters, total_sales_by_item):
+def get_sales_invoice_count_by_item(item_codes, filters):
+	if not item_codes:
+		return {}
+
+	rows = frappe.db.sql("""
+		SELECT invoice_items.item_code, COUNT(DISTINCT invoice_items.parent) AS invoice_count
+		FROM (
+			SELECT sii.item_code, sii.parent
+			FROM `tabSales Invoice Item` sii
+			WHERE sii.docstatus = 1
+				AND sii.item_code IN %(item_codes)s
+				AND sii.creation BETWEEN %(start_date)s AND %(end_date)s
+			UNION
+			SELECT pi.item_code, pi.parent
+			FROM `tabPacked Item` pi
+			WHERE pi.parenttype = 'Sales Invoice'
+				AND pi.docstatus = 1
+				AND pi.item_code IN %(item_codes)s
+				AND pi.creation BETWEEN %(start_date)s AND %(end_date)s
+		) invoice_items
+		GROUP BY invoice_items.item_code
+	""", {
+		'item_codes': tuple(item_codes),
+		'start_date': filters.start_date,
+		'end_date': filters.end_date
+	}, as_dict=1)
+
+	return dict((row.item_code, row.invoice_count or 0) for row in rows)
+
+
+def get_out_of_stock_values(
+		item_codes, filters, total_sales_by_item, sales_invoice_count_by_item):
+	total_report_days = date_diff(filters.end_date, filters.start_date)
+	completed_report_months = int(total_report_days / 30) if total_report_days >= 30 else 0
+	result = {}
+	items_for_stock_check = []
+	for item_code in item_codes:
+		sales_invoice_count = sales_invoice_count_by_item.get(item_code, 0)
+		average_monthly_invoices = (
+			sales_invoice_count / completed_report_months
+			if completed_report_months > 0 else sales_invoice_count
+		)
+		if average_monthly_invoices <= 5:
+			result[item_code] = {
+				'days': None,
+				'estimated_sales_qty': 0
+			}
+		else:
+			items_for_stock_check.append(item_code)
+
+	if not items_for_stock_check:
+		return result
+
 	working_day_rows = frappe.db.sql("""
 		SELECT DISTINCT
 			DATE(creation) AS working_date
@@ -904,7 +1084,7 @@ def get_out_of_stock_values(item_codes, filters, total_sales_by_item):
 		GROUP BY item_code
 	""", {
 		'start_date': filters.start_date,
-		'item_codes': tuple(item_codes)
+		'item_codes': tuple(items_for_stock_check)
 	}, as_dict=1)
 
 	movement_rows = frappe.db.sql("""
@@ -921,7 +1101,7 @@ def get_out_of_stock_values(item_codes, filters, total_sales_by_item):
 	""", {
 		'start_date': filters.start_date,
 		'end_date': filters.end_date,
-		'item_codes': tuple(item_codes)
+		'item_codes': tuple(items_for_stock_check)
 	}, as_dict=1)
 
 	opening_by_item = dict(
@@ -933,8 +1113,7 @@ def get_out_of_stock_values(item_codes, filters, total_sales_by_item):
 
 	start_date = getdate(filters.start_date)
 	total_days = date_diff(filters.end_date, filters.start_date) + 1
-	result = {}
-	for item_code in item_codes:
+	for item_code in items_for_stock_check:
 		balance = opening_by_item.get(item_code, 0)
 		movements = movements_by_item.get(item_code, {})
 		out_of_stock_days = 0

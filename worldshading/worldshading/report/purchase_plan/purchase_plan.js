@@ -11,19 +11,32 @@ function apply_purchase_plan_sticky_columns(datatable) {
 
 	$(wrapper).addClass("purchase-plan-sticky-columns");
 	var row_index_width = 50;
-	var item_cell = $(wrapper).find(".dt-row-header .dt-cell--col-1")[0];
-	var item_width = item_cell ? item_cell.getBoundingClientRect().width : 120;
-	var item_name_cell = $(wrapper).find(".dt-row-header .dt-cell--col-2")[0];
-	var item_name_width = item_name_cell ? item_name_cell.getBoundingClientRect().width : 200;
-	wrapper.style.setProperty("--purchase-plan-row-index-width", row_index_width + "px");
-	wrapper.style.setProperty("--purchase-plan-item-width", item_width + "px");
-	wrapper.style.setProperty("--purchase-plan-item-name-width", item_name_width + "px");
+	var get_column_width = function (column_index, fallback_width) {
+		var cell = $(wrapper).find(
+			".dt-row-header .dt-cell--col-" + column_index
+		)[0];
+		return cell ? cell.getBoundingClientRect().width : fallback_width;
+	};
+	var update_sticky_offsets = function () {
+		wrapper.style.setProperty("--purchase-plan-row-index-width", row_index_width + "px");
+		wrapper.style.setProperty("--purchase-plan-item-width", get_column_width(1, 80) + "px");
+		wrapper.style.setProperty("--purchase-plan-item-name-width", get_column_width(2, 200) + "px");
+		wrapper.style.setProperty("--purchase-plan-unit-width", get_column_width(3, 100) + "px");
+		wrapper.style.setProperty("--purchase-plan-purchase-date-width", get_column_width(4, 120) + "px");
+		wrapper.style.setProperty("--purchase-plan-sale-date-width", get_column_width(5, 120) + "px");
+	};
+	update_sticky_offsets();
 	var update_sticky_header = function () {
 		var scroll_left = datatable.bodyScrollable.scrollLeft;
-		$(wrapper).find(
+		var sticky_header_cells = $(wrapper).find(
 			".dt-header .dt-cell--col-0, .dt-header .dt-cell--col-1, " +
-			".dt-header .dt-cell--col-2, .dt-header .dt-cell--col-3"
-		).css("transform", "translateX(" + scroll_left + "px)");
+			".dt-header .dt-cell--col-2, .dt-header .dt-cell--col-3, " +
+			".dt-header .dt-cell--col-4, .dt-header .dt-cell--col-5, " +
+			".dt-header .dt-cell--col-6"
+		);
+		sticky_header_cells
+			.addClass("purchase-plan-sticky-header-cell")
+			.css("transform", "translateX(" + scroll_left + "px)");
 	};
 	$(datatable.bodyScrollable)
 		.off("scroll.purchase_plan_sticky_columns")
@@ -31,6 +44,53 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			window.requestAnimationFrame(update_sticky_header);
 		});
 	update_sticky_header();
+
+	var resizing_column = false;
+	$(datatable.header)
+		.off("mousedown.purchase_plan_sticky_resize")
+		.on("mousedown.purchase_plan_sticky_resize", ".dt-cell__resize-handle", function () {
+			resizing_column = true;
+		});
+	$(document.body)
+		.off("mouseup.purchase_plan_sticky_resize")
+		.on("mouseup.purchase_plan_sticky_resize", function () {
+			if (!resizing_column) {
+				return;
+			}
+			resizing_column = false;
+			window.requestAnimationFrame(function () {
+				update_sticky_offsets();
+				update_sticky_header();
+			});
+		});
+	$(datatable.header)
+		.off("dblclick.purchase_plan_sticky_resize")
+		.on("dblclick.purchase_plan_sticky_resize", ".dt-cell__resize-handle", function () {
+			setTimeout(function () {
+				update_sticky_offsets();
+				update_sticky_header();
+			}, 0);
+		});
+
+	datatable.purchase_plan_refresh_sticky_columns = function () {
+		window.requestAnimationFrame(function () {
+			update_sticky_offsets();
+			update_sticky_header();
+		});
+	};
+	if (!datatable.purchase_plan_sticky_events_bound) {
+		datatable.purchase_plan_sticky_events_bound = true;
+		["onSortColumn", "onSwitchColumn", "onRemoveColumn"].forEach(function (event_name) {
+			datatable.on(event_name, function () {
+				if (datatable.purchase_plan_refresh_sticky_columns) {
+					datatable.purchase_plan_refresh_sticky_columns();
+				}
+			});
+		});
+	}
+	if (datatable.columnmanager && datatable.columnmanager.sortable) {
+		datatable.columnmanager.sortable.option("disabled", true);
+	}
 
 	if (!document.getElementById("purchase-plan-sticky-columns-style")) {
 		$("<style id='purchase-plan-sticky-columns-style'>" +
@@ -43,21 +103,38 @@ function apply_purchase_plan_sticky_columns(datatable) {
 				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width));z-index:3;background:#fff;}" +
 			".purchase-plan-sticky-columns .dt-cell--col-3{" +
 				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width));z-index:3;background:#fff;}" +
+			".purchase-plan-sticky-columns .dt-cell--col-4{" +
+				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width) + var(--purchase-plan-unit-width));z-index:3;background:#fff;}" +
+			".purchase-plan-sticky-columns .dt-cell--col-5{" +
+				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width) + var(--purchase-plan-unit-width) + var(--purchase-plan-purchase-date-width));z-index:3;background:#fff;}" +
+			".purchase-plan-sticky-columns .dt-cell--col-6{" +
+				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width) + var(--purchase-plan-unit-width) + var(--purchase-plan-purchase-date-width) + var(--purchase-plan-sale-date-width));z-index:3;background:#fff;}" +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-0," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-1," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-2," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-3," +
+			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-4," +
+			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-5," +
+			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-6," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-0," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-1," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-2," +
-			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-3{" +
-				"position:relative;left:auto;z-index:5;background:#f7fafc;}" +
-			".purchase-plan-sticky-columns .dt-cell--col-3{" +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-3," +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-4," +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-5," +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-6{" +
+				"position:relative;left:auto;z-index:30 !important;background:#f7fafc !important;}" +
+			".purchase-plan-sticky-columns .purchase-plan-sticky-header-cell{" +
+				"z-index:30 !important;background:#f7fafc !important;isolation:isolate;}" +
+			".purchase-plan-sticky-columns .purchase-plan-sticky-header-cell .dt-cell__content{" +
+				"position:relative;z-index:1;background:#f7fafc;}" +
+			".purchase-plan-sticky-columns .dt-cell--col-6{" +
 				"box-shadow:2px 0 2px rgba(0,0,0,0.08);}" +
 			"</style>").appendTo("head");
 	}
 
 	var important_columns = {
+		"Direct Sales": "#f0f8ff",
 		"Available Total Qty": "#eef6ff",
 		"On Purchase": "#fff7e6",
 		"Expected Order Quantity": "#edf9f0",
@@ -301,6 +378,81 @@ function show_item_reorder_dialog(report) {
 }
 
 
+function create_request_for_quotation(report) {
+	var rfq_items = [];
+	(report.data || []).forEach(function (row) {
+		var expected_order_quantity = flt(row.expected_order_quantity);
+		if (row.item && expected_order_quantity < 0) {
+			rfq_items.push({
+				item_code: row.item,
+				qty: Math.abs(expected_order_quantity)
+			});
+		}
+	});
+
+	if (!rfq_items.length) {
+		frappe.msgprint(__("There are no report Items with a purchase requirement."));
+		return;
+	}
+	if (rfq_items.length > 100) {
+		frappe.msgprint(
+			__("A maximum of 100 Items can be added to one RFQ. Apply report filters to reduce the current {0} purchasing Items.", [rfq_items.length])
+		);
+		return;
+	}
+
+	var supplier = report.get_filter_value("supplier") || null;
+	var dialog = new frappe.ui.Dialog({
+		title: __("Create Request for Quotation"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				options: '<p class="text-muted">' +
+					__("{0} report Items with a purchase requirement will be added.", [rfq_items.length]) +
+					'</p>'
+			},
+			{
+				fieldname: "warehouse",
+				fieldtype: "Link",
+				options: "Warehouse",
+				label: __("Warehouse"),
+				reqd: 1,
+				get_query: function () {
+					return {filters: {is_group: 0, disabled: 0}};
+				}
+			},
+			{
+				fieldname: "supplier_display",
+				fieldtype: "Data",
+				label: __("Supplier from Report"),
+				default: supplier || __("Not selected"),
+				read_only: 1
+			}
+		],
+		primary_action_label: __("Create RFQ"),
+		primary_action: function () {
+			var values = dialog.get_values();
+			if (!values || !values.warehouse) {
+				return;
+			}
+			dialog.hide();
+			frappe.model.open_mapped_doc({
+				method: "worldshading.worldshading.report.purchase_plan.purchase_plan.make_request_for_quotation",
+				source_name: "Purchase Plan",
+				args: {
+					item_values: JSON.stringify(rfq_items),
+					supplier: supplier,
+					warehouse: values.warehouse
+				},
+				freeze_message: __("Preparing Request for Quotation..."),
+				run_link_triggers: true
+			});
+		}
+	});
+	dialog.show();
+}
+
+
 frappe.query_reports["Purchase Plan"] = {
 	"filters": [
 		{
@@ -429,6 +581,9 @@ frappe.query_reports["Purchase Plan"] = {
 
 	],
 	"onload": function (report) {
+		report.page.add_inner_button(__("Create RFQ"), function () {
+			create_request_for_quotation(report);
+		});
 		report.page.add_inner_button(__("Update Item Reorder"), function () {
 			show_item_reorder_dialog(report);
 		});
@@ -448,6 +603,15 @@ frappe.query_reports["Purchase Plan"] = {
 				return '<a href="#Form/Purchase Order/' + encodeURIComponent(purchase_order) + '">' +
 					frappe.utils.escape_html(purchase_order) + '</a>';
 			}).join(", ");
+		}
+		if (column.fieldname == "estimated_out_of_stock_sales_qty" && data) {
+			var completed_report_months = parseInt(flt(data.total_months_in_report), 10);
+			var average_monthly_invoices = completed_report_months > 0
+				? flt(data.sales_invoice_count) / completed_report_months
+				: flt(data.sales_invoice_count);
+			if (average_monthly_invoices <= 5) {
+				return '<span class="text-muted">' + __("N/A") + '</span>';
+			}
 		}
 		value = default_formatter(value, row, column, data);
 		if (column.fieldname == "expected_order_quantity" && data && data.expected_order_quantity < 0) {
