@@ -28,6 +28,44 @@ def round_whole_qty(value):
 
 
 @frappe.whitelist()
+def get_rfq_default_warehouse(supplier=None, purchase_country=None):
+	company = frappe.defaults.get_user_default('Company') \
+		or frappe.db.get_single_value('Global Defaults', 'default_company')
+	if not company:
+		return None
+
+	if supplier:
+		supplier_country = frappe.db.get_value(
+			'Supplier',
+			{'name': supplier, 'disabled': 0, 'prevent_rfqs': 0},
+			'country'
+		)
+		purchase_country = supplier_country or purchase_country
+	if not purchase_country:
+		return None
+
+	company_country = frappe.db.get_value('Company', company, 'country')
+	settings_field = 'default_local_warehouse' \
+		if company_country and purchase_country == company_country \
+		else 'default_import_warehouse'
+	warehouse = frappe.db.get_single_value('WS Settings', settings_field)
+	if not warehouse:
+		return None
+
+	valid_warehouse = frappe.db.get_value(
+		'Warehouse',
+		{
+			'name': warehouse,
+			'is_group': 0,
+			'disabled': 0,
+			'company': company
+		},
+		'name'
+	)
+	return valid_warehouse
+
+
+@frappe.whitelist()
 def make_request_for_quotation(source_name=None):
 	if not frappe.has_permission('Request for Quotation', 'create'):
 		frappe.throw(
@@ -47,9 +85,9 @@ def make_request_for_quotation(source_name=None):
 
 	if not items_by_code:
 		frappe.throw(_('There are no report Items with a purchase requirement.'))
-	if len(items_by_code) > 100:
+	if len(items_by_code) > 1000:
 		frappe.throw(_(
-			'A maximum of 100 Items can be added to one RFQ. Apply Purchase Plan filters first.'
+			'A maximum of 1000 Items can be added to one RFQ. Apply Purchase Plan filters first.'
 		))
 
 	items = frappe.get_list(
@@ -71,6 +109,8 @@ def make_request_for_quotation(source_name=None):
 		).format(', '.join(invalid_item_codes)))
 
 	supplier = args.get('supplier')
+	supplier_group = args.get('supplier_group')
+	purchase_country = args.get('purchase_country')
 	supplier_values = None
 	if supplier:
 		supplier_values = frappe.get_list(
@@ -80,11 +120,18 @@ def make_request_for_quotation(source_name=None):
 				'disabled': 0,
 				'prevent_rfqs': 0
 			},
-			fields=['name', 'supplier_name'],
+			fields=['name', 'supplier_name', 'supplier_group', 'country'],
 			limit_page_length=1
 		)
 		if not supplier_values:
 			frappe.throw(_('The selected Supplier cannot be used for an RFQ.'))
+		supplier_group = supplier_values[0].supplier_group
+		purchase_country = supplier_values[0].country or purchase_country
+	elif supplier_group and not frappe.db.exists('Supplier Group', supplier_group):
+		frappe.throw(_('The selected Supplier Group does not exist.'))
+
+	if purchase_country and not frappe.db.exists('Country', purchase_country):
+		frappe.throw(_('The selected Country of Purchase does not exist.'))
 
 	company = frappe.defaults.get_user_default('Company') \
 		or frappe.db.get_single_value('Global Defaults', 'default_company')
@@ -114,6 +161,8 @@ def make_request_for_quotation(source_name=None):
 	rfq.company = company
 	rfq.transaction_date = nowdate()
 	rfq.status = 'Draft'
+	rfq.supplier_group = supplier_group
+	rfq.country_of_purchase = purchase_country
 	rfq.message_for_supplier = _(
 		'Please quote your best price and delivery schedule for the following items.'
 	)

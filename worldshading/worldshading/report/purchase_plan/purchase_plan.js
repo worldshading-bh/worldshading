@@ -10,6 +10,18 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	}
 
 	$(wrapper).addClass("purchase-plan-sticky-columns");
+	$(wrapper)
+		.off("click.purchase_plan_row_highlight")
+		.on("click.purchase_plan_row_highlight", ".dt-row .dt-cell", function () {
+			var selected_row = $(this).closest(".dt-row");
+			if (selected_row.hasClass("dt-row-header") ||
+					selected_row.hasClass("dt-row-filter")) {
+				return;
+			}
+			$(wrapper).find(".purchase-plan-selected-row")
+				.removeClass("purchase-plan-selected-row");
+			selected_row.addClass("purchase-plan-selected-row");
+		});
 	var row_index_width = 50;
 	var get_column_width = function (column_index, fallback_width) {
 		var cell = $(wrapper).find(
@@ -130,6 +142,8 @@ function apply_purchase_plan_sticky_columns(datatable) {
 				"position:relative;z-index:1;background:#f7fafc;}" +
 			".purchase-plan-sticky-columns .dt-cell--col-6{" +
 				"box-shadow:2px 0 2px rgba(0,0,0,0.08);}" +
+			".purchase-plan-sticky-columns .purchase-plan-selected-row .dt-cell{" +
+				"background:#fff3cd !important;}" +
 			"</style>").appendTo("head");
 	}
 
@@ -394,14 +408,16 @@ function create_request_for_quotation(report) {
 		frappe.msgprint(__("There are no report Items with a purchase requirement."));
 		return;
 	}
-	if (rfq_items.length > 100) {
+	if (rfq_items.length > 1000) {
 		frappe.msgprint(
-			__("A maximum of 100 Items can be added to one RFQ. Apply report filters to reduce the current {0} purchasing Items.", [rfq_items.length])
+			__("A maximum of 1000 Items can be added to one RFQ. Apply report filters to reduce the current {0} purchasing Items.", [rfq_items.length])
 		);
 		return;
 	}
 
 	var supplier = report.get_filter_value("supplier") || null;
+	var supplier_group = report.get_filter_value("supplier_group") || null;
+	var purchase_country = report.get_filter_value("purchased_from") || null;
 	var dialog = new frappe.ui.Dialog({
 		title: __("Create Request for Quotation"),
 		fields: [
@@ -442,6 +458,8 @@ function create_request_for_quotation(report) {
 				args: {
 					item_values: JSON.stringify(rfq_items),
 					supplier: supplier,
+					supplier_group: supplier_group,
+					purchase_country: purchase_country,
 					warehouse: values.warehouse
 				},
 				freeze_message: __("Preparing Request for Quotation..."),
@@ -450,6 +468,18 @@ function create_request_for_quotation(report) {
 		}
 	});
 	dialog.show();
+	frappe.call({
+		method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_rfq_default_warehouse",
+		args: {
+			supplier: supplier,
+			purchase_country: purchase_country
+		},
+		callback: function (response) {
+			if (response.message && !dialog.get_value("warehouse")) {
+				dialog.set_value("warehouse", response.message);
+			}
+		}
+	});
 }
 
 
