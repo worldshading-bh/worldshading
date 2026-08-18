@@ -232,6 +232,7 @@ doctype_js = {
 
 
 override_whitelisted_methods = {
+    "frappe.desk.form.utils.validate_link": "worldshading.api.legacy_groups.validate_link",
     "worldshading.api.public_pdf.download_public_pdf": "worldshading.api.public_pdf.download_public_pdf",
     "worldshading.api.loyalty.get_loyalty_points": "worldshading.api.loyalty.get_loyalty_points",
     "worldshading.api.otp.send_otp": "worldshading.api.otp.send_otp",
@@ -263,6 +264,18 @@ doc_events = {
 
     "Material Request": {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
+    },
+    "Item": {
+        "validate": "worldshading.api.legacy_groups.validate_active_group_assignment"
+    },
+    "Supplier": {
+        "validate": "worldshading.api.legacy_groups.validate_active_group_assignment"
+    },
+    "Item Group": {
+        "validate": "worldshading.api.legacy_groups.validate_group_state"
+    },
+    "Supplier Group": {
+        "validate": "worldshading.api.legacy_groups.validate_group_state"
     },
     "Stock Entry": {
         "validate": "worldshading.api.repack_validation.validate_repack_quantities",
