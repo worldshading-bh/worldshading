@@ -64,7 +64,7 @@ def _with_parent_item_groups(item_groups):
 	return groups
 
 
-def _get_matching_suppliers(item_codes, supplier_group=None, country_of_purchase=None):
+def _get_matching_suppliers(item_codes, country_of_purchase=None):
 	item_groups = _get_item_groups(item_codes)
 	if not item_groups:
 		return [], item_groups
@@ -99,8 +99,6 @@ def _get_matching_suppliers(item_codes, supplier_group=None, country_of_purchase
 		"disabled": 0,
 		"prevent_rfqs": 0
 	}
-	if supplier_group:
-		supplier_filters["supplier_group"] = supplier_group
 	if country_of_purchase:
 		supplier_filters["country"] = country_of_purchase
 
@@ -122,10 +120,9 @@ def _get_matching_suppliers(item_codes, supplier_group=None, country_of_purchase
 
 
 @frappe.whitelist()
-def get_suppliers_for_items(item_codes=None, supplier_group=None,
-		country_of_purchase=None):
+def get_suppliers_for_items(item_codes=None, country_of_purchase=None):
 	suppliers, item_groups = _get_matching_suppliers(
-		item_codes, supplier_group, country_of_purchase)
+		item_codes, country_of_purchase)
 	return {
 		"suppliers": suppliers,
 		"item_groups": item_groups
@@ -162,7 +159,7 @@ def validate_supplier_item_groups(doc, method=None):
 	supplier_details = frappe.get_all(
 		"Supplier",
 		filters={"name": ["in", supplier_names]},
-		fields=["name", "supplier_name", "supplier_group", "country"]
+		fields=["name", "supplier_name", "country"]
 	)
 	details_by_supplier = dict((row.name, row) for row in supplier_details)
 
@@ -172,11 +169,9 @@ def validate_supplier_item_groups(doc, method=None):
 		details = details_by_supplier.get(supplier) or frappe._dict()
 		item_group_matches = bool(
 			configured_groups.intersection(matching_item_groups))
-		supplier_group_matches = bool(
-			not doc.supplier_group or details.supplier_group == doc.supplier_group)
 		country_matches = bool(
 			not doc.country_of_purchase or details.country == doc.country_of_purchase)
-		if item_group_matches and supplier_group_matches and country_matches:
+		if item_group_matches and country_matches:
 			continue
 
 		supplier_name = details.supplier_name or supplier
@@ -188,9 +183,6 @@ def validate_supplier_item_groups(doc, method=None):
 			"rfq_item_groups": ", ".join(direct_item_groups),
 			"configured_groups": configured_text,
 			"item_group_matches": item_group_matches,
-			"expected_supplier_group": doc.supplier_group,
-			"supplier_group": details.supplier_group or _("Not set"),
-			"supplier_group_matches": supplier_group_matches,
 			"expected_country": doc.country_of_purchase,
 			"country": details.country or _("Not set"),
 			"country_matches": country_matches
@@ -209,17 +201,13 @@ def validate_supplier_item_groups(doc, method=None):
 				lines.append("&nbsp;&nbsp;&nbsp;<b>{0}:</b> {1} ({2}: {3})".format(
 					_("Item Group mismatch"), invalid["configured_groups"],
 					_("RFQ requires"), invalid["rfq_item_groups"]))
-			if not invalid["supplier_group_matches"]:
-				lines.append("&nbsp;&nbsp;&nbsp;<b>{0}:</b> {1} ({2}: {3})".format(
-					_("Supplier Group mismatch"), invalid["supplier_group"],
-					_("RFQ requires"), invalid["expected_supplier_group"]))
 			if not invalid["country_matches"]:
 				lines.append("&nbsp;&nbsp;&nbsp;<b>{0}:</b> {1} ({2}: {3})".format(
 					_("Country mismatch"), invalid["country"],
 					_("RFQ requires"), invalid["expected_country"]))
 			message.append("<br>".join(lines))
 		message.append(
-			_("Update the Supplier specialization, Supplier Group, or Country "
+			_("Update the Supplier specialization or Country "
 			  "so it matches the RFQ filters.")
 		)
 		frappe.throw(
@@ -235,7 +223,6 @@ def supplier_query(doctype, txt, searchfield, start, page_len, filters):
 	item_codes = filters.get("item_codes")
 	suppliers, _item_groups = _get_matching_suppliers(
 		item_codes,
-		filters.get("supplier_group"),
 		filters.get("country_of_purchase")
 	)
 
@@ -247,8 +234,6 @@ def supplier_query(doctype, txt, searchfield, start, page_len, filters):
 			"prevent_rfqs": 0,
 			"name": ["like", "%%%s%%" % txt]
 		}
-		if filters.get("supplier_group"):
-			fallback_filters["supplier_group"] = filters.get("supplier_group")
 		if filters.get("country_of_purchase"):
 			fallback_filters["country"] = filters.get("country_of_purchase")
 		return frappe.get_list(
