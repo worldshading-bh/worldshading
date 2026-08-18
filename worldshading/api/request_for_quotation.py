@@ -64,7 +64,7 @@ def _with_parent_item_groups(item_groups):
 	return groups
 
 
-def _get_matching_suppliers(item_codes):
+def _get_matching_suppliers(item_codes, supplier_group=None, country_of_purchase=None):
 	item_groups = _get_item_groups(item_codes)
 	if not item_groups:
 		return [], item_groups
@@ -94,13 +94,19 @@ def _get_matching_suppliers(item_codes):
 
 	# get_list is intentional: unlike get_all, it applies the current user's
 	# Supplier permission query conditions.
+	supplier_filters = {
+		"name": ["in", list(priority_by_supplier)],
+		"disabled": 0,
+		"prevent_rfqs": 0
+	}
+	if supplier_group:
+		supplier_filters["supplier_group"] = supplier_group
+	if country_of_purchase:
+		supplier_filters["country"] = country_of_purchase
+
 	suppliers = frappe.get_list(
 		"Supplier",
-		filters={
-			"name": ["in", list(priority_by_supplier)],
-			"disabled": 0,
-			"prevent_rfqs": 0
-		},
+		filters=supplier_filters,
 		fields=["name", "supplier_name"],
 		limit_page_length=0
 	)
@@ -116,8 +122,10 @@ def _get_matching_suppliers(item_codes):
 
 
 @frappe.whitelist()
-def get_suppliers_for_items(item_codes=None):
-	suppliers, item_groups = _get_matching_suppliers(item_codes)
+def get_suppliers_for_items(item_codes=None, supplier_group=None,
+		country_of_purchase=None):
+	suppliers, item_groups = _get_matching_suppliers(
+		item_codes, supplier_group, country_of_purchase)
 	return {
 		"suppliers": suppliers,
 		"item_groups": item_groups
@@ -151,21 +159,41 @@ def validate_supplier_item_groups(doc, method=None):
 	for row in specializations:
 		groups_by_supplier.setdefault(row.parent, set()).add(row.item_group)
 
+	supplier_details = frappe.get_all(
+		"Supplier",
+		filters={"name": ["in", supplier_names]},
+		fields=["name", "supplier_name", "supplier_group", "country"]
+	)
+	details_by_supplier = dict((row.name, row) for row in supplier_details)
+
 	invalid_suppliers = []
 	for supplier in supplier_names:
 		configured_groups = groups_by_supplier.get(supplier, set())
-		if configured_groups.intersection(matching_item_groups):
+		details = details_by_supplier.get(supplier) or frappe._dict()
+		item_group_matches = bool(
+			configured_groups.intersection(matching_item_groups))
+		supplier_group_matches = bool(
+			not doc.supplier_group or details.supplier_group == doc.supplier_group)
+		country_matches = bool(
+			not doc.country_of_purchase or details.country == doc.country_of_purchase)
+		if item_group_matches and supplier_group_matches and country_matches:
 			continue
 
-		supplier_name = frappe.db.get_value(
-			"Supplier", supplier, "supplier_name") or supplier
+		supplier_name = details.supplier_name or supplier
 		configured_text = ", ".join(sorted(configured_groups)) \
 			if configured_groups else _("None configured")
 		invalid_suppliers.append({
 			"supplier_id": supplier,
 			"supplier": supplier_name,
 			"rfq_item_groups": ", ".join(direct_item_groups),
-			"configured_groups": configured_text
+			"configured_groups": configured_text,
+			"item_group_matches": item_group_matches,
+			"expected_supplier_group": doc.supplier_group,
+			"supplier_group": details.supplier_group or _("Not set"),
+			"supplier_group_matches": supplier_group_matches,
+			"expected_country": doc.country_of_purchase,
+			"country": details.country or _("Not set"),
+			"country_matches": country_matches
 		})
 
 	if invalid_suppliers:
@@ -175,26 +203,28 @@ def validate_supplier_item_groups(doc, method=None):
 		for index, invalid in enumerate(invalid_suppliers, 1):
 			supplier_link = frappe.utils.get_link_to_form(
 				"Supplier", invalid["supplier_id"], invalid["supplier"])
-			message.append(
-				"{0}. <b>{1}:</b> {2}<br>"
-				"&nbsp;&nbsp;&nbsp;<b>{3}:</b> {4}<br>"
-				"&nbsp;&nbsp;&nbsp;<b>{5}:</b> {6}".format(
-					index,
-					_("Supplier"),
-					supplier_link,
-					_("Supplier Specialization"),
-					invalid["configured_groups"],
-					_("RFQ Item Groups"),
-					invalid["rfq_item_groups"]
-				)
-			)
+			lines = ["{0}. <b>{1}:</b> {2}".format(
+				index, _("Supplier"), supplier_link)]
+			if not invalid["item_group_matches"]:
+				lines.append("&nbsp;&nbsp;&nbsp;<b>{0}:</b> {1} ({2}: {3})".format(
+					_("Item Group mismatch"), invalid["configured_groups"],
+					_("RFQ requires"), invalid["rfq_item_groups"]))
+			if not invalid["supplier_group_matches"]:
+				lines.append("&nbsp;&nbsp;&nbsp;<b>{0}:</b> {1} ({2}: {3})".format(
+					_("Supplier Group mismatch"), invalid["supplier_group"],
+					_("RFQ requires"), invalid["expected_supplier_group"]))
+			if not invalid["country_matches"]:
+				lines.append("&nbsp;&nbsp;&nbsp;<b>{0}:</b> {1} ({2}: {3})".format(
+					_("Country mismatch"), invalid["country"],
+					_("RFQ requires"), invalid["expected_country"]))
+			message.append("<br>".join(lines))
 		message.append(
-			_("To allow this supplier, open Supplier &gt; Supplier Item Groups "
-			  "and add a matching Item Group or one of its parent groups.")
+			_("Update the Supplier specialization, Supplier Group, or Country "
+			  "so it matches the RFQ filters.")
 		)
 		frappe.throw(
 			"<br><br>".join(message),
-			title=_("Supplier Item Group Mismatch")
+			title=_("Supplier Does Not Match RFQ")
 		)
 
 
@@ -202,18 +232,28 @@ def validate_supplier_item_groups(doc, method=None):
 @frappe.validate_and_sanitize_search_inputs
 def supplier_query(doctype, txt, searchfield, start, page_len, filters):
 	filters = frappe.parse_json(filters) if isinstance(filters, str) else (filters or {})
-	suppliers, _item_groups = _get_matching_suppliers(filters.get("item_codes"))
+	item_codes = filters.get("item_codes")
+	suppliers, _item_groups = _get_matching_suppliers(
+		item_codes,
+		filters.get("supplier_group"),
+		filters.get("country_of_purchase")
+	)
 
-	# With no configured match, retain the normal Supplier lookup so users can
-	# still select a legitimate one-time supplier manually.
-	if not suppliers:
+	# Before items are entered, retain normal lookup while honoring any optional
+	# RFQ filters. Once items exist, Item Group matching remains mandatory.
+	if not suppliers and not _as_list(item_codes):
+		fallback_filters = {
+			"disabled": 0,
+			"prevent_rfqs": 0,
+			"name": ["like", "%%%s%%" % txt]
+		}
+		if filters.get("supplier_group"):
+			fallback_filters["supplier_group"] = filters.get("supplier_group")
+		if filters.get("country_of_purchase"):
+			fallback_filters["country"] = filters.get("country_of_purchase")
 		return frappe.get_list(
 			"Supplier",
-			filters={
-				"disabled": 0,
-				"prevent_rfqs": 0,
-				"name": ["like", "%%%s%%" % txt]
-			},
+			filters=fallback_filters,
 			fields=["name", "supplier_name"],
 			limit_start=start,
 			limit_page_length=page_len,
