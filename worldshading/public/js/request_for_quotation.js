@@ -6,7 +6,9 @@ frappe.ui.form.on("Request for Quotation", {
 				filters: {
 					item_codes: (frm.doc.items || []).map(function (row) {
 						return row.item_code;
-					}).filter(Boolean)
+					}).filter(Boolean),
+					supplier_group: frm.doc.supplier_group,
+					country_of_purchase: frm.doc.country_of_purchase
 				}
 			};
 		};
@@ -37,7 +39,11 @@ function fetch_matching_suppliers(frm) {
 
 	frappe.call({
 		method: "worldshading.api.request_for_quotation.get_suppliers_for_items",
-		args: { item_codes: item_codes },
+		args: {
+			item_codes: item_codes,
+			supplier_group: frm.doc.supplier_group,
+			country_of_purchase: frm.doc.country_of_purchase
+		},
 		freeze: true,
 		freeze_message: __("Finding suppliers by Item Group..."),
 		callback: function (r) {
