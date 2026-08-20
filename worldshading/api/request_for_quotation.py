@@ -2,11 +2,85 @@ from __future__ import unicode_literals
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 
 SUPPLIER_ITEM_GROUP_FIELD = "supplier_item_group"
 SUPPLIER_ITEM_GROUP_DOCTYPE = "Supplier Item Group"
+
+
+def _get_last_purchase_details(item_codes, company=None):
+	"""Return latest submitted Purchase Invoice details per Item."""
+	item_codes = list(set([item_code for item_code in item_codes if item_code]))
+	if not item_codes:
+		return {}
+
+	query_values = {"item_codes": tuple(item_codes)}
+	company_condition = ""
+	if company:
+		company_condition = "AND pi.company = %(company)s"
+		query_values["company"] = company
+
+	# A single joined query is intentional. Purchase Invoice posting details live
+	# on the parent while cost and conversion factor live on the child row.
+	rows = frappe.db.sql("""
+		SELECT
+			pii.item_code,
+			pi.supplier,
+			pii.base_net_rate,
+			pii.conversion_factor
+		FROM `tabPurchase Invoice Item` pii
+		INNER JOIN `tabPurchase Invoice` pi
+			ON pi.name = pii.parent
+		WHERE
+			pi.docstatus = 1
+			AND pii.item_code IN %(item_codes)s
+			{company_condition}
+		ORDER BY
+			pii.item_code ASC,
+			pi.posting_date DESC,
+			pi.creation DESC,
+			pii.idx DESC
+	""".format(company_condition=company_condition), query_values, as_dict=1)
+
+	details = {}
+	for row in rows:
+		if row.item_code in details:
+			continue
+		conversion_factor = flt(row.conversion_factor)
+		if not conversion_factor:
+			continue
+		details[row.item_code] = {
+			"cost": flt(row.base_net_rate) / conversion_factor,
+			"supplier": row.supplier
+		}
+	return details
+
+
+def set_last_purchase_details(doc, method=None):
+	"""Refresh latest Purchase Invoice details on RFQ Items before save."""
+	item_meta = frappe.get_meta("Request for Quotation Item")
+	has_cost_field = item_meta.has_field("last_purchase_cost")
+	has_supplier_field = item_meta.has_field("last_purchase_supplier")
+	if not has_cost_field and not has_supplier_field:
+		return
+
+	items = [row for row in (doc.items or []) if row.item_code]
+	if not items:
+		return
+
+	company = doc.get("company") \
+		or frappe.defaults.get_user_default("Company") \
+		or frappe.db.get_single_value("Global Defaults", "default_company")
+	details = _get_last_purchase_details(
+		[row.item_code for row in items], company)
+
+	for row in items:
+		detail = details.get(row.item_code, {})
+		if has_cost_field:
+			row.last_purchase_cost = detail.get("cost")
+		if has_supplier_field:
+			row.last_purchase_supplier = detail.get("supplier")
 
 
 def _as_list(value):

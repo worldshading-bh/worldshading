@@ -263,7 +263,10 @@ doc_events = {
     },
     
     "Request for Quotation": {
-        "validate": "worldshading.api.request_for_quotation.validate_supplier_item_groups"
+        "validate": [
+            "worldshading.api.request_for_quotation.set_last_purchase_details",
+            "worldshading.api.request_for_quotation.validate_supplier_item_groups"
+        ]
     },
 
     "Material Request": {
