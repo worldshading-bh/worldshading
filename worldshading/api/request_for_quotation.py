@@ -27,6 +27,8 @@ def _get_last_purchase_details(item_codes, company=None):
 		SELECT
 			pii.item_code,
 			pi.supplier,
+			pi.currency,
+			pii.net_rate,
 			pii.base_net_rate,
 			pii.conversion_factor
 		FROM `tabPurchase Invoice Item` pii
@@ -51,8 +53,10 @@ def _get_last_purchase_details(item_codes, company=None):
 		if not conversion_factor:
 			continue
 		details[row.item_code] = {
-			"cost": flt(row.base_net_rate) / conversion_factor,
-			"supplier": row.supplier
+			"base_rate": flt(row.base_net_rate) / conversion_factor,
+			"supplier": row.supplier,
+			"rate": flt(row.net_rate) / conversion_factor,
+			"currency": row.currency
 		}
 	return details
 
@@ -60,9 +64,13 @@ def _get_last_purchase_details(item_codes, company=None):
 def set_last_purchase_details(doc, method=None):
 	"""Refresh latest Purchase Invoice details on RFQ Items before save."""
 	item_meta = frappe.get_meta("Request for Quotation Item")
-	has_cost_field = item_meta.has_field("last_purchase_cost")
+	has_base_rate_field = item_meta.has_field("last_purchase_base_rate")
 	has_supplier_field = item_meta.has_field("last_purchase_supplier")
-	if not has_cost_field and not has_supplier_field:
+	has_rate_field = item_meta.has_field("last_purchase_rate")
+	has_currency_field = item_meta.has_field("last_purchase_currency")
+	if not any([
+			has_base_rate_field, has_supplier_field,
+			has_rate_field, has_currency_field]):
 		return
 
 	items = [row for row in (doc.items or []) if row.item_code]
@@ -77,10 +85,14 @@ def set_last_purchase_details(doc, method=None):
 
 	for row in items:
 		detail = details.get(row.item_code, {})
-		if has_cost_field:
-			row.last_purchase_cost = detail.get("cost")
+		if has_base_rate_field:
+			row.last_purchase_base_rate = detail.get("base_rate")
 		if has_supplier_field:
 			row.last_purchase_supplier = detail.get("supplier")
+		if has_rate_field:
+			row.last_purchase_rate = detail.get("rate")
+		if has_currency_field:
+			row.last_purchase_currency = detail.get("currency")
 
 
 def _as_list(value):
