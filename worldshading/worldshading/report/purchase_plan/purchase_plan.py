@@ -22,10 +22,10 @@ def validate_filters(filters):
 	validate_numeric_filter(filters, 'percentage', _('Percentage'))
 	validate_numeric_filter(filters, 'minimum_months', _('Min Stock Months'))
 	if filters.get('end_date') and getdate(filters.end_date) > getdate(nowdate()):
-		frappe.throw(_('End Date cannot be later than today.'))
+		frappe.throw(_('Plan End Date cannot be later than today.'))
 	if filters.get('start_date') and filters.get('end_date') \
 			and getdate(filters.start_date) > getdate(filters.end_date):
-		frappe.throw(_('Start Date cannot be later than End Date.'))
+		frappe.throw(_('Plan Start Date cannot be later than Plan End Date.'))
 
 
 def validate_numeric_filter(filters, fieldname, label):
@@ -53,8 +53,8 @@ def get_rfq_report_filter_log(report_filters):
 		return ''
 
 	filter_labels = [
-		('start_date', _('Start Date')),
-		('end_date', _('End Date')),
+		('start_date', _('Plan Start Date')),
+		('end_date', _('Plan End Date')),
 		('supplier', _('Supplier')),
 		('supplier_group', _('Supplier Group')),
 		('supplier_country', _('Supplier Country')),

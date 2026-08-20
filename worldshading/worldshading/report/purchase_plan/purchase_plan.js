@@ -668,20 +668,20 @@ frappe.query_reports["Purchase Plan"] = {
 	"filters": [
 		{
 			"fieldname": "start_date",
-			"label": __("Start Date"),
+			"label": __("Plan Start Date"),
 			"fieldtype": "Date",
 			"reqd": 1,
 					},
 		{
 			"fieldname": "end_date",
-			"label": __("End Date"),
+			"label": __("Plan End Date"),
 			"fieldtype": "Date",
 			"reqd": 1,
 			"on_change": function() {
 				var end_date = frappe.query_report.get_filter_value("end_date");
 				var today = frappe.datetime.get_today();
 				if (end_date && end_date > today) {
-					frappe.msgprint(__("End Date cannot be later than today."));
+					frappe.msgprint(__("Plan End Date cannot be later than today."));
 					frappe.query_report.set_filter_value("end_date", today);
 				}
 			},

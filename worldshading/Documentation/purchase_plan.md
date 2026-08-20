@@ -55,7 +55,7 @@ exists in every report path.
 
 | Filter | Current behavior |
 |---|---|
-| Start Date / End Date | Required. Start cannot exceed End. End cannot exceed today. |
+| Plan Start Date / Plan End Date | Required. Start cannot exceed End. End cannot exceed today. |
 | Supplier | Includes items found on submitted Purchase Invoices for that Supplier. |
 | Supplier Group | Includes Suppliers in the selected group and all descendant groups, then items found on their submitted Purchase Invoices. |
 | Supplier Country | Includes Suppliers with that country, then items found on their submitted Purchase Invoices. |
@@ -94,7 +94,7 @@ The report interval is inclusive for sales and stock-day traversal. However, pla
 months use:
 
 ```text
-date_diff(End Date, Start Date) / 30
+date_diff(Plan End Date, Plan Start Date) / 30
 ```
 
 and are zero when the difference is under 30 days. The value is later converted to an
@@ -102,7 +102,7 @@ integer for monthly calculations. Short intervals therefore need careful review.
 
 One implementation detail needs regression coverage: the distinct-invoice-count SQL
 passes date-only values directly to a Datetime `BETWEEN` comparison. MariaDB can treat
-End Date as midnight, so invoices created later on End Date may be omitted from the
+Plan End Date as midnight, so invoices created later on Plan End Date may be omitted from the
 count even when sales aggregation includes them. Do not change this casually, but fix
 it together with tests if the count and Direct Sales disagree on an end-boundary day.
 
@@ -245,7 +245,7 @@ Fridays or other weekdays are not hardcoded.
 
 For each active item:
 
-1. obtain opening stock from all Stock Ledger Entries before Start Date;
+1. obtain opening stock from all Stock Ledger Entries before Plan Start Date;
 2. aggregate Stock Ledger movement per day across all warehouses;
 3. walk every day in the selected range;
 4. on inferred working days, count the day as out of stock when balance is `<= 0`;
@@ -433,7 +433,7 @@ enabling RFQ creation.
 - A compact single-row wrapping strip above the results shows Purchase Plan Date,
   integer Total Report Months and the remaining entered filters with shorter readable
   labels, including `Months to Arrive`. It remains hidden until both dates exist; Start
-  and End Date are not repeated separately.
+  and Plan End Date are not repeated separately.
 
 ### Smart total row
 
@@ -550,7 +550,7 @@ not undone by reverting code; review and correct those records separately.
 - Working days are inferred from Sales Invoice activity, not Holiday List.
 - Stock is company-wide/all-warehouse; there is no warehouse filter for calculations.
 - Supplier matching is historical Purchase Invoice based.
-- Distinct invoice counting has a possible End Date/Datetime boundary inconsistency.
+- Distinct invoice counting has a possible Plan End Date/Datetime boundary inconsistency.
 - Planning months approximate a month as 30 days and truncate during calculations.
 - Field labels retain legacy spelling such as `Monthy Sales` and `Shortage Happend`.
 - Reorder-dialog defaults remain hardcoded.
