@@ -5,7 +5,8 @@ import unittest
 
 from worldshading.api import repack_validation
 from worldshading.api.repack_validation import (
-	_build_mismatch_message, find_matching_rule, find_matching_rules)
+	_build_mismatch_message, _get_rule_stock_entry_type, find_matching_rule,
+	find_matching_rules)
 
 
 ROLL = ("ROLL-001", "Roll")
@@ -64,6 +65,21 @@ class TestRepackRuleMatching(unittest.TestCase):
 		matched = find_matching_rule(
 			{ROLL: 1}, {("FABRIC-001", "Nos"): 25}, [repack_rule()])
 		self.assertIsNone(matched)
+
+	def test_stock_entry_type_drives_rule_type(self):
+		self.assertEqual(
+			_get_rule_stock_entry_type({
+				"purpose": "Repack",
+				"stock_entry_type": "Production"
+			}),
+			"Production"
+		)
+
+	def test_erpnext_purpose_repack_does_not_trigger_without_custom_type(self):
+		self.assertIsNone(_get_rule_stock_entry_type({
+			"purpose": "Repack",
+			"stock_entry_type": "Manufacture"
+		}))
 
 	def test_message_explains_wrong_target_quantity_on_separate_lines(self):
 		message = _build_mismatch_message(
