@@ -61,7 +61,7 @@ exists in every report path.
 | Supplier Country | Includes Suppliers with that country, then items found on their submitted Purchase Invoices. |
 | Item | Exact Item. It must also satisfy every active Supplier filter. |
 | Disabled Items Only | Unchecked returns only enabled Items. Checked returns only disabled Items. Disabled Items remain unavailable to the RFQ and Item Reorder actions. |
-| Show Price and Cost For | `All Items` shows Selling Price and Least Cost wherever values exist. `Items Requiring Purchase` shows them only when Expected Order Quantity is negative. Item Suppliers remain visible in both modes. |
+| Show Price and Cost For | `All Items` shows Selling Price and Last Purchase Cost wherever values exist. `Items Requiring Purchase` shows them only when Expected Order Quantity is negative. Item Suppliers remain visible in both modes. |
 | Parent Item Groups | Multi-select. Includes every descendant Item Group. |
 | Child Item Groups | Multi-select of enabled leaf groups. Disabled groups are excluded. If parent groups are selected, choices are limited to their descendants. |
 | Item Purchase Country | Exact match against Item `purchased_from`. |
@@ -121,7 +121,7 @@ it together with tests if the count and Direct Sales disagree on an end-boundary
 | Last Purchase Date | Latest positive Stock Ledger movement from Purchase Invoice or Purchase Receipt. |
 | Selling Price | Current valid Item Price from the Selling Settings default Price List. If none exists, Item `standard_rate` is used for compatibility with the legacy Regular Price setup. |
 | Item Suppliers | Enabled Suppliers configured in Item Supplier or found on submitted Purchase Invoices for the selected Company. |
-| Least Cost | Lowest latest Supplier cost, in Company currency per stock UOM. |
+| Last Purchase Cost | Cost on the Item's latest submitted Purchase Invoice, in Company currency per stock UOM. |
 
 Last purchase/sale dates are ledger dates over all history, not restricted to the report
 period. This makes receipt-only and delivery-note-only stock movements visible.
@@ -129,17 +129,19 @@ period. This makes receipt-only and delivery-note-only stock movements visible.
 ### Supplier cost and ranking
 
 For each Item and Supplier, the report takes the latest submitted Purchase Invoice row
-with a positive comparable cost for the selected/default Company and calculates:
+with a valid comparable cost for the selected/default Company and calculates:
 
 ```text
 Comparable Supplier Cost = base_net_rate / conversion_factor
 ```
 
 This uses Company currency, includes the applied purchase discount and normalizes the
-transaction UOM to stock UOM. Suppliers are sorted by this cost. The cheapest Supplier
-is green, the second cheapest is yellow, and all remaining Suppliers are red. Active
-configured Suppliers without purchase history are placed after priced Suppliers and
-shown in red. Least Cost is blank when no Supplier has a positive comparable cost.
+transaction UOM to stock UOM. Suppliers are sorted by each Supplier's latest cost. The
+cheapest Supplier is green, the second cheapest is yellow, and all remaining priced
+Suppliers are red. Active configured Suppliers without purchase history are placed after
+priced Suppliers and shown in grey. Hovering a Supplier shows its latest cost, Purchase
+Invoice and posting date. Last Purchase Cost is the cost from the latest submitted
+Purchase Invoice for the Item overall, so it can differ from the green Supplier's cost.
 
 The August 2026 demo has no Item Supplier rows, so historical submitted Purchase
 Invoices are presently the effective Supplier source. Both sources remain supported.
@@ -426,7 +428,7 @@ enabling RFQ creation.
 - On Purchase PO values are clickable Purchase Order links.
 - Item Suppliers are clickable, ordered by comparable cost and colored green, yellow,
   then red. Suppliers without a comparable cost are red.
-- Item Suppliers, Least Cost and Selling Price are the final three visible columns, in
+- Item Suppliers, Last Purchase Cost and Selling Price are the final three visible columns, in
   that order.
 - Total Months In Report and Months To Arrive remain calculation inputs but are not
   displayed as result columns.
@@ -441,7 +443,7 @@ The total row is enabled for additive values only: No. of Sales Invoices, Direct
 out-of-stock and repack demand, Expected Total Sale, Min, Available Quantity, converted
 repack availability, On Purchase, Available Total Qty, Monthy Sales, Annual Sales,
 Period Expected Sales, Shortage Happend, Re-order Level, Re-order Quantity and Expected
-Order Quantity, Selling Price and Least Cost. Expected Order Quantity totals only
+Order Quantity, Selling Price and Last Purchase Cost. Expected Order Quantity totals only
 negative values; positive balances are deliberately ignored. Item Suppliers,
 percentages, dates, invoice frequency and Priority Month are not totaled. The footer's
 Serial number, Item, Item Name, Unit, Last Purchase Date, Last Sale Date and No. of Sales
@@ -495,7 +497,7 @@ perform these checks on the clone before release:
 18. Switch Show Price and Cost For and confirm only price/cost values are hidden on rows
     that do not need ordering; Supplier names must remain visible.
 19. Confirm the smart total row excludes positive Expected Order Quantity values and
-    leaves non-additive columns blank. Confirm Selling Price and Least Cost totals, and
+    leaves non-additive columns blank. Confirm Selling Price and Last Purchase Cost totals, and
     verify that the first seven footer cells remain frozen during horizontal scrolling.
 20. Confirm Total Months In Report and Months To Arrive are absent as result columns,
     while changing the arrival filter still changes the existing calculations.
@@ -558,7 +560,7 @@ not undone by reverting code; review and correct those records separately.
 - Prepared results can be stale until Rebuild.
 - Supplier ranking uses the latest positive submitted Purchase Invoice net rate, not a
   quotation, landed valuation rate or average historical cost.
-- Suppliers with no positive comparable historical cost cannot be ranked and appear
+- Suppliers with no valid comparable historical cost cannot be ranked and appear
   after priced Suppliers.
 - Selling Price falls back to Item `standard_rate` because the current Regular Price
   list has no Item Price rows.

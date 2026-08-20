@@ -880,15 +880,43 @@ frappe.query_reports["Purchase Plan"] = {
 		}
 		if (column.fieldname == "item_suppliers" && value) {
 			var priced_supplier_count = data ? cint(data.priced_supplier_count) : 0;
-			return value.split(", ").map(function (supplier, index) {
-				var color = "#c62828";
+			var supplier_details = [];
+			try {
+				supplier_details = JSON.parse(data.supplier_purchase_details || "[]");
+			} catch (unused_error) {
+				supplier_details = [];
+			}
+			var show_supplier_tooltips = supplier_details.length > 0;
+			if (!show_supplier_tooltips) {
+				supplier_details = value.split(", ").map(function (supplier) {
+					return {supplier: supplier};
+				});
+			}
+			return supplier_details.map(function (detail, index) {
+				var supplier = detail.supplier;
+				var color = "#7a7a7a";
 				if (index < priced_supplier_count && index === 0) {
 					color = "#2e7d32";
 				} else if (index < priced_supplier_count && index === 1) {
 					color = "#b7791f";
+				} else if (index < priced_supplier_count) {
+					color = "#c62828";
 				}
+				var tooltip = show_supplier_tooltips
+					? __("No submitted Purchase Invoice history")
+					: "";
+				if (detail.purchase_invoice) {
+					tooltip = __("Last Cost") + ": " +
+						format_currency(flt(detail.cost), detail.currency) + "\n" +
+						__("Invoice") + ": " + detail.purchase_invoice + "\n" +
+						__("Date") + ": " + frappe.datetime.str_to_user(detail.posting_date);
+				}
+				var title_attribute = tooltip
+					? ' title="' + frappe.utils.escape_html(tooltip) + '"'
+					: "";
 				return '<a href="#Form/Supplier/' + encodeURIComponent(supplier) +
-					'" style="color:' + color + ';font-weight:600">' +
+					'"' + title_attribute +
+					' style="color:' + color + ';font-weight:600">' +
 					frappe.utils.escape_html(supplier) + '</a>';
 			}).join(", ");
 		}

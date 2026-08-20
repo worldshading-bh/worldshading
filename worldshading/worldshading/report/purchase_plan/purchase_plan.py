@@ -630,10 +630,10 @@ def get_columns(filters, pricing_context):
 		},
 		{
 			'fieldname': 'least_supplier_cost',
-			'label': _('Least Cost'),
+			'label': _('Last Purchase Cost'),
 			'fieldtype': 'Currency',
 			'options': pricing_context.company_currency,
-			'width': 100
+			'width': 130
 		},
 		{
 			'fieldname': 'selling_price',
@@ -646,6 +646,12 @@ def get_columns(filters, pricing_context):
 			'fieldname': 'priced_supplier_count',
 			'label': _('Priced Supplier Count'),
 			'fieldtype': 'Int',
+			'hidden': 1
+		},
+		{
+			'fieldname': 'supplier_purchase_details',
+			'label': _('Supplier Purchase Details'),
+			'fieldtype': 'Data',
 			'hidden': 1
 		}
 
@@ -778,6 +784,8 @@ def get_supplier_costs(item_codes, pricing_context):
 		SELECT
 			pii.item_code,
 			pi.supplier,
+			pi.name AS purchase_invoice,
+			pi.posting_date,
 			pii.base_net_rate,
 			pii.conversion_factor
 		FROM `tabPurchase Invoice Item` pii
@@ -792,13 +800,14 @@ def get_supplier_costs(item_codes, pricing_context):
 			{company_condition}
 		ORDER BY
 			pii.item_code ASC,
-			pi.supplier ASC,
 			pi.posting_date DESC,
 			pi.creation DESC,
-			pii.idx DESC
+			pii.idx DESC,
+			pi.supplier ASC
 	""".format(company_condition=company_condition), query_values, as_dict=1)
 
-	latest_cost_by_pair = {}
+	latest_detail_by_pair = {}
+	latest_cost_by_item = {}
 	for row in history_rows:
 		if not row.item_code or not row.supplier:
 			continue
@@ -806,8 +815,18 @@ def get_supplier_costs(item_codes, pricing_context):
 		pair = (row.item_code, row.supplier)
 		conversion_factor = flt(row.conversion_factor)
 		cost = flt(row.base_net_rate) / conversion_factor if conversion_factor else 0
-		if pair not in latest_cost_by_pair and cost > 0:
-			latest_cost_by_pair[pair] = cost
+		if not conversion_factor:
+			continue
+		detail = {
+			'cost': cost,
+			'currency': pricing_context.company_currency,
+			'purchase_invoice': row.purchase_invoice,
+			'posting_date': str(row.posting_date)
+		}
+		if row.item_code not in latest_cost_by_item:
+			latest_cost_by_item[row.item_code] = cost
+		if pair not in latest_detail_by_pair:
+			latest_detail_by_pair[pair] = detail
 
 	result = {}
 	for item_code in item_codes:
@@ -815,24 +834,24 @@ def get_supplier_costs(item_codes, pricing_context):
 		ranked_suppliers = sorted(
 			supplier_names,
 			key=lambda supplier: (
-				0 if (item_code, supplier) in latest_cost_by_pair else 1,
-				latest_cost_by_pair.get((item_code, supplier), 0),
+				0 if (item_code, supplier) in latest_detail_by_pair else 1,
+				latest_detail_by_pair.get((item_code, supplier), {}).get('cost', 0),
 				supplier
 			)
 		)
 		priced_supplier_count = len([
 			supplier for supplier in ranked_suppliers
-			if (item_code, supplier) in latest_cost_by_pair
+			if (item_code, supplier) in latest_detail_by_pair
 		])
-		costs = [
-			latest_cost_by_pair[(item_code, supplier)]
-			for supplier in ranked_suppliers
-			if (item_code, supplier) in latest_cost_by_pair
-		]
+		supplier_details = []
+		for supplier in ranked_suppliers:
+			detail = latest_detail_by_pair.get((item_code, supplier), {})
+			supplier_details.append(dict(detail, supplier=supplier))
 		result[item_code] = {
 			'suppliers': ', '.join(ranked_suppliers),
 			'priced_supplier_count': priced_supplier_count,
-			'least_cost': costs[0] if costs else None
+			'last_purchase_cost': latest_cost_by_item.get(item_code),
+			'supplier_purchase_details': frappe.as_json(supplier_details)
 		}
 	return result
 
@@ -987,7 +1006,7 @@ def get_data(filters, pricing_context):
 		) \
 			or expected_order_quantity < 0
 		selling_price = selling_prices_by_item.get(item.item_code) if show_pricing else None
-		least_supplier_cost = pricing_values.get('least_cost') if show_pricing else None
+		last_purchase_cost = pricing_values.get('last_purchase_cost') if show_pricing else None
 		row = [
 			item.name, item.item_name, item.stock_uom, last_purchase_invoice_date,
 			last_sales_invoice_date, sales_invoice_count, total_sales
@@ -1013,8 +1032,9 @@ def get_data(filters, pricing_context):
 			planning_available_qty + on_purchase,
 			monthly_sales, annual_sales, period_expected_sales,
 			shortage_happened, minimum_purchase_qty, reorder_quantity, expected_order_quantity,
-			priority_month, pricing_values.get('suppliers', ''), least_supplier_cost,
-			selling_price, pricing_values.get('priced_supplier_count', 0)
+			priority_month, pricing_values.get('suppliers', ''), last_purchase_cost,
+			selling_price, pricing_values.get('priced_supplier_count', 0),
+			pricing_values.get('supplier_purchase_details', '[]') if show_pricing else '[]'
 		])
 		data.append(row)
 
