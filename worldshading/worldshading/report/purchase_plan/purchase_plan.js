@@ -3,6 +3,156 @@
 /* eslint-disable */
 
 
+function update_purchase_plan_filter_summary(report) {
+	var start_date = report.get_filter_value("start_date");
+	var end_date = report.get_filter_value("end_date");
+	var summary = report.page.main.find(".purchase-plan-filter-summary");
+	if (!start_date || !end_date) {
+		summary.remove();
+		return;
+	}
+
+	var summary_values = [];
+	if (start_date && end_date) {
+		summary_values.push(
+			"<span><strong>" + __("Purchase Plan Date") + ":</strong> " +
+			frappe.utils.escape_html(frappe.datetime.str_to_user(start_date)) + " " +
+			__("to") + " " +
+			frappe.utils.escape_html(frappe.datetime.str_to_user(end_date)) + "</span>"
+		);
+		var report_days = frappe.datetime.get_day_diff(end_date, start_date);
+		var total_report_months = report_days >= 30
+			? parseInt(report_days / 30, 10)
+			: 0;
+		summary_values.push(
+			"<span><strong>" + __("Total Report Months") + ":</strong> " +
+			total_report_months + "</span>"
+		);
+	}
+
+	var summary_labels = {
+		"months_to_arrive": __("Months to Arrive"),
+		"percentage": __("Growth Percentage"),
+		"minimum_months": __("Min Stock Months"),
+		"pricing_columns_for": __("Price and Cost"),
+		"include_repack_to_parent": __("Include Repack to Parent"),
+		"include_out_of_stock_sales": __("Include Out of Stock Sales"),
+		"disabled_items_only": __("Disabled Items Only")
+	};
+	(report.filters || []).forEach(function (filter) {
+		var field = filter.df || {};
+		if (["start_date", "end_date"].indexOf(field.fieldname) !== -1) {
+			return;
+		}
+		var value = report.get_filter_value(field.fieldname);
+		if (field.fieldtype == "Check") {
+			if (!cint(value)) {
+				return;
+			}
+			value = __("Yes");
+		} else if (Array.isArray(value)) {
+			value = value.join(", ");
+		}
+		if (value === undefined || value === null || value === "") {
+			return;
+		}
+		var label = summary_labels[field.fieldname] || __(field.label || field.fieldname);
+		label = String(label).replace(/[?:]+$/, "");
+		summary_values.push(
+			"<span class='purchase-plan-filter-value'><strong>" +
+			frappe.utils.escape_html(label) + ":</strong> " +
+			frappe.utils.escape_html(String(value)) + "</span>"
+		);
+	});
+	if (!summary.length) {
+		summary = $("<div class='purchase-plan-filter-summary'></div>")
+			.insertAfter(report.page.main.find(".page-form"));
+	}
+	summary.html(summary_values.join(""));
+}
+
+
+function purchase_plan_total_value(value) {
+	if (typeof value == "number") {
+		return value;
+	}
+	var text = $("<div>").html(value || "").text().replace(/,/g, "");
+	var match = text.match(/-?\d+(?:\.\d+)?/);
+	return match ? flt(match[0]) : 0;
+}
+
+
+function purchase_plan_selected_options_first(fieldname, options) {
+	var selected_values = frappe.query_report.get_filter_value(fieldname) || [];
+	if (!Array.isArray(selected_values)) {
+		selected_values = [selected_values];
+	}
+	var option_by_value = {};
+	(options || []).forEach(function (option) {
+		var value = typeof option == "string" ? option : option.value;
+		option_by_value[value] = option;
+	});
+	var selected_options = selected_values.map(function (value) {
+		return option_by_value[value] || {label: value, value: value, description: ""};
+	});
+	var remaining_options = (options || []).filter(function (option) {
+		var value = typeof option == "string" ? option : option.value;
+		return selected_values.indexOf(value) === -1;
+	});
+	return selected_options.concat(remaining_options);
+}
+
+
+function apply_purchase_plan_filter_labels(report) {
+	var page_form = report.page.main.find(".page-form");
+	page_form.addClass("purchase-plan-filter-form");
+	(report.filters || []).forEach(function (filter) {
+		var field = filter.df || {};
+		var wrapper = $(filter.wrapper);
+		if (!field.fieldname || !wrapper.length) {
+			return;
+		}
+		wrapper.addClass("purchase-plan-filter-control");
+		if (wrapper.children(".purchase-plan-filter-label").length) {
+			return;
+		}
+		var label = $("<label class='purchase-plan-filter-label'></label>");
+		if (field.fieldtype == "Check") {
+			label.addClass("purchase-plan-filter-label-spacer")
+				.attr("aria-hidden", "true")
+				.html("&nbsp;");
+		} else {
+			label.text(__(field.label || field.fieldname));
+			field.placeholder = "";
+			wrapper.find("input").attr("placeholder", "");
+			if (field.fieldtype == "MultiSelectList" && filter.update_status) {
+				filter.update_status();
+			}
+		}
+		wrapper.prepend(label);
+	});
+	if (!document.getElementById("purchase-plan-filter-label-style")) {
+		$("<style id='purchase-plan-filter-label-style'>" +
+			".purchase-plan-filter-form{padding-top:4px;}" +
+			".purchase-plan-filter-form .purchase-plan-filter-control{" +
+				"box-sizing:border-box;height:50px;min-height:50px;" +
+				"margin-top:0 !important;margin-bottom:0 !important;" +
+				"padding-top:0 !important;padding-bottom:0 !important;}" +
+			".purchase-plan-filter-form .purchase-plan-filter-control>.form-group{" +
+				"margin-top:0 !important;margin-bottom:0 !important;}" +
+			".purchase-plan-filter-form .purchase-plan-filter-control .checkbox{" +
+				"margin-top:1px;margin-bottom:0;}" +
+			".purchase-plan-filter-form .purchase-plan-filter-label{" +
+				"display:block;height:12px;margin:0;overflow:hidden;" +
+				"color:#9ba6b1;font-size:10px;font-weight:600;line-height:12px;" +
+				"text-overflow:ellipsis;white-space:nowrap;}" +
+			".purchase-plan-filter-form .purchase-plan-filter-label-spacer{" +
+				"visibility:hidden;}" +
+			"</style>").appendTo("head");
+	}
+}
+
+
 function apply_purchase_plan_sticky_columns(datatable) {
 	var wrapper = datatable && datatable.wrapper;
 	if (!wrapper) {
@@ -48,6 +198,15 @@ function apply_purchase_plan_sticky_columns(datatable) {
 		);
 		sticky_header_cells
 			.addClass("purchase-plan-sticky-header-cell")
+			.css("transform", "translateX(" + scroll_left + "px)");
+		var sticky_footer_cells = $(wrapper).find(
+			".dt-footer .dt-cell--col-0, .dt-footer .dt-cell--col-1, " +
+			".dt-footer .dt-cell--col-2, .dt-footer .dt-cell--col-3, " +
+			".dt-footer .dt-cell--col-4, .dt-footer .dt-cell--col-5, " +
+			".dt-footer .dt-cell--col-6"
+		);
+		sticky_footer_cells
+			.addClass("purchase-plan-sticky-footer-cell")
 			.css("transform", "translateX(" + scroll_left + "px)");
 	};
 	$(datatable.bodyScrollable)
@@ -140,17 +299,31 @@ function apply_purchase_plan_sticky_columns(datatable) {
 				"z-index:30 !important;background:#f7fafc !important;isolation:isolate;}" +
 			".purchase-plan-sticky-columns .purchase-plan-sticky-header-cell .dt-cell__content{" +
 				"position:relative;z-index:1;background:#f7fafc;}" +
+			".purchase-plan-sticky-columns .purchase-plan-sticky-footer-cell{" +
+				"position:relative;left:auto;z-index:30 !important;background:#f7fafc !important;}" +
+			".purchase-plan-sticky-columns .dt-dropdown__list{" +
+				"z-index:60 !important;}" +
 			".purchase-plan-sticky-columns .dt-cell--col-6{" +
 				"box-shadow:2px 0 2px rgba(0,0,0,0.08);}" +
 			".purchase-plan-sticky-columns .purchase-plan-selected-row .dt-cell{" +
 				"background:#fff3cd !important;}" +
+			".purchase-plan-filter-summary{" +
+				"display:flex;flex-wrap:wrap;gap:4px 18px;" +
+				"padding:7px 15px;border-bottom:1px solid #d1d8dd;" +
+				"background:#f8f9fa;font-size:12px;line-height:18px;}" +
+			".purchase-plan-filter-value{white-space:nowrap;}" +
 			"</style>").appendTo("head");
 	}
 
 	var important_columns = {
 		"Direct Sales": "#f0f8ff",
+		"Available Quantity": "#eefafa",
 		"Available Total Qty": "#eef6ff",
 		"On Purchase": "#fff7e6",
+		"Min": "#fffbe6",
+		"Monthy Sales": "#eef9f0",
+		"Annual Sales": "#f5f0ff",
+		"Shortage Happend": "#fff0f0",
 		"Expected Order Quantity": "#edf9f0",
 		"Priority Month": "#f5f0ff"
 	};
@@ -417,7 +590,10 @@ function create_request_for_quotation(report) {
 
 	var supplier = report.get_filter_value("supplier") || null;
 	var supplier_group = report.get_filter_value("supplier_group") || null;
-	var purchase_country = report.get_filter_value("purchased_from") || null;
+	var supplier_country = report.get_filter_value("supplier_country") || null;
+	var item_purchase_country = report.get_filter_value("purchased_from") || null;
+	var item_origin_country = report.get_filter_value("country_of_origin") || null;
+	var report_filters = report.get_filter_values ? report.get_filter_values() : {};
 	var dialog = new frappe.ui.Dialog({
 		title: __("Create Request for Quotation"),
 		fields: [
@@ -459,7 +635,10 @@ function create_request_for_quotation(report) {
 					item_values: JSON.stringify(rfq_items),
 					supplier: supplier,
 					supplier_group: supplier_group,
-					purchase_country: purchase_country,
+					supplier_country: supplier_country,
+					item_purchase_country: item_purchase_country,
+					item_origin_country: item_origin_country,
+					report_filters: JSON.stringify(report_filters),
 					warehouse: values.warehouse
 				},
 				freeze_message: __("Preparing Request for Quotation..."),
@@ -472,7 +651,9 @@ function create_request_for_quotation(report) {
 		method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_rfq_default_warehouse",
 		args: {
 			supplier: supplier,
-			purchase_country: purchase_country
+			supplier_country: supplier_country,
+			item_purchase_country: item_purchase_country,
+			item_origin_country: item_origin_country
 		},
 		callback: function (response) {
 			if (response.message && !dialog.get_value("warehouse")) {
@@ -537,6 +718,8 @@ frappe.query_reports["Purchase Plan"] = {
 			get_data: function(txt) {
 				return frappe.db.get_link_options("Item Group", txt, {
 					"is_group": 1
+				}).then(function(options) {
+					return purchase_plan_selected_options_first("parent_item_group", options);
 				});
 			},
 			on_change: function() {
@@ -558,7 +741,9 @@ frappe.query_reports["Purchase Plan"] = {
 						)
 					}
 				}).then(function(response) {
-					return response.message || [];
+					return purchase_plan_selected_options_first(
+						"child_item_group", response.message || []
+					);
 				});
 			}
 		},
@@ -595,6 +780,13 @@ frappe.query_reports["Purchase Plan"] = {
 			"description": __("Months of average sales used for one minimum-stock reserve. The order calculation applies this reserve twice."),
 					},
 		{
+			"fieldname": "pricing_columns_for",
+			"label": __("Show Price and Cost For"),
+			"fieldtype": "Select",
+			"options": ["All Items", "Items Requiring Purchase"],
+			"default": "All Items"
+		},
+		{
 			"fieldname": "include_repack_to_parent",
 			"label": __("Include Repack to Parent"),
 			"fieldtype": "Check",
@@ -605,12 +797,62 @@ frappe.query_reports["Purchase Plan"] = {
 			"label": __("Include Out of Stock Sales"),
 			"fieldtype": "Check",
 			"default": 0
+		},
+		{
+			"fieldname": "disabled_items_only",
+			"label": __("Disabled Items Only"),
+			"fieldtype": "Check",
+			"default": 0
 		}
 
 
 
 	],
+	"get_datatable_options": function (options) {
+		var total_fields = [
+			"sales_invoice_count",
+			"total_sales",
+			"estimated_out_of_stock_sales_qty",
+			"converted_repack_demand",
+			"expected_total_sales",
+			"min",
+			"available_quantity",
+			"converted_repack_available",
+			"on_purchase",
+			"available_total_qty",
+			"monthy_sales",
+			"annual_sales",
+			"period_expected_sales",
+			"shortage_happened",
+			"minimum_purchase_qty",
+			"reorder_quantity",
+			"expected_order_quantity",
+			"selling_price",
+			"least_supplier_cost"
+		];
+		options.hooks = options.hooks || {};
+		options.hooks.columnTotal = function (values, cell) {
+			var fieldname = cell.column.fieldname;
+			if (fieldname == "item") {
+				return __("Total");
+			}
+			if (total_fields.indexOf(fieldname) === -1) {
+				return "";
+			}
+			if (fieldname == "expected_order_quantity") {
+				return values.reduce(function (total, value) {
+					var quantity = purchase_plan_total_value(value);
+					return total + (quantity < 0 ? quantity : 0);
+				}, 0);
+			}
+			return values.reduce(function (total, value) {
+				return total + purchase_plan_total_value(value);
+			}, 0);
+		};
+		return options;
+	},
 	"onload": function (report) {
+		apply_purchase_plan_filter_labels(report);
 		report.page.add_inner_button(__("Create RFQ"), function () {
 			create_request_for_quotation(report);
 		});
@@ -623,15 +865,31 @@ frappe.query_reports["Purchase Plan"] = {
 				maxDate: frappe.datetime.str_to_obj(frappe.datetime.get_today())
 			});
 		}
+		update_purchase_plan_filter_summary(report);
 	},
 	"after_datatable_render": function (datatable) {
 		apply_purchase_plan_sticky_columns(datatable);
+		update_purchase_plan_filter_summary(frappe.query_report);
 	},
 	"formatter": function (value, row, column, data, default_formatter) {
 		if (column.fieldname == "on_purchase_po" && value) {
 			return value.split(", ").map(function (purchase_order) {
 				return '<a href="#Form/Purchase Order/' + encodeURIComponent(purchase_order) + '">' +
 					frappe.utils.escape_html(purchase_order) + '</a>';
+			}).join(", ");
+		}
+		if (column.fieldname == "item_suppliers" && value) {
+			var priced_supplier_count = data ? cint(data.priced_supplier_count) : 0;
+			return value.split(", ").map(function (supplier, index) {
+				var color = "#c62828";
+				if (index < priced_supplier_count && index === 0) {
+					color = "#2e7d32";
+				} else if (index < priced_supplier_count && index === 1) {
+					color = "#b7791f";
+				}
+				return '<a href="#Form/Supplier/' + encodeURIComponent(supplier) +
+					'" style="color:' + color + ';font-weight:600">' +
+					frappe.utils.escape_html(supplier) + '</a>';
 			}).join(", ");
 		}
 		if (column.fieldname == "estimated_out_of_stock_sales_qty" && data) {
@@ -645,6 +903,9 @@ frappe.query_reports["Purchase Plan"] = {
 		}
 		value = default_formatter(value, row, column, data);
 		if (column.fieldname == "expected_order_quantity" && data && data.expected_order_quantity < 0) {
+			value = "<span style='color:red'>" + value + "</span>";
+		}
+		if (column.fieldname == "shortage_happened" && data && flt(data.shortage_happened) < 0) {
 			value = "<span style='color:red'>" + value + "</span>";
 		}
 		if (column.fieldname == "priority_month" && data && parseInt(flt(data.priority_month), 10) === 0) {

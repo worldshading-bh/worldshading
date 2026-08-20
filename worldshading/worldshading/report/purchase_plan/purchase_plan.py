@@ -2,19 +2,25 @@
 # For license information, please see license.txt
 
 
+import math
+
 import frappe
 from frappe import _
-from frappe.utils import add_days, date_diff, flt, getdate, nowdate
+from frappe.utils import add_days, cint, date_diff, flt, getdate, nowdate
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
 	validate_filters(filters)
-	columns = get_columns(filters)
-	data = get_data(filters)
+	pricing_context = get_pricing_context()
+	columns = get_columns(filters, pricing_context)
+	data = get_data(filters, pricing_context)
 	return columns, data
 
 
 def validate_filters(filters):
+	validate_numeric_filter(filters, 'months_to_arrive', _('Months to Arrive'))
+	validate_numeric_filter(filters, 'percentage', _('Percentage'))
+	validate_numeric_filter(filters, 'minimum_months', _('Min Stock Months'))
 	if filters.get('end_date') and getdate(filters.end_date) > getdate(nowdate()):
 		frappe.throw(_('End Date cannot be later than today.'))
 	if filters.get('start_date') and filters.get('end_date') \
@@ -22,25 +28,120 @@ def validate_filters(filters):
 		frappe.throw(_('Start Date cannot be later than End Date.'))
 
 
+def validate_numeric_filter(filters, fieldname, label):
+	value = filters.get(fieldname)
+	if value is None or value == '':
+		frappe.throw(_('{0} is required.').format(label))
+	try:
+		value = float(value)
+	except (TypeError, ValueError):
+		frappe.throw(_('{0} must be a valid number.').format(label))
+	if not math.isfinite(value):
+		frappe.throw(_('{0} must be a finite number.').format(label))
+	filters[fieldname] = value
+
+
 def round_whole_qty(value):
 	value = flt(value)
 	return int(value + 0.5) if value >= 0 else -int(abs(value) + 0.5)
 
 
+def get_rfq_report_filter_log(report_filters):
+	if isinstance(report_filters, str):
+		report_filters = frappe.parse_json(report_filters)
+	if not isinstance(report_filters, dict):
+		return ''
+
+	filter_labels = [
+		('start_date', _('Start Date')),
+		('end_date', _('End Date')),
+		('supplier', _('Supplier')),
+		('supplier_group', _('Supplier Group')),
+		('supplier_country', _('Supplier Country')),
+		('item', _('Item')),
+		('parent_item_group', _('Parent Item Groups')),
+		('child_item_group', _('Child Item Groups')),
+		('purchased_from', _('Item Purchase Country')),
+		('country_of_origin', _('Item Country of Origin')),
+		('months_to_arrive', _('Months to Arrive')),
+		('percentage', _('Growth Percentage')),
+		('minimum_months', _('Min Stock Months')),
+		('pricing_columns_for', _('Price and Cost')),
+		('include_repack_to_parent', _('Include Repack to Parent')),
+		('include_out_of_stock_sales', _('Include Out of Stock Sales')),
+		('disabled_items_only', _('Disabled Items Only'))
+	]
+	check_fields = set([
+		'include_repack_to_parent',
+		'include_out_of_stock_sales',
+		'disabled_items_only'
+	])
+	filter_log = []
+	for fieldname, label in filter_labels:
+		value = report_filters.get(fieldname)
+		if fieldname in check_fields:
+			if not cint(value):
+				continue
+			value = _('Yes')
+		elif isinstance(value, (list, tuple)):
+			value = ', '.join(str(row) for row in value if row)
+		if value is None or value == '':
+			continue
+		filter_log.append('{0}: {1}'.format(label, value))
+	return '\n'.join(filter_log)
+
+
+def get_pricing_context():
+	price_list = frappe.db.get_single_value('Selling Settings', 'selling_price_list')
+	price_list_values = frappe.db.get_value(
+		'Price List', price_list, ['enabled', 'selling', 'currency'], as_dict=1
+	) if price_list else None
+	if not price_list_values or not price_list_values.enabled or not price_list_values.selling:
+		price_list = None
+		price_list_currency = None
+	else:
+		price_list_currency = price_list_values.currency
+
+	company = frappe.defaults.get_user_default('Company') \
+		or frappe.db.get_single_value('Global Defaults', 'default_company')
+	company_currency = frappe.db.get_value('Company', company, 'default_currency') \
+		if company else None
+	return frappe._dict({
+		'price_list': price_list,
+		'price_list_currency': price_list_currency,
+		'company': company,
+		'company_currency': company_currency
+	})
+
+
+def resolve_rfq_purchase_country(supplier=None, supplier_country=None,
+		item_purchase_country=None, item_origin_country=None, purchase_country=None):
+	supplier_master_country = None
+	if supplier:
+		supplier_master_country = frappe.db.get_value(
+			'Supplier',
+			{'name': supplier, 'disabled': 0, 'prevent_rfqs': 0},
+			'country'
+		)
+	return supplier_country or supplier_master_country \
+		or item_purchase_country or item_origin_country or purchase_country
+
+
 @frappe.whitelist()
-def get_rfq_default_warehouse(supplier=None, purchase_country=None):
+def get_rfq_default_warehouse(supplier=None, supplier_country=None,
+		item_purchase_country=None, item_origin_country=None, purchase_country=None):
 	company = frappe.defaults.get_user_default('Company') \
 		or frappe.db.get_single_value('Global Defaults', 'default_company')
 	if not company:
 		return None
 
-	if supplier:
-		supplier_country = frappe.db.get_value(
-			'Supplier',
-			{'name': supplier, 'disabled': 0, 'prevent_rfqs': 0},
-			'country'
-		)
-		purchase_country = supplier_country or purchase_country
+	purchase_country = resolve_rfq_purchase_country(
+		supplier=supplier,
+		supplier_country=supplier_country,
+		item_purchase_country=item_purchase_country,
+		item_origin_country=item_origin_country,
+		purchase_country=purchase_country
+	)
 	if not purchase_country:
 		return None
 
@@ -110,7 +211,11 @@ def make_request_for_quotation(source_name=None):
 
 	supplier = args.get('supplier')
 	supplier_group = args.get('supplier_group')
+	supplier_country = args.get('supplier_country')
+	item_purchase_country = args.get('item_purchase_country')
+	item_origin_country = args.get('item_origin_country')
 	purchase_country = args.get('purchase_country')
+	supplier_master_country = None
 	supplier_values = None
 	if supplier:
 		supplier_values = frappe.get_list(
@@ -126,9 +231,12 @@ def make_request_for_quotation(source_name=None):
 		if not supplier_values:
 			frappe.throw(_('The selected Supplier cannot be used for an RFQ.'))
 		supplier_group = supplier_values[0].supplier_group
-		purchase_country = supplier_values[0].country or purchase_country
+		supplier_master_country = supplier_values[0].country
 	elif supplier_group and not frappe.db.exists('Supplier Group', supplier_group):
 		frappe.throw(_('The selected Supplier Group does not exist.'))
+
+	purchase_country = supplier_country or supplier_master_country \
+		or item_purchase_country or item_origin_country or purchase_country
 
 	if purchase_country and not frappe.db.exists('Country', purchase_country):
 		frappe.throw(_('The selected Country of Purchase does not exist.'))
@@ -163,6 +271,8 @@ def make_request_for_quotation(source_name=None):
 	rfq.status = 'Draft'
 	rfq.supplier_group = supplier_group
 	rfq.country_of_purchase = purchase_country
+	if frappe.get_meta('Request for Quotation').has_field('report_filter'):
+		rfq.report_filter = get_rfq_report_filter_log(args.get('report_filters'))
 	rfq.message_for_supplier = _(
 		'Please quote your best price and delivery schedule for the following items.'
 	)
@@ -343,7 +453,7 @@ def apply_item_reorder_update(item_values, warehouse_group, warehouse, item_grou
 
 	return {'created': created, 'updated': updated}
 
-def get_columns(filters):
+def get_columns(filters, pricing_context):
 	columns = [
 		{
 			'fieldname': 'item',
@@ -467,12 +577,6 @@ def get_columns(filters):
 
 		},
 		{
-			'fieldname': 'total_months_in_report',
-			'label': _('Total Months In report'),
-			'fieldtype':'Int',
-
-		},
-		{
 			'fieldname': 'monthy_sales',
 			'label': _('Monthy Sales'),
 			'fieldtype':'Int',
@@ -482,12 +586,6 @@ def get_columns(filters):
 			'fieldname': 'annual_sales',
 			'label': _('Annual Sales'),
 			'fieldtype':'Int',
-
-		},
-		{
-			'fieldname': 'months_to_arrive',
-			'label': _('Months To Arrive'),
-			'fieldtype':'Float/1:60',
 
 		},
 		{
@@ -523,6 +621,32 @@ def get_columns(filters):
 			'fieldname': 'priority_month',
 			'label': _('Priority Month'),
 			'fieldtype': 'Int',
+		},
+		{
+			'fieldname': 'item_suppliers',
+			'label': _('Item Suppliers'),
+			'fieldtype': 'Data',
+			'width': 260
+		},
+		{
+			'fieldname': 'least_supplier_cost',
+			'label': _('Least Cost'),
+			'fieldtype': 'Currency',
+			'options': pricing_context.company_currency,
+			'width': 100
+		},
+		{
+			'fieldname': 'selling_price',
+			'label': _('Selling Price'),
+			'fieldtype': 'Currency',
+			'options': pricing_context.price_list_currency,
+			'width': 100
+		},
+		{
+			'fieldname': 'priced_supplier_count',
+			'label': _('Priced Supplier Count'),
+			'fieldtype': 'Int',
+			'hidden': 1
 		}
 
 	])
@@ -552,7 +676,10 @@ def get_item_groups_with_children(selected_groups):
 @frappe.whitelist()
 def get_child_item_group_options(txt='', parent_groups=None):
 	parent_groups = frappe.parse_json(parent_groups) if parent_groups else []
-	filters = [['Item Group', 'is_group', '=', 0]]
+	filters = [
+		['Item Group', 'is_group', '=', 0],
+		['Item Group', 'disabled', '=', 0]
+	]
 	if parent_groups:
 		descendant_groups = get_item_groups_with_children(parent_groups)
 		filters.append(['Item Group', 'name', 'in', descendant_groups])
@@ -575,9 +702,145 @@ def get_child_item_group_options(txt='', parent_groups=None):
 	]
 
 
-def get_data(filters):
+def get_selling_prices(items, pricing_context):
+	prices = {}
+	item_by_code = dict((item.item_code, item) for item in items)
+	item_codes = list(item_by_code)
+	if pricing_context.price_list and item_codes:
+		price_rows = frappe.get_all(
+			'Item Price',
+			filters={
+				'item_code': ['in', item_codes],
+				'price_list': pricing_context.price_list,
+				'selling': 1
+			},
+			fields=[
+				'item_code', 'uom', 'price_list_rate', 'valid_from', 'valid_upto',
+				'modified'
+			],
+			order_by='valid_from desc, modified desc',
+			limit_page_length=0
+		)
+		today = getdate(nowdate())
+		for row in price_rows:
+			if row.item_code in prices:
+				continue
+			if row.valid_from and getdate(row.valid_from) > today:
+				continue
+			if row.valid_upto and getdate(row.valid_upto) < today:
+				continue
+			item = item_by_code.get(row.item_code)
+			if row.uom and item and row.uom != item.stock_uom:
+				continue
+			prices[row.item_code] = flt(row.price_list_rate)
+
+	# This legacy site stores Regular Price values in Item.standard_rate when no
+	# Item Price exists. Keep that fallback item-specific and read-only.
+	for item in items:
+		if item.item_code not in prices and flt(item.standard_rate):
+			prices[item.item_code] = flt(item.standard_rate)
+	return prices
+
+
+def get_supplier_costs(item_codes, pricing_context):
+	suppliers_by_item = dict((item_code, set()) for item_code in item_codes)
+	configured_rows = frappe.get_all(
+		'Item Supplier',
+		filters={'parent': ['in', item_codes]},
+		fields=['parent', 'supplier'],
+		limit_page_length=0
+	) if item_codes else []
+	configured_suppliers = set(
+		row.supplier for row in configured_rows if row.supplier
+	)
+	active_configured_suppliers = set()
+	if configured_suppliers:
+		active_configured_suppliers = set(
+			row.name for row in frappe.get_all(
+				'Supplier',
+				filters={'name': ['in', list(configured_suppliers)], 'disabled': 0},
+				fields=['name'],
+				limit_page_length=0
+			)
+		)
+	for row in configured_rows:
+		if row.supplier in active_configured_suppliers:
+			suppliers_by_item.setdefault(row.parent, set()).add(row.supplier)
+
+	if not item_codes:
+		return {}
+	company_condition = ''
+	query_values = {'item_codes': tuple(item_codes)}
+	if pricing_context.company:
+		company_condition = 'AND pi.company = %(company)s'
+		query_values['company'] = pricing_context.company
+	history_rows = frappe.db.sql("""
+		SELECT
+			pii.item_code,
+			pi.supplier,
+			pii.base_net_rate,
+			pii.conversion_factor
+		FROM `tabPurchase Invoice Item` pii
+		INNER JOIN `tabPurchase Invoice` pi
+			ON pi.name = pii.parent
+		INNER JOIN `tabSupplier` supplier
+			ON supplier.name = pi.supplier
+		WHERE
+			pi.docstatus = 1
+			AND supplier.disabled = 0
+			AND pii.item_code IN %(item_codes)s
+			{company_condition}
+		ORDER BY
+			pii.item_code ASC,
+			pi.supplier ASC,
+			pi.posting_date DESC,
+			pi.creation DESC,
+			pii.idx DESC
+	""".format(company_condition=company_condition), query_values, as_dict=1)
+
+	latest_cost_by_pair = {}
+	for row in history_rows:
+		if not row.item_code or not row.supplier:
+			continue
+		suppliers_by_item.setdefault(row.item_code, set()).add(row.supplier)
+		pair = (row.item_code, row.supplier)
+		conversion_factor = flt(row.conversion_factor)
+		cost = flt(row.base_net_rate) / conversion_factor if conversion_factor else 0
+		if pair not in latest_cost_by_pair and cost > 0:
+			latest_cost_by_pair[pair] = cost
+
+	result = {}
+	for item_code in item_codes:
+		supplier_names = suppliers_by_item.get(item_code, set())
+		ranked_suppliers = sorted(
+			supplier_names,
+			key=lambda supplier: (
+				0 if (item_code, supplier) in latest_cost_by_pair else 1,
+				latest_cost_by_pair.get((item_code, supplier), 0),
+				supplier
+			)
+		)
+		priced_supplier_count = len([
+			supplier for supplier in ranked_suppliers
+			if (item_code, supplier) in latest_cost_by_pair
+		])
+		costs = [
+			latest_cost_by_pair[(item_code, supplier)]
+			for supplier in ranked_suppliers
+			if (item_code, supplier) in latest_cost_by_pair
+		]
+		result[item_code] = {
+			'suppliers': ', '.join(ranked_suppliers),
+			'priced_supplier_count': priced_supplier_count,
+			'least_cost': costs[0] if costs else None
+		}
+	return result
+
+
+def get_data(filters, pricing_context):
 	data = []
 	item_filters = {
+		'disabled': 1 if cint(filters.get('disabled_items_only')) else 0,
 		'is_stock_item': 1,
 		'is_fixed_asset': 0
 	}
@@ -635,9 +898,11 @@ def get_data(filters):
 			'is_stock_item': 1,
 			'is_fixed_asset': 0
 		},
-		fields=['name', 'item_code', 'item_name', 'stock_uom'],
+		fields=['name', 'item_code', 'item_name', 'stock_uom', 'standard_rate'],
 		order_by='item_code asc'
 	)
+	selling_prices_by_item = get_selling_prices(items, pricing_context)
+	supplier_costs_by_item = get_supplier_costs(purchase_item_codes, pricing_context)
 
 	stock_by_item = get_stock_by_item(item_codes)
 	total_sales_by_item = get_total_sales_by_item(item_codes, filters)
@@ -715,6 +980,14 @@ def get_data(filters):
 			usable_balance_after_arrival - minimum_qty - minimum_qty - minimum_purchase_qty
 		)
 		priority_month = (planning_available_qty + on_purchase) / monthly_sales if monthly_sales > 0 else 0
+		pricing_values = supplier_costs_by_item.get(item.item_code, {})
+		show_pricing = filters.get('pricing_columns_for') not in (
+			'Items Requiring Purchase', 'Pricing for Needed Items',
+			'Items Needing Purchase Only'
+		) \
+			or expected_order_quantity < 0
+		selling_price = selling_prices_by_item.get(item.item_code) if show_pricing else None
+		least_supplier_cost = pricing_values.get('least_cost') if show_pricing else None
 		row = [
 			item.name, item.item_name, item.stock_uom, last_purchase_invoice_date,
 			last_sales_invoice_date, sales_invoice_count, total_sales
@@ -737,10 +1010,11 @@ def get_data(filters):
 			row.append(converted_repack_available)
 		row.extend([
 			on_purchase, on_purchase_po,
-			planning_available_qty + on_purchase, total_months_in_report,
-			monthly_sales, annual_sales, float(filters.months_to_arrive), period_expected_sales,
+			planning_available_qty + on_purchase,
+			monthly_sales, annual_sales, period_expected_sales,
 			shortage_happened, minimum_purchase_qty, reorder_quantity, expected_order_quantity,
-			priority_month
+			priority_month, pricing_values.get('suppliers', ''), least_supplier_cost,
+			selling_price, pricing_values.get('priced_supplier_count', 0)
 		])
 		data.append(row)
 
