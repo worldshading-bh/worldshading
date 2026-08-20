@@ -7,24 +7,26 @@ from frappe.utils import flt
 
 
 QUANTITY_TOLERANCE = 0.000001
+SUPPORTED_STOCK_ENTRY_TYPES = ("Repack", "Production")
 
 
 def validate_repack_quantities(doc, method=None):
-	"""Require submitted Repack Stock Entries to follow one configured rule batch."""
-	if not _is_repack(doc):
+	"""Require custom Repack/Production Stock Entries to follow configured rule batches."""
+	stock_entry_type = _get_rule_stock_entry_type(doc)
+	if not stock_entry_type:
 		return
 
 	actual_sources, actual_targets = _get_stock_entry_quantities(doc)
 	if not actual_sources or not actual_targets:
 		frappe.throw(_(
-			"A Repack Stock Entry must contain source and target items before it can be submitted."
-		))
+			"A {0} Stock Entry must contain source and target items before it can be saved."
+		).format(stock_entry_type))
 
-	rules = _get_repack_rules()
+	rules = _get_repack_production_rules(stock_entry_type)
 	if not rules:
 		frappe.throw(_(
-			"No Repack Production Rule exists. Create the rule before submitting this Repack Stock Entry."
-		))
+			"No {0} Production Rule exists. Create the rule before saving this {0} Stock Entry."
+		).format(stock_entry_type))
 
 	matched_rules = find_matching_rules(actual_sources, actual_targets, rules)
 	if matched_rules:
@@ -33,9 +35,10 @@ def validate_repack_quantities(doc, method=None):
 	candidates = _get_applicable_rules(actual_targets, rules)
 	if not candidates:
 		frappe.throw(_(
-			"<b>Problem:</b> No Repack Production Rule matches target item(s):<br>{0}<br><br>"
+			"<b>Problem:</b> No {0} Production Rule matches target item(s):<br>{1}<br><br>"
 			"Create the correct rule, then save this Stock Entry again."
-		).format(_format_items(actual_targets)), title=_("Repack Rule Not Found"))
+		).format(stock_entry_type, _format_items(actual_targets)),
+			title=_("{0} Rule Not Found").format(stock_entry_type))
 
 	frappe.throw(
 		_build_mismatch_message(actual_sources, actual_targets, candidates),
@@ -99,8 +102,11 @@ def _merge_quantities(total, quantities, multiplier):
 		total[key] = total.get(key, 0) + (flt(qty) * multiplier)
 
 
-def _is_repack(doc):
-	return doc.get("purpose") == "Repack" or doc.get("stock_entry_type") == "Repack"
+def _get_rule_stock_entry_type(doc):
+	stock_entry_type = doc.get("stock_entry_type")
+	if stock_entry_type in SUPPORTED_STOCK_ENTRY_TYPES:
+		return stock_entry_type
+	return None
 
 
 def _get_stock_entry_quantities(doc):
@@ -117,9 +123,13 @@ def _get_stock_entry_quantities(doc):
 
 
 def _get_repack_rules():
+	return _get_repack_production_rules("Repack")
+
+
+def _get_repack_production_rules(rule_type):
 	rule_rows = frappe.get_all(
 		"Repack Production Rule",
-		filters={"type": "Repack"},
+		filters={"type": rule_type},
 		fields=["name"],
 		limit_page_length=0
 	)

@@ -159,6 +159,10 @@ permission_query_conditions = {
     "Service Visit": "worldshading.permission.sv_query_conditions",
 }
 
+has_permission = {
+    "List Filter": "worldshading.api.list_filter_permissions.has_permission"
+}
+
 
 scheduler_events = {
     "daily": [

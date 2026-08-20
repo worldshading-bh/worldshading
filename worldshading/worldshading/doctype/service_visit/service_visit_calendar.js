@@ -55,6 +55,7 @@ frappe.views.calendar["Service Visit"] = {
                 "date",
                 "customer_name",
                 "time",
+                "type",
                 "workflow_state",
                 "city"
             ]
@@ -111,6 +112,7 @@ function ws_service_visit_calendar_tooltip(event) {
         __("Service Visit") + ": " + event.name,
         __("Customer") + ": " + ws_service_visit_calendar_title(event),
         __("Time") + ": " + (event.time || __("No Time")),
+        __("Type") + ": " + (event.type || __("Not Set")),
         __("Workflow") + ": " + (event.workflow_state || __("Draft"))
     ];
 
