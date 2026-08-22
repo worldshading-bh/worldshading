@@ -618,6 +618,12 @@ def get_columns(filters, pricing_context):
 
 		},
 		{
+			'fieldname': 'rfq_order_quantity',
+			'label': _('RFQ Order Qty'),
+			'fieldtype': 'Int',
+			'width': 130
+		},
+		{
 			'fieldname': 'priority_month',
 			'label': _('Priority Month'),
 			'fieldtype': 'Int',
@@ -1032,6 +1038,7 @@ def get_data(filters, pricing_context):
 			planning_available_qty + on_purchase,
 			monthly_sales, annual_sales, period_expected_sales,
 			shortage_happened, minimum_purchase_qty, reorder_quantity, expected_order_quantity,
+			round_whole_qty(abs(expected_order_quantity)) if expected_order_quantity < 0 else 0,
 			priority_month, pricing_values.get('suppliers', ''), last_purchase_cost,
 			selling_price, pricing_values.get('priced_supplier_count', 0),
 			pricing_values.get('supplier_purchase_details', '[]') if show_pricing else '[]'

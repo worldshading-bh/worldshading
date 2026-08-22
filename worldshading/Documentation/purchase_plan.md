@@ -348,9 +348,15 @@ warehouse restriction, which does not distinguish Material Request Type.
 
 ## 11. Create RFQ action
 
-Create RFQ includes only rows where Expected Order Quantity is negative. Quantity is its
-positive absolute value and is rounded half-up on the server. A maximum of **1000 Items**
-is allowed. The server revalidates RFQ permission and Item eligibility.
+The editable **RFQ Order Qty** report column is initialized with the rounded positive
+absolute value when Expected Order Quantity is negative, and zero otherwise. Create RFQ
+uses this column as its only quantity source, so users can increase or reduce a calculated
+requirement, set it to zero to exclude the Item, or enter a quantity for an Item whose
+calculated requirement is zero. The RFQ column uses a soft red background, and positive
+quantities use darker red text to distinguish the final RFQ value from the calculated
+Expected Order Quantity. Edited values are temporary report-page values that reset when the
+report is refreshed. A maximum of **1000 Items** is allowed. The server revalidates RFQ
+permission and Item eligibility.
 
 The RFQ is opened as a new unsaved draft; the user still reviews and saves it.
 

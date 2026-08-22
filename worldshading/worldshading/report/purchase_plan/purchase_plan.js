@@ -325,6 +325,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 		"Annual Sales": "#f5f0ff",
 		"Shortage Happend": "#fff0f0",
 		"Expected Order Quantity": "#edf9f0",
+		"RFQ Order Qty": "#fde2e2",
 		"Priority Month": "#f5f0ff"
 	};
 	var important_column_rules = [];
@@ -567,12 +568,18 @@ function show_item_reorder_dialog(report) {
 
 function create_request_for_quotation(report) {
 	var rfq_items = [];
-	(report.data || []).forEach(function (row) {
-		var expected_order_quantity = flt(row.expected_order_quantity);
-		if (row.item && expected_order_quantity < 0) {
+	var report_rows = report.data || [];
+	if (report.raw_data && report.raw_data.add_total_row && report_rows.length) {
+		report_rows = report_rows.slice(0, -1);
+	}
+	report_rows.forEach(function (row) {
+		var rfq_order_quantity = purchase_plan_rfq_order_quantity(
+			row.rfq_order_quantity, false
+		);
+		if (row.item && rfq_order_quantity > 0) {
 			rfq_items.push({
 				item_code: row.item,
-				qty: Math.abs(expected_order_quantity)
+				qty: rfq_order_quantity
 			});
 		}
 	});
@@ -659,6 +666,61 @@ function create_request_for_quotation(report) {
 			if (response.message && !dialog.get_value("warehouse")) {
 				dialog.set_value("warehouse", response.message);
 			}
+		}
+	});
+}
+
+
+function purchase_plan_rfq_order_quantity(value, show_message) {
+	if (value === null || value === undefined || value === "") {
+		return 0;
+	}
+	var quantity = Number(value);
+	if (!isFinite(quantity) || quantity < 0) {
+		if (show_message) {
+			frappe.msgprint(__("RFQ Order Qty must be zero or a positive number."));
+		}
+		return 0;
+	}
+	return Math.floor(quantity + 0.5);
+}
+
+
+function purchase_plan_rfq_qty_editor(parent, data) {
+	var input = document.createElement("input");
+	input.type = "number";
+	input.min = "0";
+	input.step = "1";
+	input.className = "dt-input";
+	parent.appendChild(input);
+
+	return {
+		initValue: function (value) {
+			input.value = purchase_plan_rfq_order_quantity(value, false);
+			input.focus();
+			input.select();
+		},
+		getValue: function () {
+			return purchase_plan_rfq_order_quantity(input.value, true);
+		},
+		setValue: function (value) {
+			var quantity = purchase_plan_rfq_order_quantity(value, false);
+			data.rfq_order_quantity = quantity;
+			input.value = quantity;
+		}
+	};
+}
+
+
+function enable_purchase_plan_rfq_qty_editing(datatable) {
+	if (!datatable || !datatable.datamanager) {
+		return;
+	}
+	(datatable.datamanager.getColumns() || []).forEach(function (column) {
+		var fieldname = column.fieldname || column.id;
+		if (fieldname == "rfq_order_quantity") {
+			column.editable = true;
+			column.focusable = true;
 		}
 	});
 }
@@ -809,6 +871,20 @@ frappe.query_reports["Purchase Plan"] = {
 
 	],
 	"get_datatable_options": function (options) {
+		(options.columns || []).forEach(function (column) {
+			var fieldname = column.fieldname || column.id;
+			if (fieldname == "rfq_order_quantity") {
+				column.editable = true;
+				column.focusable = true;
+			}
+		});
+		options.getEditor = function (col_index, row_index, value, parent, column, row, data) {
+			var fieldname = column ? (column.fieldname || column.id) : null;
+			if (fieldname != "rfq_order_quantity" || !data || !data.item) {
+				return false;
+			}
+			return purchase_plan_rfq_qty_editor(parent, data);
+		};
 		var total_fields = [
 			"sales_invoice_count",
 			"total_sales",
@@ -827,6 +903,7 @@ frappe.query_reports["Purchase Plan"] = {
 			"minimum_purchase_qty",
 			"reorder_quantity",
 			"expected_order_quantity",
+			"rfq_order_quantity",
 			"selling_price",
 			"least_supplier_cost"
 		];
@@ -868,6 +945,7 @@ frappe.query_reports["Purchase Plan"] = {
 		update_purchase_plan_filter_summary(report);
 	},
 	"after_datatable_render": function (datatable) {
+		enable_purchase_plan_rfq_qty_editing(datatable);
 		apply_purchase_plan_sticky_columns(datatable);
 		update_purchase_plan_filter_summary(frappe.query_report);
 	},
@@ -932,6 +1010,9 @@ frappe.query_reports["Purchase Plan"] = {
 		value = default_formatter(value, row, column, data);
 		if (column.fieldname == "expected_order_quantity" && data && data.expected_order_quantity < 0) {
 			value = "<span style='color:red'>" + value + "</span>";
+		}
+		if (column.fieldname == "rfq_order_quantity" && data && flt(data.rfq_order_quantity) > 0) {
+			value = "<span style='color:#c62828'>" + value + "</span>";
 		}
 		if (column.fieldname == "shortage_happened" && data && flt(data.shortage_happened) < 0) {
 			value = "<span style='color:red'>" + value + "</span>";
