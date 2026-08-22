@@ -60,8 +60,15 @@ def _utc_today():
 def setup_ws_settings_fields():
 	"""Install the settings fields on the UI-created WS Settings DocType."""
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-	legacy_value = frappe.db.get_single_value(
-		"WS Settings", "currency_exchange_pairs")
+
+	if not frappe.db.exists("DocType", "WS Settings"):
+		return False
+
+	legacy_value = None
+
+	if frappe.get_meta("WS Settings").has_field("currency_exchange_pairs"):
+		legacy_value = frappe.db.get_single_value(
+			"WS Settings", "currency_exchange_pairs")
 
 	create_custom_fields({
 		"WS Settings": [
@@ -69,7 +76,7 @@ def setup_ws_settings_fields():
 				"fieldname": "currency_exchange_section",
 				"label": "Currency Exchange",
 				"fieldtype": "Section Break",
-				"insert_after": "transfer_routes",
+				"insert_after": "work_order_admin",
 				"collapsible": 1
 			},
 			{

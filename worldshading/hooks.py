@@ -193,7 +193,7 @@ scheduler_events = {
         ],
 
         # Fetch after the daily European reference-rate publication window.
-        "15 17 * * *": [
+        "15 0 * * *": [
             "worldshading.api.currency_exchange.run_daily"
         ],
 
