@@ -74,6 +74,22 @@ _TIMEOUT = (10, 30)
 CHECKOUT_PAGE = "/mpgs-checkout"
 
 
+class MPGSOrderNotFoundError(frappe.ValidationError):
+	"""The merchant account has no order for the requested track ID."""
+	pass
+
+
+def is_order_not_found_error(error):
+	"""Return whether an MPGS error definitively says that an order is absent."""
+	cause = (error.get("cause") or "").strip().upper()
+	explanation = (error.get("explanation") or "").strip().lower()
+
+	return (
+		cause in ("INVALID_REQUEST", "NOT_FOUND")
+		and "unable to find order" in explanation
+	)
+
+
 def merchant_references(track_id):
 	"""Return the unique references enforced by the MPGS merchant profile."""
 	track_id = str(track_id)
@@ -145,10 +161,14 @@ def _request(settings, method, path, payload=None):
 			"mpgs %s %s -> %s %s",
 			method, path, error.get("cause"), error.get("explanation"),
 		)
+		message = _("MPGS rejected the request: {0} {1}").format(
+			error.get("cause") or "", error.get("explanation") or ""
+		)
+		if method == "GET" and path.startswith("/order/") and is_order_not_found_error(error):
+			raise MPGSOrderNotFoundError(message)
+
 		frappe.throw(
-			_("MPGS rejected the request: {0} {1}").format(
-				error.get("cause") or "", error.get("explanation") or ""
-			)
+			message
 		)
 
 	return body

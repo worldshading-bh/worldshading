@@ -4,7 +4,11 @@ from __future__ import unicode_literals
 
 import unittest
 
-from worldshading.payments.mpgs import merchant_references, transaction_audit_values
+from worldshading.payments.mpgs import (
+	is_order_not_found_error,
+	merchant_references,
+	transaction_audit_values,
+)
 
 
 class TestMerchantReferences(unittest.TestCase):
@@ -42,3 +46,23 @@ class TestTransactionAuditValues(unittest.TestCase):
 			"reference_number": "",
 			"auth_code": "",
 		})
+
+
+class TestOrderNotFoundError(unittest.TestCase):
+	def test_recognises_mpgs_missing_order_response(self):
+		self.assertTrue(is_order_not_found_error({
+			"cause": "INVALID_REQUEST",
+			"explanation": "Unable to find order 260820000001 for merchant TEST200007408",
+		}))
+
+	def test_does_not_hide_other_invalid_requests(self):
+		self.assertFalse(is_order_not_found_error({
+			"cause": "INVALID_REQUEST",
+			"explanation": "Invalid value supplied for apiOperation",
+		}))
+
+	def test_does_not_hide_temporary_failures(self):
+		self.assertFalse(is_order_not_found_error({
+			"cause": "SERVER_BUSY",
+			"explanation": "Unable to process request",
+		}))

@@ -82,9 +82,36 @@ def _resolve(row):
 	txn = frappe.get_doc(TRANSACTION_DOCTYPE, row.name)
 
 	if txn.gateway == mpgs.GATEWAY:
+		settings = mpgs.get_settings(txn.gateway)
+		if not settings.enabled:
+			txn.db_set(
+				"gateway_message",
+				"Automatic reconciliation stopped because this payment gateway is disabled. "
+				"Check the transaction in the gateway portal before assuming it was not paid.",
+				update_modified=False,
+			)
+			_flag_for_review(txn)
+			return
+
 		# MPGS documents Retrieve Order properly, so this needs no hedging: ask, and
 		# act on the answer.
-		order = mpgs.retrieve_order(txn)
+		try:
+			order = mpgs.retrieve_order(txn)
+		except mpgs.MPGSOrderNotFoundError:
+			txn.db_set(
+				"gateway_message",
+				"MPGS could not find this order. Check the transaction in the gateway "
+				"portal before assuming it was not paid.",
+				update_modified=False,
+			)
+			_flag_for_review(txn)
+			frappe.log_error(
+				"MPGS has no order for track ID {0}. The transaction was marked for "
+				"manual review and will not be retried automatically.".format(txn.track_id),
+				"Payment needs review: {0}".format(txn.name),
+			)
+			return
+
 		captured = mpgs.apply_result(txn, order)
 		frappe.db.commit()
 
