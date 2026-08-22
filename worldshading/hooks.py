@@ -62,6 +62,10 @@ doctype_calendar_js = {
 # before_install = "worldshading.install.before_install"
 # after_install = "worldshading.install.after_install"
 
+after_migrate = [
+    "worldshading.api.currency_exchange.setup_ws_settings_fields"
+]
+
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
@@ -186,6 +190,11 @@ scheduler_events = {
         "30 6 * * *": [  # every day at 6:30 AM
             "worldshading.scheduler_events.quotation_followups.auto_update_followups",
             "worldshading.scheduler_events.service_visit_scheduler.auto_update_service_visits"
+        ],
+
+        # Fetch after the daily European reference-rate publication window.
+        "15 17 * * *": [
+            "worldshading.api.currency_exchange.run_daily"
         ],
 
         "*/15 * * * *": [
