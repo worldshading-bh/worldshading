@@ -1,0 +1,49 @@
+{
+ "creation": "2026-08-22 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "from_currency",
+  "to_currency"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "columns": 2,
+   "fieldname": "from_currency",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "From Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "to_currency",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "To Currency",
+   "options": "Currency",
+   "reqd": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-08-22 10:50:58.609158",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Currency Exchange Pair",
+ "owner": "Administrator",
+ "permissions": [],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}
