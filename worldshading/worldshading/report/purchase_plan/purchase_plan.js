@@ -160,17 +160,50 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	}
 
 	$(wrapper).addClass("purchase-plan-sticky-columns");
+	if (datatable.purchase_plan_row_highlight_observer) {
+		datatable.purchase_plan_row_highlight_observer.disconnect();
+	}
+	var selected_row_index = null;
+	var row_highlight_frame = null;
+	var restore_selected_row = function () {
+		row_highlight_frame = null;
+		$(wrapper).find(".purchase-plan-selected-row")
+			.removeClass("purchase-plan-selected-row");
+		if (selected_row_index === null) {
+			return;
+		}
+		$(wrapper).find(
+			'.dt-row[data-row-index="' + selected_row_index + '"]'
+		).addClass("purchase-plan-selected-row");
+	};
+	var queue_selected_row_restore = function () {
+		if (row_highlight_frame !== null) {
+			return;
+		}
+		row_highlight_frame = window.requestAnimationFrame(restore_selected_row);
+	};
+	datatable.purchase_plan_row_highlight_observer = new MutationObserver(function () {
+		queue_selected_row_restore();
+	});
+	datatable.purchase_plan_row_highlight_observer.observe(
+		datatable.bodyScrollable,
+		{childList: true, subtree: true}
+	);
 	$(wrapper)
 		.off("click.purchase_plan_row_highlight")
 		.on("click.purchase_plan_row_highlight", ".dt-row .dt-cell", function () {
 			var selected_row = $(this).closest(".dt-row");
 			if (selected_row.hasClass("dt-row-header") ||
-					selected_row.hasClass("dt-row-filter")) {
+					selected_row.hasClass("dt-row-filter") ||
+					selected_row.closest(".dt-footer").length) {
 				return;
 			}
-			$(wrapper).find(".purchase-plan-selected-row")
-				.removeClass("purchase-plan-selected-row");
-			selected_row.addClass("purchase-plan-selected-row");
+			var row_index = selected_row.attr("data-row-index");
+			if (!/^\d+$/.test(row_index || "")) {
+				return;
+			}
+			selected_row_index = cint(row_index);
+			restore_selected_row();
 		});
 	var row_index_width = 50;
 	var get_column_width = function (column_index, fallback_width) {
