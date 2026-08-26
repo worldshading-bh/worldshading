@@ -338,8 +338,19 @@ doc_events = {
     },
 
     "Payment Entry": {
-        "on_submit": "worldshading.events.service_visit_link.mark_visit_pending_schedule_from_payment",
-        "before_cancel": "worldshading.events.service_visit_link.unlink_service_visit_payment"
+        "before_submit": [
+            "worldshading.events.payment_request_status.snapshot_related_statuses",
+            "worldshading.events.payment_request_status.validate_explicit_allocation"
+        ],
+        "on_submit": [
+            "worldshading.events.service_visit_link.mark_visit_pending_schedule_from_payment",
+            "worldshading.events.payment_request_status.synchronize_after_submit"
+        ],
+        "before_cancel": [
+            "worldshading.events.payment_request_status.snapshot_related_statuses",
+            "worldshading.events.service_visit_link.unlink_service_visit_payment"
+        ],
+        "on_cancel": "worldshading.events.payment_request_status.synchronize_after_cancel"
     },
     "Service Visit": {
         "before_insert": "worldshading.worldshading.doctype.service_visit.service_visit.process_webform_customer",
