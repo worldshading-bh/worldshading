@@ -22,10 +22,10 @@ def validate_filters(filters):
 	validate_numeric_filter(filters, 'percentage', _('Percentage'))
 	validate_numeric_filter(filters, 'minimum_months', _('Min Stock Months'))
 	if filters.get('end_date') and getdate(filters.end_date) > getdate(nowdate()):
-		frappe.throw(_('Plan End Date cannot be later than today.'))
+		frappe.throw(_('End Date cannot be later than today.'))
 	if filters.get('start_date') and filters.get('end_date') \
 			and getdate(filters.start_date) > getdate(filters.end_date):
-		frappe.throw(_('Plan Start Date cannot be later than Plan End Date.'))
+		frappe.throw(_('Start Date cannot be later than End Date.'))
 
 
 def validate_numeric_filter(filters, fieldname, label):
@@ -53,8 +53,8 @@ def get_rfq_report_filter_log(report_filters):
 		return ''
 
 	filter_labels = [
-		('start_date', _('Plan Start Date')),
-		('end_date', _('Plan End Date')),
+		('start_date', _('Start Date')),
+		('end_date', _('End Date')),
 		('supplier', _('Supplier')),
 		('supplier_group', _('Supplier Group')),
 		('supplier_country', _('Supplier Country')),
@@ -911,7 +911,8 @@ def get_data(filters, pricing_context):
 		else {
 			'calculation_item_codes': filtered_item_codes,
 			'purchase_item_codes': filtered_item_codes,
-			'target_to_sources': {}
+			'target_to_sources': {},
+			'repack_rules': []
 		}
 	)
 	item_codes = repack_context.get('calculation_item_codes')
@@ -943,7 +944,7 @@ def get_data(filters, pricing_context):
 		out_of_stock_by_item = {}
 	converted_repack_values = get_converted_repack_values(
 		item_codes,
-		repack_context.get('target_to_sources'),
+		repack_context.get('repack_rules'),
 		total_sales_by_item,
 		out_of_stock_by_item,
 		stock_by_item
@@ -1114,7 +1115,8 @@ def get_repack_context(filtered_item_codes):
 		return {
 			'calculation_item_codes': list(filtered_item_codes),
 			'purchase_item_codes': list(filtered_item_codes),
-			'target_to_sources': {}
+			'target_to_sources': {},
+			'repack_rules': []
 		}
 
 	source_rows = frappe.get_all(
@@ -1136,20 +1138,14 @@ def get_repack_context(filtered_item_codes):
 
 	target_to_sources = {}
 	source_to_targets = {}
+	repack_rules = []
 	for rule_name in rule_names:
 		sources = sources_by_rule.get(rule_name, [])
 		targets = targets_by_rule.get(rule_name, [])
-		if len(targets) != 1 or not sources:
+		if not targets or not sources:
 			frappe.throw(_(
-				'Repack Production Rule {0} must have at least one source and exactly one target.'
+				'Repack Production Rule {0} must have at least one source and one target.'
 			).format(rule_name))
-		target = targets[0]
-		if not target.item_code or flt(target.qty) <= 0:
-			frappe.throw(_('Repack Production Rule {0} has an invalid target quantity.').format(rule_name))
-		if target.item_code in target_to_sources:
-			frappe.throw(_(
-				'Repack target Item {0} is used in more than one Repack Production Rule.'
-			).format(target.item_code))
 
 		mapped_sources = []
 		for source in sources:
@@ -1157,11 +1153,39 @@ def get_repack_context(filtered_item_codes):
 				frappe.throw(_('Repack Production Rule {0} has an invalid source quantity.').format(rule_name))
 			mapped_sources.append({
 				'item_code': source.item_code,
-				'ratio': flt(source.qty) / flt(target.qty),
+				'qty': flt(source.qty),
 				'rule': rule_name
 			})
-			source_to_targets.setdefault(source.item_code, []).append(target.item_code)
-		target_to_sources[target.item_code] = mapped_sources
+
+		mapped_targets = []
+		for target in targets:
+			if not target.item_code or flt(target.qty) <= 0:
+				frappe.throw(_('Repack Production Rule {0} has an invalid target quantity.').format(rule_name))
+			if target.item_code in target_to_sources:
+				frappe.throw(_(
+					'Repack target Item {0} is used in more than one Repack Production Rule.'
+				).format(target.item_code))
+			mapped_targets.append({
+				'item_code': target.item_code,
+				'qty': flt(target.qty)
+			})
+			target_to_sources[target.item_code] = [
+				{
+					'item_code': source.get('item_code'),
+					'ratio': source.get('qty') / flt(target.qty),
+					'rule': rule_name
+				}
+				for source in mapped_sources
+			]
+			for source in mapped_sources:
+				source_to_targets.setdefault(
+					source.get('item_code'), []).append(target.item_code)
+
+		repack_rules.append({
+			'name': rule_name,
+			'sources': mapped_sources,
+			'targets': mapped_targets
+		})
 
 	connected_items = set(filtered_item_codes)
 	items_to_check = list(filtered_item_codes)
@@ -1182,11 +1206,19 @@ def get_repack_context(filtered_item_codes):
 	)
 	if not purchase_item_codes:
 		frappe.throw(_('The selected Repack rules do not lead to a purchase/source Item.'))
+	relevant_rules = [
+		rule for rule in repack_rules
+		if any(
+			row.get('item_code') in connected_items
+			for row in rule.get('sources', []) + rule.get('targets', [])
+		)
+	]
 
 	return {
 		'calculation_item_codes': sorted(connected_items),
 		'purchase_item_codes': purchase_item_codes,
-		'target_to_sources': target_to_sources
+		'target_to_sources': target_to_sources,
+		'repack_rules': relevant_rules
 	}
 
 
@@ -1218,38 +1250,96 @@ def propagate_repack_value(item_code, value, target_to_sources, values_by_source
 		)
 
 
-def get_converted_repack_values(item_codes, target_to_sources, total_sales_by_item,
+def convert_repack_batch_values(direct_values, repack_rules):
+	"""Combine target quantities and convert them to their Repack sources."""
+	converted_values = {}
+	origins_by_item = {}
+	for item_code, value in direct_values.items():
+		if flt(value) > 0:
+			origins_by_item[item_code] = set([item_code])
+
+	rules_by_name = dict((rule.get('name'), rule) for rule in repack_rules)
+	rule_by_target = {}
+	for rule in repack_rules:
+		for target in rule.get('targets', []):
+			rule_by_target[target.get('item_code')] = rule.get('name')
+
+	upstream_rules = dict((rule_name, set()) for rule_name in rules_by_name)
+	downstream_count = dict((rule_name, 0) for rule_name in rules_by_name)
+	for rule_name, rule in rules_by_name.items():
+		for source in rule.get('sources', []):
+			upstream_rule = rule_by_target.get(source.get('item_code'))
+			if upstream_rule and upstream_rule != rule_name \
+					and upstream_rule not in upstream_rules[rule_name]:
+				upstream_rules[rule_name].add(upstream_rule)
+				downstream_count[upstream_rule] += 1
+
+	rules_to_process = sorted([
+		rule_name for rule_name, count in downstream_count.items()
+		if count == 0
+	])
+	processed_rules = 0
+	while rules_to_process:
+		rule_name = rules_to_process.pop(0)
+		rule = rules_by_name.get(rule_name)
+		total_required_qty = 0
+		total_target_qty = 0
+		target_origins = set()
+		for target in rule.get('targets', []):
+			target_item = target.get('item_code')
+			target_qty = flt(target.get('qty'))
+			required_qty = (
+				flt(direct_values.get(target_item))
+				+ flt(converted_values.get(target_item))
+			)
+			total_required_qty += required_qty
+			total_target_qty += target_qty
+			target_origins.update(origins_by_item.get(target_item, set()))
+		batch_multiplier = (
+			total_required_qty / total_target_qty
+			if total_target_qty else 0
+		)
+
+		if batch_multiplier > 0:
+			for source in rule.get('sources', []):
+				source_item = source.get('item_code')
+				converted_values[source_item] = (
+					converted_values.get(source_item, 0)
+					+ (flt(source.get('qty')) * batch_multiplier)
+				)
+				origins_by_item.setdefault(source_item, set()).update(target_origins)
+
+		processed_rules += 1
+		for upstream_rule in sorted(upstream_rules.get(rule_name, set())):
+			downstream_count[upstream_rule] -= 1
+			if downstream_count[upstream_rule] == 0:
+				rules_to_process.append(upstream_rule)
+		rules_to_process.sort()
+
+	if processed_rules != len(rules_by_name):
+		frappe.throw(_('A cycle exists in the selected Repack Production Rules.'))
+
+	return converted_values, origins_by_item
+
+
+def get_converted_repack_values(item_codes, repack_rules, total_sales_by_item,
 		out_of_stock_by_item, stock_by_item):
-	demand_by_source = {}
-	available_by_source = {}
-	trace_by_source = {}
 	direct_demand_by_item = {}
+	direct_available_by_item = {}
 	for item_code in item_codes:
 		direct_demand = (
 			total_sales_by_item.get(item_code, 0)
 			+ out_of_stock_by_item.get(item_code, {}).get('estimated_sales_qty', 0)
 		)
 		direct_demand_by_item[item_code] = direct_demand
-		if direct_demand:
-			propagate_repack_value(
-				item_code,
-				direct_demand,
-				target_to_sources,
-				demand_by_source,
-				trace_by_source,
-				item_code
-			)
-
-		available_qty = max(
+		direct_available_by_item[item_code] = max(
 			flt(stock_by_item.get(item_code, {}).get('actual_qty')), 0
 		)
-		if available_qty:
-			propagate_repack_value(
-				item_code,
-				available_qty,
-				target_to_sources,
-				available_by_source
-			)
+
+	demand_by_source, origins_by_source = convert_repack_batch_values(
+		direct_demand_by_item, repack_rules or [])
+	available_by_source, unused_origins = convert_repack_batch_values(
+		direct_available_by_item, repack_rules or [])
 
 	item_rows = frappe.get_all(
 		'Item',
@@ -1258,16 +1348,22 @@ def get_converted_repack_values(item_codes, target_to_sources, total_sales_by_it
 	)
 	uom_by_item = dict((row.item_code, row.stock_uom or '') for row in item_rows)
 	detail_by_source = {}
-	for source_item, origin_values in trace_by_source.items():
+	for source_item, origin_items in origins_by_source.items():
+		if not demand_by_source.get(source_item):
+			continue
 		details = []
-		for origin_item in sorted(origin_values):
-			details.append(_('{0}: {1:.3f} {2} = {3:.3f} {4}').format(
+		for origin_item in sorted(origin_items):
+			if origin_item == source_item:
+				continue
+			details.append(_('{0}: {1:.3f} {2}').format(
 				origin_item,
 				direct_demand_by_item.get(origin_item, 0),
-				uom_by_item.get(origin_item, ''),
-				origin_values.get(origin_item, 0),
-				uom_by_item.get(source_item, '')
+				uom_by_item.get(origin_item, '')
 			))
+		details.append(_('Converted total: {0:.3f} {1}').format(
+			demand_by_source.get(source_item, 0),
+			uom_by_item.get(source_item, '')
+		))
 		detail_by_source[source_item] = '; '.join(details)
 
 	return {
