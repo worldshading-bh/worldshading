@@ -2,11 +2,139 @@ from __future__ import unicode_literals
 
 import frappe
 from frappe import _
+from frappe.core.doctype.communication.email import make
 from frappe.utils import cint, flt
 
 
 SUPPLIER_ITEM_GROUP_FIELD = "supplier_item_group"
 SUPPLIER_ITEM_GROUP_DOCTYPE = "Supplier Item Group"
+
+
+@frappe.whitelist()
+def block_standard_supplier_email_send(rfq_name=None):
+	"""Prevent the core RFQ sender from creating supplier portal users."""
+	frappe.throw(_(
+		"Direct supplier sending is disabled. Refresh the RFQ and use the "
+		"Review Supplier Emails dialog."
+	))
+
+
+@frappe.whitelist()
+def send_supplier_emails_with_review(
+	rfq_name, sender, subject, message, email_template=None,
+	send_me_a_copy=0, read_receipt=0, attach_document_print=1,
+	print_format=None, language=None, selected_attachments=None
+):
+	"""Send reviewed RFQ email separately without creating portal users."""
+	rfq = frappe.get_doc("Request for Quotation", rfq_name)
+	rfq.check_permission("write")
+
+	if rfq.docstatus != 1:
+		frappe.throw(_("Only submitted Requests for Quotation can be emailed."))
+
+	sender = _validate_outgoing_sender(sender)
+	subject = (subject or "").strip()
+	message = message or ""
+	if not subject:
+		frappe.throw(_("Email Subject is required."))
+	if not message.strip():
+		frappe.throw(_("Email Message is required."))
+	attachment_names = _get_selected_attachments(rfq, selected_attachments)
+
+	sent_suppliers = []
+	for supplier in rfq.suppliers:
+		if not supplier.send_email:
+			continue
+
+		rfq.validate_email_id(supplier)
+		rfq.update_supplier_part_no(supplier)
+		content = frappe.render_template(message, supplier.as_dict())
+		attachments = list(attachment_names)
+		if cint(attach_document_print):
+			attachments.append(frappe.attach_print(
+				rfq.doctype,
+				rfq.name,
+				print_format=print_format,
+				doc=rfq,
+				lang=language,
+			))
+
+		make(
+			subject=subject,
+			content=content,
+			recipients=supplier.email_id,
+			sender=sender,
+			attachments=attachments,
+			send_me_a_copy=cint(send_me_a_copy),
+			read_receipt=cint(read_receipt),
+			email_template=email_template,
+			send_email=True,
+			doctype=rfq.doctype,
+			name=rfq.name,
+		)
+
+		frappe.db.set_value(
+			supplier.doctype, supplier.name, "email_sent", 1,
+			update_modified=False
+		)
+		sent_suppliers.append(supplier.supplier)
+
+	return {
+		"sent_count": len(sent_suppliers),
+		"suppliers": sent_suppliers,
+	}
+
+
+def _get_selected_attachments(rfq, selected_attachments):
+	selected_attachments = frappe.parse_json(selected_attachments) \
+		if selected_attachments else []
+	selected_attachments = list(set(selected_attachments or []))
+	if not selected_attachments:
+		return []
+
+	files = frappe.get_all(
+		"File",
+		filters={
+			"name": ("in", selected_attachments),
+			"attached_to_doctype": rfq.doctype,
+			"attached_to_name": rfq.name,
+		},
+		fields=["name"],
+	)
+	valid_names = [row.name for row in files]
+	if len(valid_names) != len(selected_attachments):
+		frappe.throw(_("One or more selected attachments do not belong to this RFQ."))
+
+	return valid_names
+
+
+def _validate_outgoing_sender(sender):
+	sender = (sender or "").strip()
+	if not sender:
+		frappe.throw(_("From Email Account is required."))
+
+	account = frappe.db.get_value(
+		"Email Account",
+		{"email_id": sender, "enable_outgoing": 1, "awaiting_password": 0},
+		"name"
+	)
+	if not account:
+		frappe.throw(_("The selected From Email Account is not available."))
+
+	linked_account = frappe.db.get_value(
+		"User Email",
+		{
+			"parent": frappe.session.user,
+			"parenttype": "User",
+			"email_account": account,
+			"enable_outgoing": 1,
+		},
+		"name"
+	)
+	if not linked_account:
+		frappe.throw(_("You are not permitted to send from {0}.").format(sender))
+
+	return sender
 
 
 def _get_last_purchase_details(item_codes, company=None):

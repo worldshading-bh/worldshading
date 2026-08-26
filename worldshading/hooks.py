@@ -203,7 +203,8 @@ scheduler_events = {
 
         "*/5 * * * *": [
             "worldshading.scheduler_events.service_visit_scheduler.send_service_visit_reminders",
-            "worldshading.scheduler_events.work_order_scheduler.send_work_order_reminders"
+            "worldshading.scheduler_events.work_order_scheduler.send_work_order_reminders",
+            "worldshading.scheduler_events.sent_items_sync.sync_sent_items"
         ],
 
         # "*/10 7-19 * * *": [
@@ -246,6 +247,7 @@ doctype_js = {
 
 override_whitelisted_methods = {
     "frappe.desk.form.utils.validate_link": "worldshading.api.legacy_groups.validate_link",
+    "erpnext.buying.doctype.request_for_quotation.request_for_quotation.send_supplier_emails": "worldshading.api.request_for_quotation.block_standard_supplier_email_send",
     "worldshading.api.public_pdf.download_public_pdf": "worldshading.api.public_pdf.download_public_pdf",
     "worldshading.api.loyalty.get_loyalty_points": "worldshading.api.loyalty.get_loyalty_points",
     "worldshading.api.otp.send_otp": "worldshading.api.otp.send_otp",
