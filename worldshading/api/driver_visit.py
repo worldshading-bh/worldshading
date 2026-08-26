@@ -787,6 +787,11 @@ def apply_followup_quotation_action(name, action_key, note=None, transition_date
             frappe.throw("Lost reason is required.")
 
         reason_label = _set_quotation_lost_details(doc, lost_reason, note)
+
+        # The workflow transition only changes workflow_state. Keep the standard
+        # Quotation status in sync so ERPNext's expiry job continues to exclude it.
+        doc.db_set("status", "Lost")
+
         _add_comment(
             "Quotation",
             doc.name,
