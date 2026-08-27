@@ -145,6 +145,7 @@ override_doctype_dashboards = {
 app_include_css = "/assets/worldshading/css/custom_theme.css"
 
 app_include_js = [
+    "/assets/worldshading/js/whatsapp_notification.js",
     "/assets/worldshading/js/customer_quick_entry.js",
     "/assets/worldshading/js/global_list_patch.js",
     "/assets/worldshading/js/pbx_call_popup_test.js",
