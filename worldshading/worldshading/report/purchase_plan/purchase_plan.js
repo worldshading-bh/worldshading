@@ -34,7 +34,6 @@ function update_purchase_plan_filter_summary(report) {
 		"months_to_arrive": __("Months to Arrive"),
 		"percentage": __("Growth Percentage"),
 		"minimum_months": __("Min Stock Months"),
-		"pricing_columns_for": __("Price and Cost"),
 		"include_repack_to_parent": __("Include Repack to Parent"),
 		"include_out_of_stock_sales": __("Include Out of Stock Sales"),
 		"disabled_items_only": __("Disabled Items Only")
@@ -763,20 +762,20 @@ frappe.query_reports["Purchase Plan"] = {
 	"filters": [
 		{
 			"fieldname": "start_date",
-			"label": __("Plan Start Date"),
+			"label": __("Start Date"),
 			"fieldtype": "Date",
 			"reqd": 1,
 					},
 		{
 			"fieldname": "end_date",
-			"label": __("Plan End Date"),
+			"label": __("End Date"),
 			"fieldtype": "Date",
 			"reqd": 1,
 			"on_change": function() {
 				var end_date = frappe.query_report.get_filter_value("end_date");
 				var today = frappe.datetime.get_today();
 				if (end_date && end_date > today) {
-					frappe.msgprint(__("Plan End Date cannot be later than today."));
+					frappe.msgprint(__("End Date cannot be later than today."));
 					frappe.query_report.set_filter_value("end_date", today);
 				}
 			},
@@ -874,13 +873,6 @@ frappe.query_reports["Purchase Plan"] = {
 			"reqd": 1,
 			"description": __("Months of average sales used for one minimum-stock reserve. The order calculation applies this reserve twice."),
 					},
-		{
-			"fieldname": "pricing_columns_for",
-			"label": __("Show Price and Cost For"),
-			"fieldtype": "Select",
-			"options": ["All Items", "Items Requiring Purchase"],
-			"default": "All Items"
-		},
 		{
 			"fieldname": "include_repack_to_parent",
 			"label": __("Include Repack to Parent"),
@@ -1027,7 +1019,7 @@ frappe.query_reports["Purchase Plan"] = {
 					: "";
 				return '<a href="#Form/Supplier/' + encodeURIComponent(supplier) +
 					'"' + title_attribute +
-					' style="color:' + color + ';font-weight:600">' +
+					'" style="color:' + color + ';font-weight:600">' +
 					frappe.utils.escape_html(supplier) + '</a>';
 			}).join(", ");
 		}

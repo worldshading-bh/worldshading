@@ -66,7 +66,6 @@ def get_rfq_report_filter_log(report_filters):
 		('months_to_arrive', _('Months to Arrive')),
 		('percentage', _('Growth Percentage')),
 		('minimum_months', _('Min Stock Months')),
-		('pricing_columns_for', _('Price and Cost')),
 		('include_repack_to_parent', _('Include Repack to Parent')),
 		('include_out_of_stock_sales', _('Include Out of Stock Sales')),
 		('disabled_items_only', _('Disabled Items Only'))
@@ -1007,13 +1006,8 @@ def get_data(filters, pricing_context):
 		)
 		priority_month = (planning_available_qty + on_purchase) / monthly_sales if monthly_sales > 0 else 0
 		pricing_values = supplier_costs_by_item.get(item.item_code, {})
-		show_pricing = filters.get('pricing_columns_for') not in (
-			'Items Requiring Purchase', 'Pricing for Needed Items',
-			'Items Needing Purchase Only'
-		) \
-			or expected_order_quantity < 0
-		selling_price = selling_prices_by_item.get(item.item_code) if show_pricing else None
-		last_purchase_cost = pricing_values.get('last_purchase_cost') if show_pricing else None
+		selling_price = selling_prices_by_item.get(item.item_code)
+		last_purchase_cost = pricing_values.get('last_purchase_cost')
 		row = [
 			item.name, item.item_name, item.stock_uom, last_purchase_invoice_date,
 			last_sales_invoice_date, sales_invoice_count, total_sales
@@ -1042,7 +1036,7 @@ def get_data(filters, pricing_context):
 			round_whole_qty(abs(expected_order_quantity)) if expected_order_quantity < 0 else 0,
 			priority_month, pricing_values.get('suppliers', ''), last_purchase_cost,
 			selling_price, pricing_values.get('priced_supplier_count', 0),
-			pricing_values.get('supplier_purchase_details', '[]') if show_pricing else '[]'
+			pricing_values.get('supplier_purchase_details', '[]')
 		])
 		data.append(row)
 

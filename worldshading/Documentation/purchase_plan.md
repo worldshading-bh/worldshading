@@ -55,13 +55,12 @@ exists in every report path.
 
 | Filter | Current behavior |
 |---|---|
-| Plan Start Date / Plan End Date | Required. Start cannot exceed End. End cannot exceed today. |
+| Start Date / End Date | Required. Start cannot exceed End. End cannot exceed today. |
 | Supplier | Includes items found on submitted Purchase Invoices for that Supplier. |
 | Supplier Group | Includes Suppliers in the selected group and all descendant groups, then items found on their submitted Purchase Invoices. |
 | Supplier Country | Includes Suppliers with that country, then items found on their submitted Purchase Invoices. |
 | Item | Exact Item. It must also satisfy every active Supplier filter. |
 | Disabled Items Only | Unchecked returns only enabled Items. Checked returns only disabled Items. Disabled Items remain unavailable to the RFQ and Item Reorder actions. |
-| Show Price and Cost For | `All Items` shows Selling Price and Last Purchase Cost wherever values exist. `Items Requiring Purchase` shows them only when Expected Order Quantity is negative. Item Suppliers remain visible in both modes. |
 | Parent Item Groups | Multi-select. Includes every descendant Item Group. |
 | Child Item Groups | Multi-select of enabled leaf groups. Disabled groups are excluded. If parent groups are selected, choices are limited to their descendants. |
 | Item Purchase Country | Exact match against Item `purchased_from`. |
@@ -94,7 +93,7 @@ The report interval is inclusive for sales and stock-day traversal. However, pla
 months use:
 
 ```text
-date_diff(Plan End Date, Plan Start Date) / 30
+date_diff(End Date, Start Date) / 30
 ```
 
 and are zero when the difference is under 30 days. The value is later converted to an
@@ -102,7 +101,7 @@ integer for monthly calculations. Short intervals therefore need careful review.
 
 One implementation detail needs regression coverage: the distinct-invoice-count SQL
 passes date-only values directly to a Datetime `BETWEEN` comparison. MariaDB can treat
-Plan End Date as midnight, so invoices created later on Plan End Date may be omitted from the
+End Date as midnight, so invoices created later on End Date may be omitted from the
 count even when sales aggregation includes them. Do not change this casually, but fix
 it together with tests if the count and Direct Sales disagree on an end-boundary day.
 
@@ -247,7 +246,7 @@ Fridays or other weekdays are not hardcoded.
 
 For each active item:
 
-1. obtain opening stock from all Stock Ledger Entries before Plan Start Date;
+1. obtain opening stock from all Stock Ledger Entries before Start Date;
 2. aggregate Stock Ledger movement per day across all warehouses;
 3. walk every day in the selected range;
 4. on inferred working days, count the day as out of stock when balance is `<= 0`;
@@ -352,11 +351,10 @@ The editable **RFQ Order Qty** report column is initialized with the rounded pos
 absolute value when Expected Order Quantity is negative, and zero otherwise. Create RFQ
 uses this column as its only quantity source, so users can increase or reduce a calculated
 requirement, set it to zero to exclude the Item, or enter a quantity for an Item whose
-calculated requirement is zero. The RFQ column uses a soft red background, and positive
-quantities use darker red text to distinguish the final RFQ value from the calculated
-Expected Order Quantity. Edited values are temporary report-page values that reset when the
-report is refreshed. A maximum of **1000 Items** is allowed. The server revalidates RFQ
-permission and Item eligibility.
+calculated requirement is zero. Positive RFQ quantities use the same red highlight as a
+negative Expected Order Quantity. Edited values are temporary report-page values that reset
+when the report is refreshed. A maximum of **1000 Items** is allowed. The server revalidates
+RFQ permission and Item eligibility.
 
 The RFQ is opened as a new unsaved draft; the user still reviews and saves it.
 
@@ -441,7 +439,7 @@ enabling RFQ creation.
 - A compact single-row wrapping strip above the results shows Purchase Plan Date,
   integer Total Report Months and the remaining entered filters with shorter readable
   labels, including `Months to Arrive`. It remains hidden until both dates exist; Start
-  and Plan End Date are not repeated separately.
+  and End Date are not repeated separately.
 
 ### Smart total row
 
@@ -500,8 +498,8 @@ perform these checks on the clone before release:
 16. Verify default-list Selling Price and the `standard_rate` fallback with known Items.
 17. Verify three-Supplier ordering, colors, latest-cost selection, currency and UOM
     normalization against submitted Purchase Invoices.
-18. Switch Show Price and Cost For and confirm only price/cost values are hidden on rows
-    that do not need ordering; Supplier names must remain visible.
+18. Confirm Selling Price, Last Purchase Cost and Item Suppliers are shown for all Items
+    wherever values exist.
 19. Confirm the smart total row excludes positive Expected Order Quantity values and
     leaves non-additive columns blank. Confirm Selling Price and Last Purchase Cost totals, and
     verify that the first seven footer cells remain frozen during horizontal scrolling.
@@ -558,7 +556,7 @@ not undone by reverting code; review and correct those records separately.
 - Working days are inferred from Sales Invoice activity, not Holiday List.
 - Stock is company-wide/all-warehouse; there is no warehouse filter for calculations.
 - Supplier matching is historical Purchase Invoice based.
-- Distinct invoice counting has a possible Plan End Date/Datetime boundary inconsistency.
+- Distinct invoice counting has a possible End Date/Datetime boundary inconsistency.
 - Planning months approximate a month as 30 days and truncate during calculations.
 - Field labels retain legacy spelling such as `Monthy Sales` and `Shortage Happend`.
 - Reorder-dialog defaults remain hardcoded.
