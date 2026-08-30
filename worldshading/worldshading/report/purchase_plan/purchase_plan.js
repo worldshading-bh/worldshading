@@ -718,6 +718,15 @@ function purchase_plan_rfq_order_quantity(value, show_message) {
 }
 
 
+function purchase_plan_total_cost(quantity, last_purchase_cost) {
+	if (last_purchase_cost === null || last_purchase_cost === undefined ||
+			last_purchase_cost === "") {
+		return null;
+	}
+	return purchase_plan_rfq_order_quantity(quantity, false) * flt(last_purchase_cost);
+}
+
+
 function purchase_plan_rfq_qty_editor(parent, data) {
 	var input = document.createElement("input");
 	input.type = "number";
@@ -735,10 +744,34 @@ function purchase_plan_rfq_qty_editor(parent, data) {
 		getValue: function () {
 			return purchase_plan_rfq_order_quantity(input.value, true);
 		},
-		setValue: function (value) {
+		setValue: function (value, row_index) {
 			var quantity = purchase_plan_rfq_order_quantity(value, false);
 			data.rfq_order_quantity = quantity;
+			data.total_cost = purchase_plan_total_cost(
+				quantity, data.least_supplier_cost
+			);
 			input.value = quantity;
+			setTimeout(function () {
+				var datatable = frappe.query_report && frappe.query_report.datatable;
+				if (!datatable || !datatable.datamanager || !datatable.cellmanager) {
+					return;
+				}
+				var total_cost_column = (datatable.datamanager.getColumns() || [])
+					.find(function (column) {
+						return (column.fieldname || column.id) == "total_cost";
+					});
+				if (total_cost_column) {
+					datatable.cellmanager.updateCell(
+						total_cost_column.colIndex, row_index, data.total_cost
+					);
+				}
+				if (datatable.bodyRenderer) {
+					datatable.bodyRenderer.renderFooter();
+				}
+				if (datatable.purchase_plan_refresh_sticky_columns) {
+					datatable.purchase_plan_refresh_sticky_columns();
+				}
+			}, 0);
 		}
 	};
 }
@@ -930,7 +963,8 @@ frappe.query_reports["Purchase Plan"] = {
 			"expected_order_quantity",
 			"rfq_order_quantity",
 			"selling_price",
-			"least_supplier_cost"
+			"least_supplier_cost",
+			"total_cost"
 		];
 		options.hooks = options.hooks || {};
 		options.hooks.columnTotal = function (values, cell) {

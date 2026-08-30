@@ -492,6 +492,13 @@ def get_columns(filters, pricing_context):
 			'width': 100
 		},
 		{
+			'fieldname': 'item_group',
+			'label': _('Item Group'),
+			'fieldtype': 'Link',
+			'options': 'Item Group',
+			'width': 150
+		},
+		{
 			'fieldname': 'total_sales',
 			'label': _('Direct Sales'),
 			'fieldtype':'Float/1:60',
@@ -636,6 +643,13 @@ def get_columns(filters, pricing_context):
 		{
 			'fieldname': 'least_supplier_cost',
 			'label': _('Last Purchase Cost'),
+			'fieldtype': 'Currency',
+			'options': pricing_context.company_currency,
+			'width': 130
+		},
+		{
+			'fieldname': 'total_cost',
+			'label': _('Total Cost'),
 			'fieldtype': 'Currency',
 			'options': pricing_context.company_currency,
 			'width': 130
@@ -923,7 +937,10 @@ def get_data(filters, pricing_context):
 			'is_stock_item': 1,
 			'is_fixed_asset': 0
 		},
-		fields=['name', 'item_code', 'item_name', 'stock_uom', 'standard_rate'],
+		fields=[
+			'name', 'item_code', 'item_name', 'item_group',
+			'stock_uom', 'standard_rate'
+		],
 		order_by='item_code asc'
 	)
 	selling_prices_by_item = get_selling_prices(items, pricing_context)
@@ -1008,9 +1025,17 @@ def get_data(filters, pricing_context):
 		pricing_values = supplier_costs_by_item.get(item.item_code, {})
 		selling_price = selling_prices_by_item.get(item.item_code)
 		last_purchase_cost = pricing_values.get('last_purchase_cost')
+		rfq_order_quantity = (
+			round_whole_qty(abs(expected_order_quantity))
+			if expected_order_quantity < 0 else 0
+		)
+		total_cost = (
+			rfq_order_quantity * flt(last_purchase_cost)
+			if last_purchase_cost is not None else None
+		)
 		row = [
 			item.name, item.item_name, item.stock_uom, last_purchase_invoice_date,
-			last_sales_invoice_date, sales_invoice_count, total_sales
+			last_sales_invoice_date, sales_invoice_count, item.item_group, total_sales
 		]
 		if filters.get('include_out_of_stock_sales'):
 			row.extend([
@@ -1033,9 +1058,9 @@ def get_data(filters, pricing_context):
 			planning_available_qty + on_purchase,
 			monthly_sales, annual_sales, period_expected_sales,
 			shortage_happened, minimum_purchase_qty, reorder_quantity, expected_order_quantity,
-			round_whole_qty(abs(expected_order_quantity)) if expected_order_quantity < 0 else 0,
+			rfq_order_quantity,
 			priority_month, pricing_values.get('suppliers', ''), last_purchase_cost,
-			selling_price, pricing_values.get('priced_supplier_count', 0),
+			total_cost, selling_price, pricing_values.get('priced_supplier_count', 0),
 			pricing_values.get('supplier_purchase_details', '[]')
 		])
 		data.append(row)

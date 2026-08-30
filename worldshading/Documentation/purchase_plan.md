@@ -118,9 +118,11 @@ it together with tests if the count and Direct Sales disagree on an end-boundary
 | Re-order Quantity | Sum of Purchase-type Item Reorder quantities for the item. |
 | Last Sale Date | Latest negative Stock Ledger movement from Sales Invoice or Delivery Note. |
 | Last Purchase Date | Latest positive Stock Ledger movement from Purchase Invoice or Purchase Receipt. |
+| Item Group | The purchasing Item's current Item Group. |
 | Selling Price | Current valid Item Price from the Selling Settings default Price List. If none exists, Item `standard_rate` is used for compatibility with the legacy Regular Price setup. |
 | Item Suppliers | Enabled Suppliers configured in Item Supplier or found on submitted Purchase Invoices for the selected Company. |
 | Last Purchase Cost | Cost on the Item's latest submitted Purchase Invoice, in Company currency per stock UOM. |
+| Total Cost | Editable RFQ Order Qty multiplied by Last Purchase Cost, in Company currency. |
 
 Last purchase/sale dates are ledger dates over all history, not restricted to the report
 period. This makes receipt-only and delivery-note-only stock movements visible.
@@ -201,6 +203,7 @@ Existing Re-order Level = 10
 
 Expected Order Quantity = 40 - 30 - 30 - 10 = -30
 RFQ quantity            = 30
+Total Cost              = RFQ quantity * Last Purchase Cost
 ```
 
 ### Why negative shortage is not added again
@@ -352,8 +355,9 @@ absolute value when Expected Order Quantity is negative, and zero otherwise. Cre
 uses this column as its only quantity source, so users can increase or reduce a calculated
 requirement, set it to zero to exclude the Item, or enter a quantity for an Item whose
 calculated requirement is zero. Positive RFQ quantities use the same red highlight as a
-negative Expected Order Quantity. Edited values are temporary report-page values that reset
-when the report is refreshed. A maximum of **1000 Items** is allowed. The server revalidates
+negative Expected Order Quantity. Total Cost updates immediately when RFQ Order Qty is
+edited. Edited values are temporary report-page values that reset when the report is
+refreshed. A maximum of **1000 Items** is allowed. The server revalidates
 RFQ permission and Item eligibility.
 
 The RFQ is opened as a new unsaved draft; the user still reviews and saves it.
@@ -432,8 +436,8 @@ enabling RFQ creation.
 - On Purchase PO values are clickable Purchase Order links.
 - Item Suppliers are clickable, ordered by comparable cost and colored green, yellow,
   then red. Suppliers without a comparable cost are red.
-- Item Suppliers, Last Purchase Cost and Selling Price are the final three visible columns, in
-  that order.
+- Item Suppliers, Last Purchase Cost, Total Cost and Selling Price are the final four
+  visible columns, in that order.
 - Total Months In Report and Months To Arrive remain calculation inputs but are not
   displayed as result columns.
 - A compact single-row wrapping strip above the results shows Purchase Plan Date,
@@ -447,8 +451,8 @@ The total row is enabled for additive values only: No. of Sales Invoices, Direct
 out-of-stock and repack demand, Expected Total Sale, Min, Available Quantity, converted
 repack availability, On Purchase, Available Total Qty, Monthy Sales, Annual Sales,
 Period Expected Sales, Shortage Happend, Re-order Level, Re-order Quantity and Expected
-Order Quantity, Selling Price and Last Purchase Cost. Expected Order Quantity totals only
-negative values; positive balances are deliberately ignored. Item Suppliers,
+Order Quantity, Selling Price, Last Purchase Cost and Total Cost. Expected Order Quantity
+totals only negative values; positive balances are deliberately ignored. Item Suppliers,
 percentages, dates, invoice frequency and Priority Month are not totaled. The footer's
 Serial number, Item, Item Name, Unit, Last Purchase Date, Last Sale Date and No. of Sales
 Invoices cells remain frozen while the remaining totals scroll horizontally.
