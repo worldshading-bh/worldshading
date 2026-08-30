@@ -3,6 +3,102 @@ import requests
 from frappe.utils.pdf import get_pdf
 
 
+def get_meta_url_buttons(components):
+    """Return the URL-button metadata needed by the notification form."""
+    buttons = []
+
+    for component in components or []:
+        if component.get("type") != "BUTTONS":
+            continue
+
+        for index, button in enumerate(component.get("buttons") or []):
+            if button.get("type") != "URL":
+                continue
+
+            url = button.get("url") or ""
+            buttons.append({
+                "index": str(index),
+                "text": button.get("text") or "",
+                "url": url,
+                "dynamic": "{{" in url and "}}" in url
+            })
+
+    return buttons
+
+
+def get_meta_template_data(url, headers, request_get=None, max_pages=20):
+    """Fetch Meta template pages with a hard bound against paging loops."""
+    request_get = request_get or requests.get
+    templates = []
+    next_url = url
+    visited = set()
+    page = 0
+
+    while next_url and page < max_pages and next_url not in visited:
+        visited.add(next_url)
+        response = request_get(
+            next_url,
+            headers=headers,
+            params={"limit": 100} if page == 0 else None,
+            timeout=10)
+
+        if response.status_code != 200:
+            frappe.throw("Meta API Error: {0}".format(response.text))
+
+        result = response.json()
+        templates.extend(result.get("data") or [])
+        next_url = (result.get("paging") or {}).get("next")
+        page += 1
+
+    return templates
+
+
+def build_template_payload(mobile, template_name, template_language,
+    body_values=None, media_id=None, file_name=None, header_type=None,
+    button_parameters=None):
+    """Build a Meta template payload without performing an HTTP request."""
+    components = []
+
+    if header_type == "DOCUMENT" and media_id:
+        components.append({
+            "type": "header",
+            "parameters": [{
+                "type": "document",
+                "document": {"id": media_id, "filename": file_name}
+            }]
+        })
+
+    body_params = []
+    for value in body_values or []:
+        value = " ".join(str(value or "").replace("\n", " ").replace("\r", " ")
+            .replace("\t", " ").split())
+        body_params.append({"type": "text", "text": value})
+
+    if body_params:
+        components.append({"type": "body", "parameters": body_params})
+    else:
+        components.append({"type": "body"})
+
+    for button in button_parameters or []:
+        components.append({
+            "type": "button",
+            "sub_type": "url",
+            "index": str(button.get("index", "0")),
+            "parameters": [{"type": "text", "text": str(button.get("value") or "")}]
+        })
+
+    return {
+        "messaging_product": "whatsapp",
+        "to": mobile,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": template_language or "en_US"},
+            "components": components
+        }
+    }
+
+
 
 # @frappe.whitelist()
 # def send_whatsapp_template_with_pdf(mobile, docname, doctype):
@@ -487,6 +583,18 @@ def _send_whatsapp_from_notification_logic(
         #Language
         language = config.template_language or "en_US"
 
+        button_parameters = []
+        if config.get("button_parameter_field"):
+            button_value = doc.get(config.button_parameter_field)
+            if button_value in (None, ""):
+                frappe.throw(
+                    "WhatsApp URL button field {0} is empty".format(
+                        config.button_parameter_field))
+            button_parameters.append({
+                "index": config.get("button_index") or 0,
+                "value": button_value
+            })
+
         #Send Message
         success, message_id, response = send_dynamic_template_message(
             mobile,
@@ -498,7 +606,8 @@ def _send_whatsapp_from_notification_logic(
             base_api,
             settings.debug_mode,
             config.header_type,
-            language
+            language,
+            button_parameters
         )
 
         #SUCCESS
@@ -540,70 +649,12 @@ def send_dynamic_template_message(
     base_api,
     debug,
     header_type,
-    template_language
+    template_language,
+    button_parameters=None
 ):
-
-    body_params = []
-
-    for val in variables:
-
-        val = str(val or "")
-
-        # Remove line breaks
-        val = val.replace("\n", " ")
-        val = val.replace("\r", " ")
-
-        # Remove tabs
-        val = val.replace("\t", " ")
-
-        # Remove extra spaces
-        val = " ".join(val.split())
-
-        body_params.append({
-            "type": "text",
-            "text": val
-        })
-
-    components = []
-
-    # HEADER (PDF)
-    if header_type == "DOCUMENT" and media_id:
-        components.append({
-            "type": "header",
-            "parameters": [
-                {
-                    "type": "document",
-                    "document": {
-                        "id": media_id,
-                        "filename": file_name
-                    }
-                }
-            ]
-        })
-
-    # BODY
-    if body_params:
-        components.append({
-            "type": "body",
-            "parameters": body_params
-        })
-    else:
-        components.append({
-            "type": "body"
-        })
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": mobile,
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {
-                "code": template_language or "en_US"
-            },
-            "components": components
-        }
-    }
+    payload = build_template_payload(
+        mobile, template_name, template_language, variables, media_id,
+        file_name, header_type, button_parameters)
 
     if debug:
         frappe.logger().info({
@@ -767,16 +818,9 @@ def fetch_meta_templates():
             "Authorization": f"Bearer {access_token}"
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
-
-        if response.status_code != 200:
-            frappe.throw(f"Meta API Error: {response.text}")
-
-        result = response.json()
-
         templates = []
 
-        for t in result.get("data", []):
+        for t in get_meta_template_data(url, headers):
 
             # ✅ Only approved templates
             if t.get("status") != "APPROVED":
@@ -792,6 +836,7 @@ def fetch_meta_templates():
             body_text = ""
             footer_text = ""      # 👈 NEW
             header_type = None
+            buttons = []
 
             # 🔍 Extract components
             for comp in t.get("components", []):
@@ -808,12 +853,15 @@ def fetch_meta_templates():
                 if comp.get("type") == "FOOTER":
                     footer_text = comp.get("text", "")
 
+            buttons = get_meta_url_buttons(t.get("components", []))
+
             templates.append({
                 "name": name,
                 "language": language,
                 "body": body_text,
                 "footer": footer_text,                    
-                "header_type": header_type or "NONE"      
+                "header_type": header_type or "NONE",
+                "buttons": buttons
             })
 
         return templates
