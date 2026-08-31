@@ -228,6 +228,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 		wrapper.style.setProperty("--purchase-plan-unit-width", get_column_width(3, 100) + "px");
 		wrapper.style.setProperty("--purchase-plan-purchase-date-width", get_column_width(4, 120) + "px");
 		wrapper.style.setProperty("--purchase-plan-sale-date-width", get_column_width(5, 120) + "px");
+		wrapper.style.setProperty("--purchase-plan-invoice-count-width", get_column_width(6, 100) + "px");
 	};
 	update_sticky_offsets();
 	var update_sticky_header = function () {
@@ -236,7 +237,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			".dt-header .dt-cell--col-0, .dt-header .dt-cell--col-1, " +
 			".dt-header .dt-cell--col-2, .dt-header .dt-cell--col-3, " +
 			".dt-header .dt-cell--col-4, .dt-header .dt-cell--col-5, " +
-			".dt-header .dt-cell--col-6"
+			".dt-header .dt-cell--col-6, .dt-header .dt-cell--col-7"
 		);
 		sticky_header_cells
 			.addClass("purchase-plan-sticky-header-cell")
@@ -245,7 +246,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			".dt-footer .dt-cell--col-0, .dt-footer .dt-cell--col-1, " +
 			".dt-footer .dt-cell--col-2, .dt-footer .dt-cell--col-3, " +
 			".dt-footer .dt-cell--col-4, .dt-footer .dt-cell--col-5, " +
-			".dt-footer .dt-cell--col-6"
+			".dt-footer .dt-cell--col-6, .dt-footer .dt-cell--col-7"
 		);
 		sticky_footer_cells
 			.addClass("purchase-plan-sticky-footer-cell")
@@ -370,6 +371,8 @@ function apply_purchase_plan_sticky_columns(datatable) {
 				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width) + var(--purchase-plan-unit-width) + var(--purchase-plan-purchase-date-width));z-index:3;background:#fff;}" +
 			".purchase-plan-sticky-columns .dt-cell--col-6{" +
 				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width) + var(--purchase-plan-unit-width) + var(--purchase-plan-purchase-date-width) + var(--purchase-plan-sale-date-width));z-index:3;background:#fff;}" +
+			".purchase-plan-sticky-columns .dt-cell--col-7{" +
+				"position:sticky;left:calc(var(--purchase-plan-row-index-width) + var(--purchase-plan-item-width) + var(--purchase-plan-item-name-width) + var(--purchase-plan-unit-width) + var(--purchase-plan-purchase-date-width) + var(--purchase-plan-sale-date-width) + var(--purchase-plan-invoice-count-width));z-index:3;background:#fff;}" +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-0," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-1," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-2," +
@@ -377,13 +380,15 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-4," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-5," +
 			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-6," +
+			".purchase-plan-sticky-columns .dt-row-header .dt-cell--col-7," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-0," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-1," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-2," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-3," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-4," +
 			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-5," +
-			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-6{" +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-6," +
+			".purchase-plan-sticky-columns .dt-row-filter .dt-cell--col-7{" +
 				"position:relative;left:auto;z-index:30 !important;background:#f7fafc !important;}" +
 			".purchase-plan-sticky-columns .purchase-plan-sticky-header-cell{" +
 				"z-index:30 !important;background:#f7fafc !important;isolation:isolate;}" +
@@ -393,7 +398,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 				"position:relative;left:auto;z-index:30 !important;background:#f7fafc !important;}" +
 			".purchase-plan-sticky-columns .dt-dropdown__list{" +
 				"z-index:60 !important;}" +
-			".purchase-plan-sticky-columns .dt-cell--col-6{" +
+			".purchase-plan-sticky-columns .dt-cell--col-7{" +
 				"box-shadow:2px 0 2px rgba(0,0,0,0.08);}" +
 			".purchase-plan-sticky-columns .purchase-plan-selected-row .dt-cell{" +
 				"background:#fff3cd !important;}" +
@@ -414,7 +419,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 		"Monthy Sales": "#eef9f0",
 		"Annual Sales": "#f5f0ff",
 		"Shortage Happend": "#fff0f0",
-		"Expected Order Quantity": "#edf9f0",
+		"Expected Order Quantity": "#fde2e2",
 		"RFQ Order Qty": "#fde2e2",
 		"Priority Month": "#f5f0ff"
 	};
@@ -785,6 +790,15 @@ function purchase_plan_total_cost(quantity, last_purchase_cost) {
 }
 
 
+function purchase_plan_total_selling_price(quantity, selling_price) {
+	if (selling_price === null || selling_price === undefined ||
+			selling_price === "") {
+		return null;
+	}
+	return purchase_plan_rfq_order_quantity(quantity, false) * flt(selling_price);
+}
+
+
 function purchase_plan_rfq_qty_editor(parent, data) {
 	var input = document.createElement("input");
 	input.type = "number";
@@ -808,6 +822,9 @@ function purchase_plan_rfq_qty_editor(parent, data) {
 			data.total_cost = purchase_plan_total_cost(
 				quantity, data.least_supplier_cost
 			);
+			data.total_selling_price = purchase_plan_total_selling_price(
+				quantity, data.selling_price
+			);
 			input.value = quantity;
 			setTimeout(function () {
 				var datatable = frappe.query_report && frappe.query_report.datatable;
@@ -821,6 +838,17 @@ function purchase_plan_rfq_qty_editor(parent, data) {
 				if (total_cost_column) {
 					datatable.cellmanager.updateCell(
 						total_cost_column.colIndex, row_index, data.total_cost
+					);
+				}
+				var total_selling_price_column = (datatable.datamanager.getColumns() || [])
+					.find(function (column) {
+						return (column.fieldname || column.id) == "total_selling_price";
+					});
+				if (total_selling_price_column) {
+					datatable.cellmanager.updateCell(
+						total_selling_price_column.colIndex,
+						row_index,
+						data.total_selling_price
 					);
 				}
 				if (datatable.bodyRenderer) {
@@ -889,12 +917,18 @@ frappe.query_reports["Purchase Plan"] = {
 			"fieldtype": "Link",
 			"options": "Country"
 		},
-							{
+		{
 			"fieldname": "item",
 			"label": __("Item"),
 			"fieldtype": "Link",
 			"options":"Item",
 					},
+		{
+			"fieldname": "brand",
+			"label": __("Brand"),
+			"fieldtype": "Link",
+			"options": "Brand"
+		},
 		{
 			"fieldname": "parent_item_group",
 			"label": __("Parent Item Groups"),
@@ -906,9 +940,6 @@ frappe.query_reports["Purchase Plan"] = {
 				}).then(function(options) {
 					return purchase_plan_selected_options_first("parent_item_group", options);
 				});
-			},
-			on_change: function() {
-				frappe.query_report.set_filter_value("child_item_group", []);
 			}
 		},
 		{
@@ -920,10 +951,7 @@ frappe.query_reports["Purchase Plan"] = {
 				return frappe.call({
 					"method": "worldshading.worldshading.report.purchase_plan.purchase_plan.get_child_item_group_options",
 					"args": {
-						"txt": txt,
-						"parent_groups": JSON.stringify(
-							frappe.query_report.get_filter_value("parent_item_group") || []
-						)
+						"txt": txt
 					}
 				}).then(function(response) {
 					return purchase_plan_selected_options_first(
@@ -1022,7 +1050,8 @@ frappe.query_reports["Purchase Plan"] = {
 			"rfq_order_quantity",
 			"selling_price",
 			"least_supplier_cost",
-			"total_cost"
+			"total_cost",
+			"total_selling_price"
 		];
 		options.hooks = options.hooks || {};
 		options.hooks.columnTotal = function (values, cell) {
