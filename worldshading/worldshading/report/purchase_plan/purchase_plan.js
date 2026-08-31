@@ -164,6 +164,8 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	}
 	var selected_row_index = null;
 	var row_highlight_frame = null;
+	var empty_layout_frame = null;
+	var refresh_empty_filter_layout = null;
 	var restore_selected_row = function () {
 		row_highlight_frame = null;
 		$(wrapper).find(".purchase-plan-selected-row")
@@ -183,6 +185,14 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	};
 	datatable.purchase_plan_row_highlight_observer = new MutationObserver(function () {
 		queue_selected_row_restore();
+		if (empty_layout_frame === null) {
+			empty_layout_frame = window.requestAnimationFrame(function () {
+				empty_layout_frame = null;
+				if (refresh_empty_filter_layout) {
+					refresh_empty_filter_layout();
+				}
+			});
+		}
 	});
 	datatable.purchase_plan_row_highlight_observer.observe(
 		datatable.bodyScrollable,
@@ -241,12 +251,57 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			.addClass("purchase-plan-sticky-footer-cell")
 			.css("transform", "translateX(" + scroll_left + "px)");
 	};
+	refresh_empty_filter_layout = function () {
+		var no_data = $(datatable.bodyScrollable).find(".dt-scrollable__no-data");
+		if (!no_data.length) {
+			return;
+		}
+
+		var header_row = $(datatable.header).find(".dt-row-header")[0];
+		if (header_row) {
+			var header_width = Math.max(
+				header_row.scrollWidth || 0,
+				header_row.getBoundingClientRect().width || 0
+			);
+			if (header_width) {
+				no_data.css({
+					"width": header_width + "px",
+					"min-width": header_width + "px"
+				});
+			}
+		}
+
+		if (datatable.bodyRenderer &&
+				datatable.bodyRenderer.visibleRows &&
+				datatable.bodyRenderer.visibleRows.length === 0) {
+			datatable.bodyRenderer.renderFooter();
+		}
+
+		var maximum_scroll = Math.max(
+			0,
+			datatable.bodyScrollable.scrollWidth - datatable.bodyScrollable.clientWidth
+		);
+		datatable.bodyScrollable.scrollLeft = Math.min(
+			datatable.purchase_plan_last_scroll_left || 0,
+			maximum_scroll
+		);
+		update_sticky_header();
+	};
+	if (datatable.purchase_plan_last_scroll_left === undefined) {
+		datatable.purchase_plan_last_scroll_left = datatable.bodyScrollable.scrollLeft;
+	}
 	$(datatable.bodyScrollable)
 		.off("scroll.purchase_plan_sticky_columns")
 		.on("scroll.purchase_plan_sticky_columns", function () {
+			var no_data = $(datatable.bodyScrollable).find(".dt-scrollable__no-data");
+			if (!no_data.length ||
+					datatable.bodyScrollable.scrollWidth > datatable.bodyScrollable.clientWidth) {
+				datatable.purchase_plan_last_scroll_left = datatable.bodyScrollable.scrollLeft;
+			}
 			window.requestAnimationFrame(update_sticky_header);
 		});
 	update_sticky_header();
+	refresh_empty_filter_layout();
 
 	var resizing_column = false;
 	$(datatable.header)
@@ -263,6 +318,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			resizing_column = false;
 			window.requestAnimationFrame(function () {
 				update_sticky_offsets();
+				refresh_empty_filter_layout();
 				update_sticky_header();
 			});
 		});
@@ -271,6 +327,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 		.on("dblclick.purchase_plan_sticky_resize", ".dt-cell__resize-handle", function () {
 			setTimeout(function () {
 				update_sticky_offsets();
+				refresh_empty_filter_layout();
 				update_sticky_header();
 			}, 0);
 		});
@@ -278,6 +335,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	datatable.purchase_plan_refresh_sticky_columns = function () {
 		window.requestAnimationFrame(function () {
 			update_sticky_offsets();
+			refresh_empty_filter_layout();
 			update_sticky_header();
 		});
 	};
