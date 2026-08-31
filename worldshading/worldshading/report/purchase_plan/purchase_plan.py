@@ -492,17 +492,17 @@ def get_columns(filters, pricing_context):
 			'width': 100
 		},
 		{
+			'fieldname': 'total_sales',
+			'label': _('Direct Sales'),
+			'fieldtype':'Float/1:60',
+
+		},
+		{
 			'fieldname': 'item_group',
 			'label': _('Item Group'),
 			'fieldtype': 'Link',
 			'options': 'Item Group',
 			'width': 150
-		},
-		{
-			'fieldname': 'total_sales',
-			'label': _('Direct Sales'),
-			'fieldtype':'Float/1:60',
-
 		}
 	]
 	if filters and filters.get('include_out_of_stock_sales'):
@@ -577,12 +577,6 @@ def get_columns(filters, pricing_context):
 			'width': 180
 		},
 		{
-			'fieldname': 'available_total_qty',
-			'label': _('Available Total Qty'),
-			'fieldtype':'Float/1:60',
-
-		},
-		{
 			'fieldname': 'monthy_sales',
 			'label': _('Monthy Sales'),
 			'fieldtype':'Int',
@@ -615,6 +609,12 @@ def get_columns(filters, pricing_context):
 			'fieldname': 'reorder_quantity',
 			'label': _('Re-Order quantity'),
 			'fieldtype':'Int',
+
+		},
+		{
+			'fieldname': 'available_total_qty',
+			'label': _('Available Total Qty'),
+			'fieldtype':'Float/1:60',
 
 		},
 		{
@@ -662,6 +662,13 @@ def get_columns(filters, pricing_context):
 			'width': 100
 		},
 		{
+			'fieldname': 'total_selling_price',
+			'label': _('Total Selling Price'),
+			'fieldtype': 'Currency',
+			'options': pricing_context.price_list_currency,
+			'width': 140
+		},
+		{
 			'fieldname': 'priced_supplier_count',
 			'label': _('Priced Supplier Count'),
 			'fieldtype': 'Int',
@@ -700,14 +707,10 @@ def get_item_groups_with_children(selected_groups):
 
 @frappe.whitelist()
 def get_child_item_group_options(txt='', parent_groups=None):
-	parent_groups = frappe.parse_json(parent_groups) if parent_groups else []
 	filters = [
 		['Item Group', 'is_group', '=', 0],
 		['Item Group', 'disabled', '=', 0]
 	]
-	if parent_groups:
-		descendant_groups = get_item_groups_with_children(parent_groups)
-		filters.append(['Item Group', 'name', 'in', descendant_groups])
 	if txt:
 		filters.append(['Item Group', 'name', 'like', '%{0}%'.format(txt)])
 
@@ -884,6 +887,8 @@ def get_data(filters, pricing_context):
 	}
 	if filters.get('item'):
 		item_filters.update({'item_code': filters.get('item')})
+	if filters.get('brand'):
+		item_filters.update({'brand': filters.get('brand')})
 	if filters.get('supplier') or filters.get('supplier_group') or filters.get('supplier_country'):
 		supplier_item_codes = get_supplier_item_codes(
 			filters.get('supplier'),
@@ -896,11 +901,13 @@ def get_data(filters, pricing_context):
 			if not supplier_item_codes:
 				return data
 			item_filters.update({'item_code': ['in', supplier_item_codes]})
-	if filters.get('child_item_group'):
-		item_filters.update({'item_group': ['in', filters.get('child_item_group')]})
-	elif filters.get('parent_item_group'):
-		item_groups = get_item_groups_with_children(filters.get('parent_item_group'))
-		item_filters.update({'item_group': ['in', item_groups]})
+	selected_item_groups = set(filters.get('child_item_group') or [])
+	if filters.get('parent_item_group'):
+		selected_item_groups.update(
+			get_item_groups_with_children(filters.get('parent_item_group'))
+		)
+	if selected_item_groups:
+		item_filters.update({'item_group': ['in', list(selected_item_groups)]})
 	elif filters.get('item_group'):
 		item_groups = get_item_groups_with_children(filters.get('item_group'))
 		item_filters.update({'item_group': ['in', item_groups]})
@@ -1033,9 +1040,13 @@ def get_data(filters, pricing_context):
 			rfq_order_quantity * flt(last_purchase_cost)
 			if last_purchase_cost is not None else None
 		)
+		total_selling_price = (
+			rfq_order_quantity * flt(selling_price)
+			if selling_price is not None else None
+		)
 		row = [
 			item.name, item.item_name, item.stock_uom, last_purchase_invoice_date,
-			last_sales_invoice_date, sales_invoice_count, item.item_group, total_sales
+			last_sales_invoice_date, sales_invoice_count, total_sales, item.item_group
 		]
 		if filters.get('include_out_of_stock_sales'):
 			row.extend([
@@ -1055,12 +1066,13 @@ def get_data(filters, pricing_context):
 			row.append(converted_repack_available)
 		row.extend([
 			on_purchase, on_purchase_po,
-			planning_available_qty + on_purchase,
 			monthly_sales, annual_sales, period_expected_sales,
-			shortage_happened, minimum_purchase_qty, reorder_quantity, expected_order_quantity,
+			shortage_happened, minimum_purchase_qty, reorder_quantity,
+			planning_available_qty + on_purchase, expected_order_quantity,
 			rfq_order_quantity,
 			priority_month, pricing_values.get('suppliers', ''), last_purchase_cost,
-			total_cost, selling_price, pricing_values.get('priced_supplier_count', 0),
+			total_cost, selling_price, total_selling_price,
+			pricing_values.get('priced_supplier_count', 0),
 			pricing_values.get('supplier_purchase_details', '[]')
 		])
 		data.append(row)

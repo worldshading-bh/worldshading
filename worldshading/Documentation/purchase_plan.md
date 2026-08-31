@@ -60,9 +60,10 @@ exists in every report path.
 | Supplier Group | Includes Suppliers in the selected group and all descendant groups, then items found on their submitted Purchase Invoices. |
 | Supplier Country | Includes Suppliers with that country, then items found on their submitted Purchase Invoices. |
 | Item | Exact Item. It must also satisfy every active Supplier filter. |
+| Brand | Exact match against the Item's Brand. |
 | Disabled Items Only | Unchecked returns only enabled Items. Checked returns only disabled Items. Disabled Items remain unavailable to the RFQ and Item Reorder actions. |
-| Parent Item Groups | Multi-select. Includes every descendant Item Group. |
-| Child Item Groups | Multi-select of enabled leaf groups. Disabled groups are excluded. If parent groups are selected, choices are limited to their descendants. |
+| Parent Item Groups | Multi-select. Includes every selected parent and all of its descendant Item Groups. |
+| Child Item Groups | Multi-select of any enabled leaf groups. Disabled groups are excluded. Explicit child selections are added to the Parent Item Group results. |
 | Item Purchase Country | Exact match against Item `purchased_from`. |
 | Item Country of Origin | Exact match against Item `country_of_origin`. |
 | How Many Months to Arrive? | Lead time used to calculate demand before replenishment arrives. |
@@ -70,6 +71,11 @@ exists in every report path.
 | Min Stock for How Many Months? | Number of average-sales months in one minimum-stock reserve. The order formula deliberately subtracts this reserve twice. |
 | Include Repack to Parent | Converts target/repacked demand and usable stock back to purchasing/source Items. |
 | Include Out of Stock Sales | Estimates missed demand for sufficiently active items. |
+
+Parent and Child Item Groups use union (`OR`) behavior. A selected parent contributes
+its complete hierarchy, while every explicitly selected child contributes that leaf
+group. Selecting a child already covered by a selected parent is harmless and does not
+duplicate any Items.
 
 Months to Arrive, Percentage and Min Stock Months use Data controls so valid values are
 shown without forced trailing zeros. The server requires each value to be present,
@@ -123,6 +129,7 @@ it together with tests if the count and Direct Sales disagree on an end-boundary
 | Item Suppliers | Enabled Suppliers configured in Item Supplier or found on submitted Purchase Invoices for the selected Company. |
 | Last Purchase Cost | Cost on the Item's latest submitted Purchase Invoice, in Company currency per stock UOM. |
 | Total Cost | Editable RFQ Order Qty multiplied by Last Purchase Cost, in Company currency. |
+| Total Selling Price | Editable RFQ Order Qty multiplied by Selling Price, in the selling Price List currency. |
 
 Last purchase/sale dates are ledger dates over all history, not restricted to the report
 period. This makes receipt-only and delivery-note-only stock movements visible.
@@ -204,6 +211,7 @@ Existing Re-order Level = 10
 Expected Order Quantity = 40 - 30 - 30 - 10 = -30
 RFQ quantity            = 30
 Total Cost              = RFQ quantity * Last Purchase Cost
+Total Selling Price     = RFQ quantity * Selling Price
 ```
 
 ### Why negative shortage is not added again
@@ -355,7 +363,7 @@ absolute value when Expected Order Quantity is negative, and zero otherwise. Cre
 uses this column as its only quantity source, so users can increase or reduce a calculated
 requirement, set it to zero to exclude the Item, or enter a quantity for an Item whose
 calculated requirement is zero. Positive RFQ quantities use the same red highlight as a
-negative Expected Order Quantity. Total Cost updates immediately when RFQ Order Qty is
+negative Expected Order Quantity. Total Cost and Total Selling Price update immediately when RFQ Order Qty is
 edited. Edited values are temporary report-page values that reset when the report is
 refreshed. A maximum of **1000 Items** is allowed. The server revalidates
 RFQ permission and Item eligibility.
@@ -411,8 +419,9 @@ enabling RFQ creation.
 
 ## 12. User-interface behavior
 
-- Serial number, Item, Item Name, Unit, Last Purchase Date, Last Sale Date and No. of
-  Sales Invoices are sticky while horizontally scrolling.
+- Serial number, Item, Item Name, Unit, Last Purchase Date, Last Sale Date, No. of
+  Sales Invoices and Direct Sales are sticky while horizontally scrolling. Direct Sales
+  is positioned immediately before Item Group.
 - Selected Parent and Child Item Group options appear first when their MultiSelect
   dropdowns are opened, making them easier to review or remove.
 - Compact labels appear above non-checkbox report filters so their meaning remains
@@ -429,15 +438,16 @@ enabling RFQ creation.
 - Clicking a data row highlights the entire row; headers and filter rows are excluded.
 - Direct Sales, Available Quantity, Available Total Qty, On Purchase, Min, Monthy Sales,
   Annual Sales, Shortage Happend, Expected Order Quantity and Priority Month have
-  distinct background colors.
+  distinct background colors. Expected Order Quantity uses the same light-red column
+  background as RFQ Order Qty, and Available Total Qty appears immediately before it.
 - Shortage Happend uses a light-red background, and negative values are red.
 - Negative Expected Order Quantity is red.
 - Priority Month displayed as zero is red.
 - On Purchase PO values are clickable Purchase Order links.
 - Item Suppliers are clickable, ordered by comparable cost and colored green, yellow,
   then red. Suppliers without a comparable cost are red.
-- Item Suppliers, Last Purchase Cost, Total Cost and Selling Price are the final four
-  visible columns, in that order.
+- Item Suppliers, Last Purchase Cost, Total Cost, Selling Price and Total Selling Price
+  are the final five visible columns, in that order.
 - Total Months In Report and Months To Arrive remain calculation inputs but are not
   displayed as result columns.
 - A compact single-row wrapping strip above the results shows Purchase Plan Date,
@@ -451,11 +461,11 @@ The total row is enabled for additive values only: No. of Sales Invoices, Direct
 out-of-stock and repack demand, Expected Total Sale, Min, Available Quantity, converted
 repack availability, On Purchase, Available Total Qty, Monthy Sales, Annual Sales,
 Period Expected Sales, Shortage Happend, Re-order Level, Re-order Quantity and Expected
-Order Quantity, Selling Price, Last Purchase Cost and Total Cost. Expected Order Quantity
+Order Quantity, Selling Price, Last Purchase Cost, Total Cost and Total Selling Price. Expected Order Quantity
 totals only negative values; positive balances are deliberately ignored. Item Suppliers,
 percentages, dates, invoice frequency and Priority Month are not totaled. The footer's
-Serial number, Item, Item Name, Unit, Last Purchase Date, Last Sale Date and No. of Sales
-Invoices cells remain frozen while the remaining totals scroll horizontally.
+Serial number, Item, Item Name, Unit, Last Purchase Date, Last Sale Date, No. of Sales
+Invoices and Direct Sales cells remain frozen while the remaining totals scroll horizontally.
 
 This styling works around Frappe DataTable v12 behavior. Test sticky overlays, header
 clicks, resizing and horizontal scrolling after changing column order or widths in code.
@@ -506,7 +516,7 @@ perform these checks on the clone before release:
     wherever values exist.
 19. Confirm the smart total row excludes positive Expected Order Quantity values and
     leaves non-additive columns blank. Confirm Selling Price and Last Purchase Cost totals, and
-    verify that the first seven footer cells remain frozen during horizontal scrolling.
+    verify that the first eight footer cells remain frozen during horizontal scrolling.
 20. Confirm Total Months In Report and Months To Arrive are absent as result columns,
     while changing the arrival filter still changes the existing calculations.
 21. Verify the compact filter strip after changing and rebuilding with several filters.
