@@ -40,29 +40,12 @@ function replace_send_supplier_emails_button(frm) {
 
 function show_supplier_email_dialog(frm) {
 	var suppliers = (frm.doc.suppliers || []).filter(function (row) {
-		return row.send_email && row.email_id;
+		return row.email_id;
 	});
-	var missing_emails = (frm.doc.suppliers || []).filter(function (row) {
-		return row.send_email && !row.email_id;
-	});
-
-	if (missing_emails.length) {
-		frappe.msgprint({
-			title: __("Supplier Email Required"),
-			indicator: "red",
-			message: __("Add an email address for: {0}", [
-				missing_emails.map(function (row) {
-					return row.supplier_name || row.supplier;
-				}).join(", ")
-			])
-		});
-		return;
-	}
-
-	if (!suppliers.length) {
-		frappe.msgprint(__("Select Send Email for at least one supplier."));
-		return;
-	}
+	var supplier_recipients = suppliers.map(function (row) {
+		return row.email_id;
+	}).join(", ");
+	var contact_list = [];
 
 	var email_accounts = (frappe.boot.email_accounts || []).filter(function (account) {
 		return account.enable_outgoing &&
@@ -91,18 +74,16 @@ function show_supplier_email_dialog(frm) {
 			},
 			{
 				fieldname: "recipients",
-				fieldtype: "Small Text",
+				fieldtype: "MultiSelect",
 				label: __("To"),
-				read_only: 1,
-				default: suppliers.map(function (row) {
-					return (row.supplier_name || row.supplier) + " <" + row.email_id + ">";
-				}).join("\n")
+				reqd: 1,
+				options: contact_list
 			},
 			{
 				fieldname: "separate_email_notice",
 				fieldtype: "HTML",
 				options: '<p class="text-muted small">' +
-					__("Each supplier will receive a separate email with the RFQ PDF.") +
+					__("You can add or remove addresses. Use a comma to add more email addresses. Each recipient will receive a separate email with the RFQ PDF.") +
 					'</p>'
 			},
 			{
@@ -183,7 +164,27 @@ function show_supplier_email_dialog(frm) {
 		}
 	});
 
+	dialog.fields_dict.recipients.get_data = function () {
+		var data = dialog.fields_dict.recipients.get_value() || "";
+		var match = data.match(/[^,\s*]*$/);
+		var txt = match ? match[0] : "";
+		var options = [];
+
+		frappe.call({
+			method: "frappe.email.get_contact_list",
+			args: {
+				txt: txt
+			},
+			callback: function (r) {
+				options = r.message || [];
+				dialog.fields_dict.recipients.set_data(options);
+			}
+		});
+		return options;
+	};
+
 	dialog.show();
+	dialog.set_value("recipients", supplier_recipients);
 	dialog.fields_dict.print_format.$wrapper.toggle(
 		Boolean(dialog.get_value("attach_document_print"))
 	);
@@ -259,6 +260,7 @@ function send_supplier_emails(frm, dialog, values) {
 		args: {
 			rfq_name: frm.doc.name,
 			sender: values.sender,
+			recipients: values.recipients,
 			subject: values.subject,
 			message: values.message,
 			email_template: values.email_template,
@@ -276,7 +278,7 @@ function send_supplier_emails(frm, dialog, values) {
 			if (!r.exc) {
 				dialog.hide();
 				frm.reload_doc();
-				frappe.msgprint(__("{0} supplier email(s) added to the Email Queue.", [
+				frappe.msgprint(__("{0} separate email(s) added to the Email Queue.", [
 					(r.message || {}).sent_count || 0
 				]));
 			}

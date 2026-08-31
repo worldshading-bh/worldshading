@@ -146,6 +146,25 @@ class TestRepackRuleMatching(unittest.TestCase):
 		)
 		self.assertEqual(matched, ["RP-001", "RP-002"])
 
+	def test_duplicate_target_rules_are_treated_as_alternatives(self):
+		matched = find_matching_rules(
+			{("KSA0011", "Roll"): 1},
+			{("WK0011", "Meter"): 225},
+			[
+				{
+					"name": "Repack-WK0011",
+					"sources": {("KSA0011", "Roll"): 1},
+					"targets": {("WK0011", "Meter"): 225}
+				},
+				{
+					"name": "Production-WK0011",
+					"sources": {("K0011", "Roll"): 1},
+					"targets": {("WK0011", "Meter"): 225}
+				}
+			]
+		)
+		self.assertEqual(matched, ["Repack-WK0011"])
+
 	def test_multi_repack_message_reports_each_wrong_target_quantity(self):
 		rules = [
 			repack_rule(target_qty=50),

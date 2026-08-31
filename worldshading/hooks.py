@@ -276,6 +276,7 @@ doc_events = {
     
     "Request for Quotation": {
         "validate": [
+            "worldshading.api.request_for_quotation.set_total_quantity",
             "worldshading.api.request_for_quotation.set_last_purchase_details",
             "worldshading.api.request_for_quotation.validate_supplier_item_groups"
         ]
@@ -283,6 +284,9 @@ doc_events = {
 
     "Material Request": {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
+    },
+    "Repack Production Rule": {
+        "autoname": "worldshading.api.repack_production_rule.autoname_repack_production_rule"
     },
     "Item": {
         "validate": "worldshading.api.legacy_groups.validate_active_group_assignment"

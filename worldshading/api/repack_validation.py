@@ -54,39 +54,71 @@ def find_matching_rule(actual_sources, actual_targets, rules):
 
 def find_matching_rules(actual_sources, actual_targets, rules):
 	"""Return all rules when a Stock Entry is the exact sum of whole rule batches."""
-	applicable_rules = _get_applicable_rules(actual_targets, rules)
-	if not applicable_rules:
+	candidate_matches = _get_candidate_matches(actual_sources, actual_targets, rules)
+	if not candidate_matches:
 		return []
 
-	covered_targets = set()
-	expected_sources = {}
-	expected_targets = {}
-	for rule in applicable_rules:
-		rule_targets = set(rule["targets"])
-		if covered_targets.intersection(rule_targets):
-			return []
-		covered_targets.update(rule_targets)
+	return _find_exact_rule_combination(
+		candidate_matches, actual_sources, actual_targets)
 
+
+def _get_candidate_matches(actual_sources, actual_targets, rules):
+	candidate_matches = []
+	for rule in _get_applicable_rules(actual_targets, rules):
 		actual_rule_targets = dict(
 			(key, actual_targets[key]) for key in rule["targets"])
 		multiplier = _get_whole_multiplier(actual_rule_targets, rule["targets"])
 		if not multiplier:
-			return []
+			continue
 
-		_merge_quantities(expected_sources, rule["sources"], multiplier)
-		_merge_quantities(expected_targets, rule["targets"], multiplier)
+		expected_sources = _multiply_quantities(rule["sources"], multiplier)
+		expected_targets = _multiply_quantities(rule["targets"], multiplier)
+		if not _quantities_fit(expected_sources, actual_sources):
+			continue
+		if not _quantities_fit(expected_targets, actual_targets):
+			continue
 
-	if covered_targets != set(actual_targets):
+		candidate_matches.append({
+			"name": rule["name"],
+			"sources": expected_sources,
+			"targets": expected_targets
+		})
+	return candidate_matches
+
+
+def _find_exact_rule_combination(candidate_matches, actual_sources, actual_targets):
+	return _find_exact_rule_combination_from_index(
+		candidate_matches, 0, {}, {}, [], actual_sources, actual_targets)
+
+
+def _find_exact_rule_combination_from_index(candidate_matches, index,
+		current_sources, current_targets, current_rule_names,
+		actual_sources, actual_targets):
+	if _quantities_match(current_sources, actual_sources) and \
+			_quantities_match(current_targets, actual_targets):
+		return current_rule_names
+	if index >= len(candidate_matches):
 		return []
-	if set(expected_sources) != set(actual_sources):
-		return []
-	if set(expected_targets) != set(actual_targets):
-		return []
-	if not _matches_multiplier(actual_sources, expected_sources, 1):
-		return []
-	if not _matches_multiplier(actual_targets, expected_targets, 1):
-		return []
-	return [rule["name"] for rule in applicable_rules]
+
+	for candidate_index in range(index, len(candidate_matches)):
+		candidate = candidate_matches[candidate_index]
+		next_sources = dict(current_sources)
+		next_targets = dict(current_targets)
+		_merge_quantities(next_sources, candidate["sources"], 1)
+		_merge_quantities(next_targets, candidate["targets"], 1)
+
+		if not _quantities_fit(next_sources, actual_sources):
+			continue
+		if not _quantities_fit(next_targets, actual_targets):
+			continue
+
+		matched = _find_exact_rule_combination_from_index(
+			candidate_matches, candidate_index + 1, next_sources, next_targets,
+			current_rule_names + [candidate["name"]], actual_sources, actual_targets)
+		if matched:
+			return matched
+
+	return []
 
 
 def _get_applicable_rules(actual_targets, rules):
@@ -100,6 +132,24 @@ def _get_applicable_rules(actual_targets, rules):
 def _merge_quantities(total, quantities, multiplier):
 	for key, qty in quantities.items():
 		total[key] = total.get(key, 0) + (flt(qty) * multiplier)
+
+
+def _quantities_fit(expected, actual):
+	for key, expected_qty in expected.items():
+		if key not in actual:
+			return False
+		if flt(expected_qty) - flt(actual[key]) > _allowed_difference(actual[key]):
+			return False
+	return True
+
+
+def _quantities_match(expected, actual):
+	if set(expected) != set(actual):
+		return False
+	for key, actual_qty in actual.items():
+		if not _quantities_equal(expected[key], actual_qty):
+			return False
+	return True
 
 
 def _get_rule_stock_entry_type(doc):
@@ -184,11 +234,11 @@ def _matches_multiplier(actual, configured, multiplier):
 
 
 def _quantities_equal(first, second):
-	allowed_difference = max(
-		QUANTITY_TOLERANCE,
-		abs(flt(second)) * QUANTITY_TOLERANCE
-	)
-	return abs(flt(first) - flt(second)) <= allowed_difference
+	return abs(flt(first) - flt(second)) <= _allowed_difference(second)
+
+
+def _allowed_difference(qty):
+	return max(QUANTITY_TOLERANCE, abs(flt(qty)) * QUANTITY_TOLERANCE)
 
 
 def _build_mismatch_message(actual_sources, actual_targets, candidates):

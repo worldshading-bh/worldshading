@@ -1,13 +1,20 @@
 from __future__ import unicode_literals
 
+import re
+
 import frappe
 from frappe import _
 from frappe.core.doctype.communication.email import make
-from frappe.utils import cint, flt
+from frappe.utils import cint, flt, validate_email_address
 
 
 SUPPLIER_ITEM_GROUP_FIELD = "supplier_item_group"
 SUPPLIER_ITEM_GROUP_DOCTYPE = "Supplier Item Group"
+
+
+def set_total_quantity(doc, method=None):
+	"""Set the RFQ total quantity from its item rows before save."""
+	doc.total_quantity = sum(flt(row.qty) for row in (doc.items or []))
 
 
 @frappe.whitelist()
@@ -21,7 +28,7 @@ def block_standard_supplier_email_send(rfq_name=None):
 
 @frappe.whitelist()
 def send_supplier_emails_with_review(
-	rfq_name, sender, subject, message, email_template=None,
+	rfq_name, sender, recipients, subject, message, email_template=None,
 	send_me_a_copy=0, read_receipt=0, attach_document_print=1,
 	print_format=None, language=None, selected_attachments=None
 ):
@@ -39,16 +46,21 @@ def send_supplier_emails_with_review(
 		frappe.throw(_("Email Subject is required."))
 	if not message.strip():
 		frappe.throw(_("Email Message is required."))
+	recipients = _get_reviewed_recipients(recipients)
 	attachment_names = _get_selected_attachments(rfq, selected_attachments)
-
-	sent_suppliers = []
+	suppliers_by_email = {}
 	for supplier in rfq.suppliers:
-		if not supplier.send_email:
-			continue
+		if supplier.email_id:
+			suppliers_by_email.setdefault(
+				supplier.email_id.strip().lower(), []
+			).append(supplier)
 
-		rfq.validate_email_id(supplier)
-		rfq.update_supplier_part_no(supplier)
-		content = frappe.render_template(message, supplier.as_dict())
+	sent_recipients = []
+	for recipient in recipients:
+		matching_suppliers = suppliers_by_email.get(recipient.lower(), [])
+		context = matching_suppliers[0].as_dict() \
+			if matching_suppliers else rfq.as_dict()
+		content = frappe.render_template(message, context)
 		attachments = list(attachment_names)
 		if cint(attach_document_print):
 			attachments.append(frappe.attach_print(
@@ -62,7 +74,7 @@ def send_supplier_emails_with_review(
 		make(
 			subject=subject,
 			content=content,
-			recipients=supplier.email_id,
+			recipients=recipient,
 			sender=sender,
 			attachments=attachments,
 			send_me_a_copy=cint(send_me_a_copy),
@@ -73,16 +85,39 @@ def send_supplier_emails_with_review(
 			name=rfq.name,
 		)
 
-		frappe.db.set_value(
-			supplier.doctype, supplier.name, "email_sent", 1,
-			update_modified=False
-		)
-		sent_suppliers.append(supplier.supplier)
+		for supplier in matching_suppliers:
+			frappe.db.set_value(
+				supplier.doctype, supplier.name, "email_sent", 1,
+				update_modified=False
+			)
+		sent_recipients.append(recipient)
 
 	return {
-		"sent_count": len(sent_suppliers),
-		"suppliers": sent_suppliers,
+		"sent_count": len(sent_recipients),
+		"recipients": sent_recipients,
 	}
+
+
+def _get_reviewed_recipients(recipients):
+	parts = re.split(r"[,;\n\r]+", recipients or "")
+	validated = []
+	seen = set()
+	for part in parts:
+		part = part.strip()
+		if not part:
+			continue
+		email_id = validate_email_address(part, throw=True)
+		if not email_id or email_id.lower() in seen:
+			continue
+		seen.add(email_id.lower())
+		validated.append(email_id)
+
+	if not validated:
+		frappe.throw(_("At least one valid recipient Email Address is required."))
+	if len(validated) > 50:
+		frappe.throw(_("A maximum of 50 recipients can be used at one time."))
+
+	return validated
 
 
 def _get_selected_attachments(rfq, selected_attachments):
