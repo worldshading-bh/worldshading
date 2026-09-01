@@ -68,12 +68,14 @@ def get_rfq_report_filter_log(report_filters):
 		('minimum_months', _('Min Stock Months')),
 		('include_repack_to_parent', _('Include Repack to Parent')),
 		('include_out_of_stock_sales', _('Include Out of Stock Sales')),
-		('disabled_items_only', _('Disabled Items Only'))
+		('disabled_items_only', _('Disabled Items Only')),
+		('purchase_required_only', _('Purchase Required Items Only'))
 	]
 	check_fields = set([
 		'include_repack_to_parent',
 		'include_out_of_stock_sales',
-		'disabled_items_only'
+		'disabled_items_only',
+		'purchase_required_only'
 	])
 	filter_log = []
 	for fieldname, label in filter_labels:
@@ -1028,6 +1030,8 @@ def get_data(filters, pricing_context):
 		expected_order_quantity = (
 			usable_balance_after_arrival - minimum_qty - minimum_qty - minimum_purchase_qty
 		)
+		if cint(filters.get('purchase_required_only')) and expected_order_quantity >= 0:
+			continue
 		priority_month = (planning_available_qty + on_purchase) / monthly_sales if monthly_sales > 0 else 0
 		pricing_values = supplier_costs_by_item.get(item.item_code, {})
 		selling_price = selling_prices_by_item.get(item.item_code)

@@ -36,7 +36,8 @@ function update_purchase_plan_filter_summary(report) {
 		"minimum_months": __("Min Stock Months"),
 		"include_repack_to_parent": __("Include Repack to Parent"),
 		"include_out_of_stock_sales": __("Include Out of Stock Sales"),
-		"disabled_items_only": __("Disabled Items Only")
+		"disabled_items_only": __("Disabled Items Only"),
+		"purchase_required_only": __("Purchase Required Items Only")
 	};
 	(report.filters || []).forEach(function (filter) {
 		var field = filter.df || {};
@@ -1007,6 +1008,12 @@ frappe.query_reports["Purchase Plan"] = {
 		{
 			"fieldname": "disabled_items_only",
 			"label": __("Disabled Items Only"),
+			"fieldtype": "Check",
+			"default": 0
+		},
+		{
+			"fieldname": "purchase_required_only",
+			"label": __("Purchase Required Items Only"),
 			"fieldtype": "Check",
 			"default": 0
 		}

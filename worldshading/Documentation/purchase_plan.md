@@ -62,6 +62,7 @@ exists in every report path.
 | Item | Exact Item. It must also satisfy every active Supplier filter. |
 | Brand | Exact match against the Item's Brand. |
 | Disabled Items Only | Unchecked returns only enabled Items. Checked returns only disabled Items. Disabled Items remain unavailable to the RFQ and Item Reorder actions. |
+| Purchase Required Items Only | When checked, returns only Items whose calculated Expected Order Quantity is negative. Unchecked preserves the complete report. |
 | Parent Item Groups | Multi-select. Includes every selected parent and all of its descendant Item Groups. |
 | Child Item Groups | Multi-select of any enabled leaf groups. Disabled groups are excluded. Explicit child selections are added to the Parent Item Group results. |
 | Item Purchase Country | Exact match against Item `purchased_from`. |
