@@ -145,6 +145,7 @@ override_doctype_dashboards = {
 app_include_css = "/assets/worldshading/css/custom_theme.css"
 
 app_include_js = [
+    "/assets/worldshading/js/email_signature_preview.js",
     "/assets/worldshading/js/whatsapp_notification.js",
     "/assets/worldshading/js/customer_quick_entry.js",
     "/assets/worldshading/js/global_list_patch.js",
@@ -282,6 +283,10 @@ doc_events = {
         ]
     },
 
+    "Email Account": {
+        "validate": "worldshading.events.email_account.sync_signature_html"
+    },
+
     "Material Request": {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
     },
@@ -344,6 +349,7 @@ doc_events = {
 
     "Payment Entry": {
         "before_submit": [
+            "worldshading.events.service_visit_link.validate_payment_entry_service_visit_customer",
             "worldshading.events.payment_request_status.snapshot_related_statuses",
             "worldshading.events.payment_request_status.validate_explicit_allocation"
         ],

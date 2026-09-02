@@ -1,5 +1,13 @@
 frappe.ui.form.on("Request for Quotation", {
 	setup: function (frm) {
+		frm.email_doc = function () {
+			if (frm.doc.docstatus !== 1) {
+				frappe.msgprint(__("Only submitted Requests for Quotation can be emailed."));
+				return;
+			}
+			show_supplier_email_dialog(frm);
+		};
+
 		frm.fields_dict.suppliers.grid.get_field("supplier").get_query = function () {
 			return {
 				query: "worldshading.api.request_for_quotation.supplier_query",
@@ -54,8 +62,15 @@ function show_supplier_email_dialog(frm) {
 	var sender_options = email_accounts.map(function (account) {
 		return account.email_id;
 	});
+	var preferred_sender = (frm.doc.country_of_purchase || "").toLowerCase() === "bahrain"
+		? "local.purchase@worldshading.com"
+		: "purchteam@worldshading.com";
+	var default_sender = sender_options.indexOf(preferred_sender) !== -1
+		? preferred_sender
+		: sender_options[0];
 	var print_formats = ((frm.print_preview || {}).print_formats || ["Standard"]);
 	var default_print_format = frm.meta.default_print_format || print_formats[0];
+	var default_subject = __("Request for Quotation") + ": " + frm.doc.name;
 
 	if (!sender_options.length) {
 		frappe.msgprint(__("No outgoing Email Account is linked to your User."));
@@ -70,7 +85,15 @@ function show_supplier_email_dialog(frm) {
 				fieldtype: "Select",
 				label: __("From"),
 				options: sender_options,
-				reqd: 1
+				default: default_sender,
+				reqd: 1,
+				onchange: function () {
+					worldshading.email_signature.update_account_preview(
+						dialog,
+						"account_signature_preview",
+						dialog.get_value("sender")
+					);
+				}
 			},
 			{
 				fieldname: "recipients",
@@ -87,10 +110,29 @@ function show_supplier_email_dialog(frm) {
 					'</p>'
 			},
 			{
+				fieldname: "cc",
+				fieldtype: "MultiSelect",
+				label: __("CC"),
+				options: contact_list
+			},
+			{
+				fieldname: "bcc",
+				fieldtype: "MultiSelect",
+				label: __("BCC"),
+				options: contact_list
+			},
+			{
 				fieldname: "email_template",
 				fieldtype: "Link",
 				options: "Email Template",
 				label: __("Email Template"),
+				get_query: function () {
+					return {
+						filters: {
+							reference_doctype: "Request for Quotation"
+						}
+					};
+				},
 				onchange: function () {
 					load_email_template(dialog, frm);
 				}
@@ -99,15 +141,21 @@ function show_supplier_email_dialog(frm) {
 				fieldname: "subject",
 				fieldtype: "Data",
 				label: __("Subject"),
-				default: __("Request for Quotation"),
+				default: default_subject,
 				reqd: 1
 			},
 			{
 				fieldname: "message",
 				fieldtype: "Text Editor",
 				label: __("Message"),
-				default: frm.doc.message_for_supplier || "",
+				default: worldshading.email_signature.with_user_signature(
+					frm.doc.message_for_supplier || ""
+				),
 				reqd: 1
+			},
+			{
+				fieldname: "account_signature_preview",
+				fieldtype: "HTML"
 			},
 			{
 				fieldtype: "Section Break"
@@ -164,31 +212,71 @@ function show_supplier_email_dialog(frm) {
 		}
 	});
 
-	dialog.fields_dict.recipients.get_data = function () {
-		var data = dialog.fields_dict.recipients.get_value() || "";
-		var match = data.match(/[^,\s*]*$/);
-		var txt = match ? match[0] : "";
-		var options = [];
+	["recipients", "cc", "bcc"].forEach(function (fieldname) {
+		dialog.fields_dict[fieldname].get_data = function () {
+			var data = dialog.fields_dict[fieldname].get_value() || "";
+			var match = data.match(/[^,\s*]*$/);
+			var txt = match ? match[0] : "";
+			var options = [];
 
-		frappe.call({
-			method: "frappe.email.get_contact_list",
-			args: {
-				txt: txt
-			},
-			callback: function (r) {
-				options = r.message || [];
-				dialog.fields_dict.recipients.set_data(options);
-			}
-		});
-		return options;
-	};
+			frappe.call({
+				method: "frappe.email.get_contact_list",
+				args: {
+					txt: txt
+				},
+				callback: function (r) {
+					options = r.message || [];
+					dialog.fields_dict[fieldname].set_data(options);
+				}
+			});
+			return options;
+		};
+	});
 
 	dialog.show();
 	dialog.set_value("recipients", supplier_recipients);
+	worldshading.email_signature.update_account_preview(
+		dialog,
+		"account_signature_preview",
+		dialog.get_value("sender")
+	);
+	set_default_email_template(dialog, frm);
 	dialog.fields_dict.print_format.$wrapper.toggle(
 		Boolean(dialog.get_value("attach_document_print"))
 	);
 	render_attachment_selector(dialog, frm);
+}
+
+function set_default_email_template(dialog, frm) {
+	var default_field = (frm.doc.country_of_purchase || "").toLowerCase() === "bahrain"
+		? "default_local_purchase"
+		: "default_international_purchase";
+	var filters = {
+		reference_doctype: "Request for Quotation"
+	};
+	filters[default_field] = 1;
+
+	frappe.call({
+		method: "frappe.client.get_list",
+		args: {
+			doctype: "Email Template",
+			fields: ["name"],
+			filters: filters,
+			order_by: "modified desc",
+			limit_page_length: 2
+		},
+		callback: function (r) {
+			var templates = r.message || [];
+			if (templates.length === 1) {
+				dialog.set_value("email_template", templates[0].name);
+			} else if (templates.length > 1) {
+				frappe.show_alert({
+					indicator: "orange",
+					message: __("More than one default RFQ Email Template is configured.")
+				});
+			}
+		}
+	});
 }
 
 function render_attachment_selector(dialog, frm) {
@@ -241,10 +329,23 @@ function load_email_template(dialog, frm) {
 		},
 		callback: function (r) {
 			if (!r.message) return;
-			dialog.set_value("subject", r.message.subject || __("Request for Quotation"));
-			dialog.set_value("message", r.message.message || "");
+			dialog.set_value(
+				"subject",
+				append_rfq_number(r.message.subject || __("Request for Quotation"), frm.doc.name)
+			);
+			dialog.set_value(
+				"message",
+				worldshading.email_signature.with_user_signature(r.message.message || "")
+			);
 		}
 	});
+}
+
+function append_rfq_number(subject, rfq_name) {
+	subject = (subject || "").trim();
+	return subject.indexOf(rfq_name) === -1
+		? subject + ": " + rfq_name
+		: subject;
 }
 
 function send_supplier_emails(frm, dialog, values) {
@@ -261,6 +362,8 @@ function send_supplier_emails(frm, dialog, values) {
 			rfq_name: frm.doc.name,
 			sender: values.sender,
 			recipients: values.recipients,
+			cc: values.cc,
+			bcc: values.bcc,
 			subject: values.subject,
 			message: values.message,
 			email_template: values.email_template,

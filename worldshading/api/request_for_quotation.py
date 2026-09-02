@@ -29,6 +29,7 @@ def block_standard_supplier_email_send(rfq_name=None):
 @frappe.whitelist()
 def send_supplier_emails_with_review(
 	rfq_name, sender, recipients, subject, message, email_template=None,
+	cc=None, bcc=None,
 	send_me_a_copy=0, read_receipt=0, attach_document_print=1,
 	print_format=None, language=None, selected_attachments=None
 ):
@@ -40,13 +41,19 @@ def send_supplier_emails_with_review(
 		frappe.throw(_("Only submitted Requests for Quotation can be emailed."))
 
 	sender = _validate_outgoing_sender(sender)
-	subject = (subject or "").strip()
+	subject = _append_rfq_number(subject, rfq.name)
 	message = message or ""
 	if not subject:
 		frappe.throw(_("Email Subject is required."))
 	if not message.strip():
 		frappe.throw(_("Email Message is required."))
 	recipients = _get_reviewed_recipients(recipients)
+	cc_recipients = _get_reviewed_recipients(
+		cc, required=False, field_label=_("CC")
+	)
+	bcc_recipients = _get_reviewed_recipients(
+		bcc, required=False, field_label=_("BCC")
+	)
 	attachment_names = _get_selected_attachments(rfq, selected_attachments)
 	suppliers_by_email = {}
 	for supplier in rfq.suppliers:
@@ -75,6 +82,8 @@ def send_supplier_emails_with_review(
 			subject=subject,
 			content=content,
 			recipients=recipient,
+			cc=", ".join(cc_recipients) or None,
+			bcc=", ".join(bcc_recipients) or None,
 			sender=sender,
 			attachments=attachments,
 			send_me_a_copy=cint(send_me_a_copy),
@@ -98,7 +107,7 @@ def send_supplier_emails_with_review(
 	}
 
 
-def _get_reviewed_recipients(recipients):
+def _get_reviewed_recipients(recipients, required=True, field_label=None):
 	parts = re.split(r"[,;\n\r]+", recipients or "")
 	validated = []
 	seen = set()
@@ -112,12 +121,21 @@ def _get_reviewed_recipients(recipients):
 		seen.add(email_id.lower())
 		validated.append(email_id)
 
-	if not validated:
+	if required and not validated:
 		frappe.throw(_("At least one valid recipient Email Address is required."))
 	if len(validated) > 50:
-		frappe.throw(_("A maximum of 50 recipients can be used at one time."))
+		frappe.throw(_("A maximum of 50 {0} addresses can be used at one time.").format(
+			field_label or _("recipient")
+		))
 
 	return validated
+
+
+def _append_rfq_number(subject, rfq_name):
+	subject = (subject or "").strip()
+	if subject and rfq_name not in subject:
+		subject = "{0}: {1}".format(subject, rfq_name)
+	return subject
 
 
 def _get_selected_attachments(rfq, selected_attachments):

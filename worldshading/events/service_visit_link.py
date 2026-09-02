@@ -1,6 +1,33 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 import frappe
+from frappe import _
+
+
+def validate_payment_entry_service_visit_customer(doc, method=None):
+	"""Prevent a Payment Entry from being linked to another customer's visit."""
+
+	service_visit = doc.get("service_visit")
+
+	if not service_visit:
+		return
+
+	service_visit_customer = frappe.db.get_value(
+		"Service Visit",
+		service_visit,
+		"customer"
+	)
+
+	if service_visit_customer != doc.get("party"):
+		frappe.throw(_(
+			"Service Visit {0} belongs to customer {1}, but this Payment Entry "
+			"belongs to customer {2}. Remove the Service Visit link or select "
+			"the correct customer before submitting."
+		).format(
+			service_visit,
+			service_visit_customer or _("Not Set"),
+			doc.get("party") or _("Not Set")
+		))
 
 
 def sync_quotation_link(doc, method=None):
