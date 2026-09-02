@@ -33,7 +33,8 @@ function update_purchase_plan_filter_summary(report) {
 	var summary_labels = {
 		"months_to_arrive": __("Months to Arrive"),
 		"percentage": __("Growth Percentage"),
-		"minimum_months": __("Min Stock Months"),
+		"minimum_months": __("Purchase Plan Months"),
+		"minimum_stock_months": __("Min Stock Months"),
 		"include_repack_to_parent": __("Include Repack to Parent"),
 		"include_out_of_stock_sales": __("Include Out of Stock Sales"),
 		"disabled_items_only": __("Disabled Items Only"),
@@ -992,13 +993,20 @@ frappe.query_reports["Purchase Plan"] = {
 			"fieldtype": "Data",
 			"reqd": 1,
 					},
-			{
+		{
 			"fieldname": "minimum_months",
+			"label": __("Purchase Plan for How Many Months?"),
+			"fieldtype": "Data",
+			"reqd": 1,
+			"description": __("Months of average sales the new purchase should cover after stock arrives."),
+					},
+		{
+			"fieldname": "minimum_stock_months",
 			"label": __("Min Stock for How Many Months?"),
 			"fieldtype": "Data",
 			"reqd": 1,
-			"description": __("Months of average sales used for one minimum-stock reserve. The order calculation applies this reserve twice."),
-					},
+			"description": __("Additional minimum-stock reserve, calculated separately from the purchase coverage period."),
+		},
 		{
 			"fieldname": "brand",
 			"label": __("Brand"),

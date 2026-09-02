@@ -20,7 +20,8 @@ def execute(filters=None):
 def validate_filters(filters):
 	validate_numeric_filter(filters, 'months_to_arrive', _('Months to Arrive'))
 	validate_numeric_filter(filters, 'percentage', _('Percentage'))
-	validate_numeric_filter(filters, 'minimum_months', _('Min Stock Months'))
+	validate_numeric_filter(filters, 'minimum_months', _('Purchase Plan Months'))
+	validate_numeric_filter(filters, 'minimum_stock_months', _('Min Stock Months'))
 	if filters.get('end_date') and getdate(filters.end_date) > getdate(nowdate()):
 		frappe.throw(_('End Date cannot be later than today.'))
 	if filters.get('start_date') and filters.get('end_date') \
@@ -65,7 +66,8 @@ def get_rfq_report_filter_log(report_filters):
 		('country_of_origin', _('Item Country of Origin')),
 		('months_to_arrive', _('Months to Arrive')),
 		('percentage', _('Growth Percentage')),
-		('minimum_months', _('Min Stock Months')),
+		('minimum_months', _('Purchase Plan Months')),
+		('minimum_stock_months', _('Min Stock Months')),
 		('include_repack_to_parent', _('Include Repack to Parent')),
 		('include_out_of_stock_sales', _('Include Out of Stock Sales')),
 		('disabled_items_only', _('Disabled Items Only')),
@@ -592,7 +594,7 @@ def get_columns(filters, pricing_context):
 		},
 		{
 			'fieldname': 'period_expected_sales',
-			'label': _('Period Expected Sales'),
+			'label': _('Arrival Period Exp Sales'),
 			'fieldtype':'Int',
 
 		},
@@ -1055,7 +1057,9 @@ def get_data(filters, pricing_context):
 			if int(total_months_in_report) > 0 else 0
 		)
 		converted_planning_requirement = converted_monthly_sales * (
-			float(filters.months_to_arrive) + (2 * float(filters.minimum_months))
+			float(filters.months_to_arrive)
+			+ float(filters.minimum_months)
+			+ float(filters.minimum_stock_months)
 		)
 		converted_repack_available = min(
 			raw_converted_repack_available,
@@ -1065,10 +1069,18 @@ def get_data(filters, pricing_context):
 		annual_sales = monthly_sales * 12
 		period_expected_sales = monthly_sales * float(filters.months_to_arrive)
 		shortage_happened = (planning_available_qty + on_purchase) - period_expected_sales
-		minimum_qty = round_whole_qty(monthly_sales * float(filters.minimum_months))
+		purchase_coverage_qty = round_whole_qty(
+			monthly_sales * float(filters.minimum_months)
+		)
+		minimum_qty = round_whole_qty(
+			monthly_sales * float(filters.minimum_stock_months)
+		)
 		usable_balance_after_arrival = max(shortage_happened, 0)
 		expected_order_quantity = (
-			usable_balance_after_arrival - minimum_qty - minimum_qty - minimum_purchase_qty
+			usable_balance_after_arrival
+			- purchase_coverage_qty
+			- minimum_qty
+			- minimum_purchase_qty
 		)
 		if cint(filters.get('purchase_required_only')) and expected_order_quantity >= 0:
 			continue

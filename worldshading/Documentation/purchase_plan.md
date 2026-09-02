@@ -69,7 +69,8 @@ exists in every report path.
 | Item Country of Origin | Exact match against Item `country_of_origin`. |
 | How Many Months to Arrive? | Lead time used to calculate demand before replenishment arrives. |
 | Percentage | Growth/safety percentage added to adjusted historical demand. |
-| Min Stock for How Many Months? | Number of average-sales months in one minimum-stock reserve. The order formula deliberately subtracts this reserve twice. |
+| Purchase Plan for How Many Months? | Number of average-sales months the new purchase should cover after replenishment arrives. |
+| Min Stock for How Many Months? | Required additional average-sales months retained as a minimum-stock reserve. Controls the Min column and has no default value. |
 | Include Repack to Parent | Converts target/repacked demand and usable stock back to purchasing/source Items. |
 | Include Out of Stock Sales | Estimates missed demand for sufficiently active items. |
 
@@ -78,8 +79,8 @@ its complete hierarchy, while every explicitly selected child contributes that l
 group. Selecting a child already covered by a selected parent is harmless and does not
 duplicate any Items.
 
-Months to Arrive, Percentage and Min Stock Months use Data controls so valid values are
-shown without forced trailing zeros. The server requires each value to be present,
+Months to Arrive, Percentage, Purchase Plan Months and Min Stock Months use Data controls
+so valid values are shown without forced trailing zeros. The server requires each value to be present,
 numeric and finite before running any calculations; invalid text, `NaN` and infinite
 values produce a readable validation message.
 
@@ -177,6 +178,7 @@ T = integer planning months in the report period
 A = Available Quantity + usable Converted Repack Available
 PO = On Purchase
 L = How Many Months to Arrive
+C = Purchase Plan for How Many Months
 M = Min Stock for How Many Months
 RL = existing Re-order Level
 ```
@@ -188,11 +190,12 @@ Adjusted Sales          = D + O + R
 Expected Total Sale     = Adjusted Sales * (1 + P)
 Monthly Sales           = integer(Expected Total Sale) / integer(T), or 0
 Annual Sales            = Monthly Sales * 12
-Period Expected Sales   = Monthly Sales * L
-Shortage Happend        = (A + PO) - Period Expected Sales
+Arrival Period Exp Sales = Monthly Sales * L
+Shortage Happend         = (A + PO) - Arrival Period Exp Sales
 Min                     = round_half_up(Monthly Sales * M)
+Purchase Coverage Qty   = round_half_up(Monthly Sales * C)
 Usable Balance          = max(Shortage Happend, 0)
-Expected Order Quantity = Usable Balance - Min - Min - RL
+Expected Order Quantity = Usable Balance - Purchase Coverage Qty - Min - RL
 Priority Month          = (A + PO) / Monthly Sales, or 0
 Available Total Qty     = A + PO
 ```
@@ -207,11 +210,12 @@ Example:
 
 ```text
 Available after arrival = 40
+Purchase Coverage Qty   = 180
 Min                     = 30
 Existing Re-order Level = 10
 
-Expected Order Quantity = 40 - 30 - 30 - 10 = -30
-RFQ quantity            = 30
+Expected Order Quantity = 40 - 180 - 30 - 10 = -180
+RFQ quantity            = 180
 Total Cost              = RFQ quantity * Last Purchase Cost
 Total Selling Price     = RFQ quantity * Selling Price
 ```
@@ -227,13 +231,13 @@ Only a positive remainder is usable in the order formula. A negative value becom
 through `max(Shortage Happend, 0)`. This avoids adding historical/unrecoverable shortage
 again to the future order quantity. Keep the Shortage column for information.
 
-### Double minimum-stock reserve
+### Purchase coverage and minimum stock
 
-`Min` is deliberately subtracted twice. With Min Stock Months = 3, the order formula
-reserves the equivalent of six months of average sales, in addition to the existing
-Item Reorder level. This behavior came from the original planning approach and was
-confirmed during the report refinement. Do not simplify it to one reserve without
-business approval.
+Purchase Plan Months and Min Stock Months are intentionally separate. For example,
+Purchase Plan Months = 6 and Min Stock Months = 1 requests six months of purchasing
+coverage plus one additional month of minimum stock after the arrival-period demand.
+The Min column shows only the separate one-month reserve. Existing Item Reorder level
+is still applied independently.
 
 ## 7. Out-of-stock estimation
 
@@ -464,7 +468,7 @@ enabling RFQ creation.
 The total row is enabled for additive values only: No. of Sales Invoices, Direct Sales,
 out-of-stock and repack demand, Expected Total Sale, Min, Available Quantity, converted
 repack availability, On Purchase, Available Total Qty, Monthy Sales, Annual Sales,
-Period Expected Sales, Shortage Happend, Re-order Level, Re-order Quantity and Expected
+Arrival Period Exp Sales, Shortage Happend, Re-order Level, Re-order Quantity and Expected
 Order Quantity, Selling Price, Last Purchase Cost, Total Cost and Total Selling Price. Expected Order Quantity
 totals only negative values; positive balances are deliberately ignored. Item Suppliers,
 percentages, dates, invoice frequency and Priority Month are not totaled. The footer's
@@ -526,8 +530,10 @@ perform these checks on the clone before release:
 21. Verify the compact filter strip after changing and rebuilding with several filters.
     Confirm the date range uses the user's date format, Total Report Months matches the
     integer 30-day calculation, and duplicate inline placeholders remain cleared.
-22. Verify Months to Arrive, Percentage and Min Stock Months reject non-numeric and
-    non-finite input with a readable message, while valid decimal values still run.
+22. Verify Months to Arrive, Percentage, Purchase Plan Months and Min Stock Months reject
+    non-numeric and non-finite input with a readable message, while valid decimal values
+    still run. Confirm the Min column uses only Min Stock Months and Expected Order
+    Quantity applies Purchase Plan Months once plus Min once.
 
 Syntax checks compatible with this stack:
 
