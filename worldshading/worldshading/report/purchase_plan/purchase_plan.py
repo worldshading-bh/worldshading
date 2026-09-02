@@ -681,6 +681,30 @@ def get_columns(filters, pricing_context):
 			'label': _('Supplier Purchase Details'),
 			'fieldtype': 'Data',
 			'hidden': 1
+		},
+		{
+			'fieldname': 'last_purchase_voucher_type',
+			'label': _('Last Purchase Voucher Type'),
+			'fieldtype': 'Data',
+			'hidden': 1
+		},
+		{
+			'fieldname': 'last_purchase_voucher_no',
+			'label': _('Last Purchase Voucher'),
+			'fieldtype': 'Data',
+			'hidden': 1
+		},
+		{
+			'fieldname': 'last_sales_voucher_type',
+			'label': _('Last Sales Voucher Type'),
+			'fieldtype': 'Data',
+			'hidden': 1
+		},
+		{
+			'fieldname': 'last_sales_voucher_no',
+			'label': _('Last Sales Voucher'),
+			'fieldtype': 'Data',
+			'hidden': 1
 		}
 
 	])
@@ -774,6 +798,7 @@ def get_selling_prices(items, pricing_context):
 
 def get_supplier_costs(item_codes, pricing_context):
 	suppliers_by_item = dict((item_code, set()) for item_code in item_codes)
+	supplier_names_by_code = {}
 	configured_rows = frappe.get_all(
 		'Item Supplier',
 		filters={'parent': ['in', item_codes]},
@@ -785,14 +810,17 @@ def get_supplier_costs(item_codes, pricing_context):
 	)
 	active_configured_suppliers = set()
 	if configured_suppliers:
-		active_configured_suppliers = set(
-			row.name for row in frappe.get_all(
-				'Supplier',
-				filters={'name': ['in', list(configured_suppliers)], 'disabled': 0},
-				fields=['name'],
-				limit_page_length=0
-			)
+		active_supplier_rows = frappe.get_all(
+			'Supplier',
+			filters={'name': ['in', list(configured_suppliers)], 'disabled': 0},
+			fields=['name', 'supplier_name'],
+			limit_page_length=0
 		)
+		active_configured_suppliers = set(row.name for row in active_supplier_rows)
+		supplier_names_by_code.update(dict(
+			(row.name, row.supplier_name or row.name)
+			for row in active_supplier_rows
+		))
 	for row in configured_rows:
 		if row.supplier in active_configured_suppliers:
 			suppliers_by_item.setdefault(row.parent, set()).add(row.supplier)
@@ -808,6 +836,7 @@ def get_supplier_costs(item_codes, pricing_context):
 		SELECT
 			pii.item_code,
 			pi.supplier,
+			supplier.supplier_name,
 			pi.name AS purchase_invoice,
 			pi.posting_date,
 			pii.base_net_rate,
@@ -832,11 +861,15 @@ def get_supplier_costs(item_codes, pricing_context):
 
 	latest_detail_by_pair = {}
 	latest_cost_by_item = {}
+	purchase_invoices_by_pair = {}
 	for row in history_rows:
 		if not row.item_code or not row.supplier:
 			continue
+		supplier_names_by_code[row.supplier] = row.supplier_name or row.supplier
 		suppliers_by_item.setdefault(row.item_code, set()).add(row.supplier)
 		pair = (row.item_code, row.supplier)
+		if row.purchase_invoice:
+			purchase_invoices_by_pair.setdefault(pair, set()).add(row.purchase_invoice)
 		conversion_factor = flt(row.conversion_factor)
 		cost = flt(row.base_net_rate) / conversion_factor if conversion_factor else 0
 		if not conversion_factor:
@@ -869,7 +902,12 @@ def get_supplier_costs(item_codes, pricing_context):
 		])
 		supplier_details = []
 		for supplier in ranked_suppliers:
-			detail = latest_detail_by_pair.get((item_code, supplier), {})
+			pair = (item_code, supplier)
+			detail = dict(latest_detail_by_pair.get(pair, {}))
+			detail['supplier_name'] = supplier_names_by_code.get(supplier, supplier)
+			detail['purchase_invoice_count'] = len(
+				purchase_invoices_by_pair.get(pair, set())
+			)
 			supplier_details.append(dict(detail, supplier=supplier))
 		result[item_code] = {
 			'suppliers': ', '.join(ranked_suppliers),
@@ -975,11 +1013,11 @@ def get_data(filters, pricing_context):
 		stock_by_item
 	)
 	reorder_quantity_by_item, reorder_level_by_item = get_reorder_values(purchase_item_codes)
-	last_sales_date_by_item = get_effective_last_sales_dates(
+	last_sales_detail_by_item = get_effective_last_sales_details(
 		item_codes,
 		repack_context.get('target_to_sources')
 	)
-	last_purchase_date_by_item = get_last_purchase_dates(purchase_item_codes)
+	last_purchase_detail_by_item = get_last_purchase_details(purchase_item_codes)
 	for item in items:
 		total_sales = total_sales_by_item.get(item.item_code, 0)
 		out_of_stock_values = out_of_stock_by_item.get(item.item_code, {})
@@ -997,8 +1035,10 @@ def get_data(filters, pricing_context):
 		on_purchase = stock.get('ordered_qty', 0)
 		on_purchase_po = ', '.join(stock.get('purchase_orders', []))
 		available_qty = stock.get('actual_qty', 0)
-		last_purchase_invoice_date = last_purchase_date_by_item.get(item.item_code, '')
-		last_sales_invoice_date = last_sales_date_by_item.get(item.item_code, '')
+		last_purchase_detail = last_purchase_detail_by_item.get(item.item_code, {})
+		last_sales_detail = last_sales_detail_by_item.get(item.item_code, {})
+		last_purchase_invoice_date = last_purchase_detail.get('posting_date', '')
+		last_sales_invoice_date = last_sales_detail.get('posting_date', '')
 		sales_invoice_count = sales_invoice_count_by_item.get(item.item_code, 0)
 		reorder_quantity = reorder_quantity_by_item.get(item.item_code, 0)
 		minimum_purchase_qty = reorder_level_by_item.get(item.item_code, 0)
@@ -1077,7 +1117,11 @@ def get_data(filters, pricing_context):
 			priority_month, pricing_values.get('suppliers', ''), last_purchase_cost,
 			total_cost, selling_price, total_selling_price,
 			pricing_values.get('priced_supplier_count', 0),
-			pricing_values.get('supplier_purchase_details', '[]')
+			pricing_values.get('supplier_purchase_details', '[]'),
+			last_purchase_detail.get('voucher_type', ''),
+			last_purchase_detail.get('voucher_no', ''),
+			last_sales_detail.get('voucher_type', ''),
+			last_sales_detail.get('voucher_no', '')
 		])
 		data.append(row)
 
@@ -1647,64 +1691,105 @@ def get_reorder_values(item_codes):
 	return reorder_quantity_by_item, reorder_level_by_item
 
 
-def get_last_sales_dates(item_codes):
+def get_last_stock_transaction_details(item_codes, voucher_types, quantity_operator):
+	if not item_codes:
+		return {}
+	if quantity_operator not in ('<', '>'):
+		frappe.throw(_('Invalid stock transaction quantity operator.'))
+
 	rows = frappe.db.sql("""
 		SELECT
-			item_code,
-			MAX(posting_date) AS posting_date
-		FROM `tabStock Ledger Entry`
+			sle.item_code,
+			sle.posting_date,
+			sle.voucher_type,
+			sle.voucher_no
+		FROM `tabStock Ledger Entry` sle
+		INNER JOIN (
+			SELECT
+				item_code,
+				MAX(posting_date) AS posting_date
+			FROM `tabStock Ledger Entry`
+			WHERE
+				voucher_type IN %(voucher_types)s
+				AND actual_qty {quantity_operator} 0
+				AND item_code IN %(item_codes)s
+			GROUP BY item_code
+		) latest
+			ON latest.item_code = sle.item_code
+			AND latest.posting_date = sle.posting_date
 		WHERE
-			voucher_type IN ('Sales Invoice', 'Delivery Note')
-			AND actual_qty < 0
-			AND item_code IN %(item_codes)s
-		GROUP BY item_code
-	""", {'item_codes': tuple(item_codes)}, as_dict=1)
-	return dict((row.item_code, row.posting_date) for row in rows)
+			sle.voucher_type IN %(voucher_types)s
+			AND sle.actual_qty {quantity_operator} 0
+			AND sle.item_code IN %(item_codes)s
+		ORDER BY
+			sle.item_code ASC,
+			sle.posting_time DESC,
+			sle.creation DESC,
+			sle.name DESC
+	""".format(quantity_operator=quantity_operator), {
+		'item_codes': tuple(item_codes),
+		'voucher_types': tuple(voucher_types)
+	}, as_dict=1)
+
+	details = {}
+	for row in rows:
+		if row.item_code not in details:
+			details[row.item_code] = {
+				'posting_date': row.posting_date,
+				'voucher_type': row.voucher_type,
+				'voucher_no': row.voucher_no
+			}
+	return details
 
 
-def get_effective_last_sales_dates(item_codes, target_to_sources):
-	direct_dates = get_last_sales_dates(item_codes)
-	effective_dates = dict(direct_dates)
-	for item_code, sale_date in direct_dates.items():
-		propagate_repack_date(
+def get_last_sales_details(item_codes):
+	return get_last_stock_transaction_details(
+		item_codes,
+		('Sales Invoice', 'Delivery Note'),
+		'<'
+	)
+
+
+def get_effective_last_sales_details(item_codes, target_to_sources):
+	direct_details = get_last_sales_details(item_codes)
+	effective_details = dict(
+		(item_code, dict(detail))
+		for item_code, detail in direct_details.items()
+	)
+	for item_code, detail in direct_details.items():
+		propagate_repack_sale_detail(
 			item_code,
-			sale_date,
+			detail,
 			target_to_sources,
-			effective_dates
+			effective_details
 		)
-	return effective_dates
+	return effective_details
 
 
-def propagate_repack_date(item_code, sale_date, target_to_sources,
-		effective_dates, path=None):
+def propagate_repack_sale_detail(item_code, sale_detail, target_to_sources,
+		effective_details, path=None):
 	path = list(path or [])
 	if item_code in path:
 		frappe.throw(_('A cycle exists in Repack Production Rules involving Item {0}.').format(item_code))
 	path.append(item_code)
 	for source in target_to_sources.get(item_code, []):
 		source_item = source.get('item_code')
-		if not effective_dates.get(source_item) \
-				or sale_date > effective_dates.get(source_item):
-			effective_dates[source_item] = sale_date
-		propagate_repack_date(
-			source_item,
-			sale_date,
-			target_to_sources,
-			effective_dates,
-			path
-		)
+		current_detail = effective_details.get(source_item, {})
+		if not current_detail.get('posting_date') \
+				or sale_detail.get('posting_date') > current_detail.get('posting_date'):
+			effective_details[source_item] = dict(sale_detail)
+			propagate_repack_sale_detail(
+				source_item,
+				sale_detail,
+				target_to_sources,
+				effective_details,
+				path
+			)
 
 
-def get_last_purchase_dates(item_codes):
-	rows = frappe.db.sql("""
-		SELECT
-			item_code,
-			MAX(posting_date) AS posting_date
-		FROM `tabStock Ledger Entry`
-		WHERE
-			voucher_type IN ('Purchase Invoice', 'Purchase Receipt')
-			AND actual_qty > 0
-			AND item_code IN %(item_codes)s
-		GROUP BY item_code
-	""", {'item_codes': tuple(item_codes)}, as_dict=1)
-	return dict((row.item_code, row.posting_date) for row in rows)
+def get_last_purchase_details(item_codes):
+	return get_last_stock_transaction_details(
+		item_codes,
+		('Purchase Invoice', 'Purchase Receipt'),
+		'>'
+	)

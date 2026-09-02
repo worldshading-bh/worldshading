@@ -55,7 +55,7 @@ exists in every report path.
 
 | Filter | Current behavior |
 |---|---|
-| Start Date / End Date | Required. Start cannot exceed End. End cannot exceed today. |
+| Start Date / End Date | Required. Choosing Start Date suggests 31 December of that year as End Date; End Date remains manually editable or clearable. Start cannot exceed End. End cannot exceed today. |
 | Supplier | Includes items found on submitted Purchase Invoices for that Supplier. |
 | Supplier Group | Includes Suppliers in the selected group and all descendant groups, then items found on their submitted Purchase Invoices. |
 | Supplier Country | Includes Suppliers with that country, then items found on their submitted Purchase Invoices. |
@@ -123,8 +123,8 @@ it together with tests if the count and Direct Sales disagree on an end-boundary
 | On Purchase PO | Names of the Purchase Orders included in On Purchase. |
 | Existing Re-order Level | Purchase-type Item Reorder level for `All Warehouses - <company abbreviation>`. |
 | Re-order Quantity | Sum of Purchase-type Item Reorder quantities for the item. |
-| Last Sale Date | Latest negative Stock Ledger movement from Sales Invoice or Delivery Note. |
-| Last Purchase Date | Latest positive Stock Ledger movement from Purchase Invoice or Purchase Receipt. |
+| Last Sale Date | Latest negative Stock Ledger movement from Sales Invoice or Delivery Note. The displayed date links to that source voucher. |
+| Last Purchase Date | Latest positive Stock Ledger movement from Purchase Invoice or Purchase Receipt. The displayed date links to that source voucher. |
 | Item Group | The purchasing Item's current Item Group. |
 | Selling Price | Current valid Item Price from the Selling Settings default Price List. If none exists, Item `standard_rate` is used for compatibility with the legacy Regular Price setup. |
 | Item Suppliers | Enabled Suppliers configured in Item Supplier or found on submitted Purchase Invoices for the selected Company. |
@@ -149,7 +149,8 @@ transaction UOM to stock UOM. Suppliers are sorted by each Supplier's latest cos
 cheapest Supplier is green, the second cheapest is yellow, and all remaining priced
 Suppliers are red. Active configured Suppliers without purchase history are placed after
 priced Suppliers and shown in grey. Hovering a Supplier shows its latest cost, Purchase
-Invoice and posting date. Last Purchase Cost is the cost from the latest submitted
+Invoice, posting date and distinct submitted Purchase Invoice count for that Item and
+Supplier. Last Purchase Cost is the cost from the latest submitted
 Purchase Invoice for the Item overall, so it can differ from the green Supplier's cost.
 
 The August 2026 demo has no Item Supplier rows, so historical submitted Purchase
@@ -423,6 +424,8 @@ enabling RFQ creation.
 - Serial number, Item, Item Name, Unit, Last Purchase Date, Last Sale Date, No. of
   Sales Invoices and Direct Sales are sticky while horizontally scrolling. Direct Sales
   is positioned immediately before Item Group.
+- Last Purchase Date and Last Sale Date link to the actual Purchase Invoice, Purchase
+  Receipt, Sales Invoice or Delivery Note that supplied the displayed ledger date.
 - Selected Parent and Child Item Group options appear first when their MultiSelect
   dropdowns are opened, making them easier to review or remove.
 - Compact labels appear above non-checkbox report filters so their meaning remains

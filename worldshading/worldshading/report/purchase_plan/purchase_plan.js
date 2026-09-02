@@ -885,6 +885,18 @@ frappe.query_reports["Purchase Plan"] = {
 			"label": __("Start Date"),
 			"fieldtype": "Date",
 			"reqd": 1,
+			"on_change": function() {
+				var start_date = frappe.query_report.get_filter_value("start_date");
+				if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date || "")) {
+					return;
+				}
+				var suggested_end_date = start_date.slice(0, 4) + "-12-31";
+				var today = frappe.datetime.get_today();
+				frappe.query_report.set_filter_value(
+					"end_date",
+					suggested_end_date > today ? today : suggested_end_date
+				);
+			}
 					},
 		{
 			"fieldname": "end_date",
@@ -924,12 +936,6 @@ frappe.query_reports["Purchase Plan"] = {
 			"fieldtype": "Link",
 			"options":"Item",
 					},
-		{
-			"fieldname": "brand",
-			"label": __("Brand"),
-			"fieldtype": "Link",
-			"options": "Brand"
-		},
 		{
 			"fieldname": "parent_item_group",
 			"label": __("Parent Item Groups"),
@@ -994,6 +1000,18 @@ frappe.query_reports["Purchase Plan"] = {
 			"description": __("Months of average sales used for one minimum-stock reserve. The order calculation applies this reserve twice."),
 					},
 		{
+			"fieldname": "brand",
+			"label": __("Brand"),
+			"fieldtype": "Link",
+			"options": "Brand"
+		},
+		{
+			"fieldname": "disabled_items_only",
+			"label": __("Disabled Items Only"),
+			"fieldtype": "Check",
+			"default": 0
+		},
+		{
 			"fieldname": "include_repack_to_parent",
 			"label": __("Include Repack to Parent"),
 			"fieldtype": "Check",
@@ -1002,12 +1020,6 @@ frappe.query_reports["Purchase Plan"] = {
 		{
 			"fieldname": "include_out_of_stock_sales",
 			"label": __("Include Out of Stock Sales"),
-			"fieldtype": "Check",
-			"default": 0
-		},
-		{
-			"fieldname": "disabled_items_only",
-			"label": __("Disabled Items Only"),
 			"fieldtype": "Check",
 			"default": 0
 		},
@@ -1103,6 +1115,32 @@ frappe.query_reports["Purchase Plan"] = {
 		update_purchase_plan_filter_summary(frappe.query_report);
 	},
 	"formatter": function (value, row, column, data, default_formatter) {
+		var transaction_link_fields = {
+			"last_purchase_invoice_date": {
+				"voucher_type": "last_purchase_voucher_type",
+				"voucher_no": "last_purchase_voucher_no"
+			},
+			"last_sales_invoice_date": {
+				"voucher_type": "last_sales_voucher_type",
+				"voucher_no": "last_sales_voucher_no"
+			}
+		};
+		var transaction_link = transaction_link_fields[column.fieldname];
+		if (transaction_link && value && data) {
+			var voucher_type = data[transaction_link.voucher_type];
+			var voucher_no = data[transaction_link.voucher_no];
+			var supported_voucher_types = [
+				"Purchase Invoice", "Purchase Receipt",
+				"Sales Invoice", "Delivery Note"
+			];
+			var formatted_date = default_formatter(value, row, column, data);
+			if (voucher_no && supported_voucher_types.indexOf(voucher_type) !== -1) {
+				return '<a href="#Form/' + encodeURIComponent(voucher_type) + '/' +
+					encodeURIComponent(voucher_no) + '" title="' +
+					frappe.utils.escape_html(voucher_no) + '">' + formatted_date + '</a>';
+			}
+			return formatted_date;
+		}
 		if (column.fieldname == "on_purchase_po" && value) {
 			return value.split(", ").map(function (purchase_order) {
 				return '<a href="#Form/Purchase Order/' + encodeURIComponent(purchase_order) + '">' +
@@ -1125,6 +1163,7 @@ frappe.query_reports["Purchase Plan"] = {
 			}
 			return supplier_details.map(function (detail, index) {
 				var supplier = detail.supplier;
+				var supplier_name = detail.supplier_name || supplier;
 				var color = "#7a7a7a";
 				if (index < priced_supplier_count && index === 0) {
 					color = "#2e7d32";
@@ -1133,14 +1172,19 @@ frappe.query_reports["Purchase Plan"] = {
 				} else if (index < priced_supplier_count) {
 					color = "#c62828";
 				}
+				var purchase_invoice_count = cint(detail.purchase_invoice_count);
 				var tooltip = show_supplier_tooltips
-					? __("No submitted Purchase Invoice history")
+					? __("Supplier Name") + ": " + supplier_name + "\n" +
+						__("No submitted Purchase Invoice history") + "\n" +
+						__("No. of Purchases") + ": " + purchase_invoice_count
 					: "";
 				if (detail.purchase_invoice) {
-					tooltip = __("Last Cost") + ": " +
+					tooltip = __("Supplier Name") + ": " + supplier_name + "\n" +
+						__("Last Cost") + ": " +
 						format_currency(flt(detail.cost), detail.currency) + "\n" +
 						__("Invoice") + ": " + detail.purchase_invoice + "\n" +
-						__("Date") + ": " + frappe.datetime.str_to_user(detail.posting_date);
+						__("Date") + ": " + frappe.datetime.str_to_user(detail.posting_date) + "\n" +
+						__("No. of Purchases") + ": " + purchase_invoice_count;
 				}
 				var title_attribute = tooltip
 					? ' title="' + frappe.utils.escape_html(tooltip) + '"'
