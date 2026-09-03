@@ -994,6 +994,13 @@ frappe.query_reports["Purchase Plan"] = {
 			"reqd": 1,
 					},
 		{
+			"fieldname": "minimum_stock_months",
+			"label": __("Min Stock for How Many Months?"),
+			"fieldtype": "Data",
+			"reqd": 1,
+			"description": __("Minimum-stock reserve calculated separately from purchase coverage and applied twice in Expected Order Quantity."),
+		},
+		{
 			"fieldname": "minimum_months",
 			"label": __("Purchase Plan for How Many Months?"),
 			"fieldtype": "Data",
@@ -1001,23 +1008,10 @@ frappe.query_reports["Purchase Plan"] = {
 			"description": __("Months of average sales the new purchase should cover after stock arrives."),
 					},
 		{
-			"fieldname": "minimum_stock_months",
-			"label": __("Min Stock for How Many Months?"),
-			"fieldtype": "Data",
-			"reqd": 1,
-			"description": __("Additional minimum-stock reserve, calculated separately from the purchase coverage period."),
-		},
-		{
 			"fieldname": "brand",
 			"label": __("Brand"),
 			"fieldtype": "Link",
 			"options": "Brand"
-		},
-		{
-			"fieldname": "disabled_items_only",
-			"label": __("Disabled Items Only"),
-			"fieldtype": "Check",
-			"default": 0
 		},
 		{
 			"fieldname": "include_repack_to_parent",
@@ -1034,6 +1028,12 @@ frappe.query_reports["Purchase Plan"] = {
 		{
 			"fieldname": "purchase_required_only",
 			"label": __("Purchase Required Items Only"),
+			"fieldtype": "Check",
+			"default": 0
+		},
+		{
+			"fieldname": "disabled_items_only",
+			"label": __("Disabled Items Only"),
 			"fieldtype": "Check",
 			"default": 0
 		}
