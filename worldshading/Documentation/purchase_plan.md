@@ -70,7 +70,7 @@ exists in every report path.
 | How Many Months to Arrive? | Lead time used to calculate demand before replenishment arrives. |
 | Percentage | Growth/safety percentage added to adjusted historical demand. |
 | Purchase Plan for How Many Months? | Number of average-sales months the new purchase should cover after replenishment arrives. |
-| Min Stock for How Many Months? | Required additional average-sales months retained as a minimum-stock reserve. Controls the Min column and has no default value. |
+| Min Stock for How Many Months? | Required average-sales months controlling the Min column. The resulting Min reserve has no default and is applied twice in Expected Order Quantity. |
 | Include Repack to Parent | Converts target/repacked demand and usable stock back to purchasing/source Items. |
 | Include Out of Stock Sales | Estimates missed demand for sufficiently active items. |
 
@@ -195,7 +195,7 @@ Shortage Happend         = (A + PO) - Arrival Period Exp Sales
 Min                     = round_half_up(Monthly Sales * M)
 Purchase Coverage Qty   = round_half_up(Monthly Sales * C)
 Usable Balance          = max(Shortage Happend, 0)
-Expected Order Quantity = Usable Balance - Purchase Coverage Qty - Min - RL
+Expected Order Quantity = Usable Balance - Purchase Coverage Qty - Min - Min - RL
 Priority Month          = (A + PO) / Monthly Sales, or 0
 Available Total Qty     = A + PO
 ```
@@ -214,8 +214,8 @@ Purchase Coverage Qty   = 180
 Min                     = 30
 Existing Re-order Level = 10
 
-Expected Order Quantity = 40 - 180 - 30 - 10 = -180
-RFQ quantity            = 180
+Expected Order Quantity = 40 - 180 - 30 - 30 - 10 = -210
+RFQ quantity            = 210
 Total Cost              = RFQ quantity * Last Purchase Cost
 Total Selling Price     = RFQ quantity * Selling Price
 ```
@@ -233,11 +233,13 @@ again to the future order quantity. Keep the Shortage column for information.
 
 ### Purchase coverage and minimum stock
 
-Purchase Plan Months and Min Stock Months are intentionally separate. For example,
-Purchase Plan Months = 6 and Min Stock Months = 1 requests six months of purchasing
-coverage plus one additional month of minimum stock after the arrival-period demand.
-The Min column shows only the separate one-month reserve. Existing Item Reorder level
-is still applied independently.
+Purchase Plan Months and Min Stock Months are intentionally separate. Purchase Plan
+Months controls the purchasing coverage once. Min Stock Months controls the displayed
+Min value, and that Min reserve is intentionally applied twice in Expected Order
+Quantity to preserve the manager's original planning logic. For example, Purchase Plan
+Months = 6 and Min Stock Months = 1 requests six months of purchasing coverage plus two
+one-month Min reserves after the arrival-period demand. Existing Item Reorder level is
+still applied independently.
 
 ## 7. Out-of-stock estimation
 
@@ -533,7 +535,7 @@ perform these checks on the clone before release:
 22. Verify Months to Arrive, Percentage, Purchase Plan Months and Min Stock Months reject
     non-numeric and non-finite input with a readable message, while valid decimal values
     still run. Confirm the Min column uses only Min Stock Months and Expected Order
-    Quantity applies Purchase Plan Months once plus Min once.
+    Quantity applies Purchase Plan Months once plus Min twice.
 
 Syntax checks compatible with this stack:
 
