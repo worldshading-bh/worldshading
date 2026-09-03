@@ -998,7 +998,7 @@ frappe.query_reports["Purchase Plan"] = {
 			"label": __("Min Stock for How Many Months?"),
 			"fieldtype": "Data",
 			"reqd": 1,
-			"description": __("Minimum-stock reserve calculated separately from purchase coverage and applied twice in Expected Order Quantity."),
+			"description": __("Minimum-stock reserve calculated separately from purchase coverage and applied once in Expected Order Quantity."),
 		},
 		{
 			"fieldname": "minimum_months",
