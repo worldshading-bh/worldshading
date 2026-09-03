@@ -1574,6 +1574,7 @@ def get_out_of_stock_values(
 		item_codes, filters, total_sales_by_item, sales_invoice_count_by_item):
 	total_report_days = date_diff(filters.end_date, filters.start_date)
 	completed_report_months = int(total_report_days / 30) if total_report_days >= 30 else 0
+	minimum_average_monthly_invoices = completed_report_months / 2.0
 	result = {}
 	items_for_stock_check = []
 	for item_code in item_codes:
@@ -1582,7 +1583,7 @@ def get_out_of_stock_values(
 			sales_invoice_count / completed_report_months
 			if completed_report_months > 0 else sales_invoice_count
 		)
-		if average_monthly_invoices <= 5:
+		if average_monthly_invoices < minimum_average_monthly_invoices:
 			result[item_code] = {
 				'days': None,
 				'estimated_sales_qty': 0
@@ -1612,12 +1613,17 @@ def get_out_of_stock_values(
 	opening_rows = frappe.db.sql("""
 		SELECT
 			item_code,
-			SUM(actual_qty) AS opening_qty
+			warehouse,
+			CAST(SUBSTRING_INDEX(GROUP_CONCAT(
+				COALESCE(qty_after_transaction, 0)
+				ORDER BY posting_date DESC, posting_time DESC, creation DESC, name DESC
+				SEPARATOR ','
+			), ',', 1) AS DECIMAL(21, 9)) AS opening_qty
 		FROM `tabStock Ledger Entry`
 		WHERE
 			posting_date < %(start_date)s
 			AND item_code IN %(item_codes)s
-		GROUP BY item_code
+		GROUP BY item_code, warehouse
 	""", {
 		'start_date': filters.start_date,
 		'item_codes': tuple(items_for_stock_check)
@@ -1626,37 +1632,47 @@ def get_out_of_stock_values(
 	movement_rows = frappe.db.sql("""
 		SELECT
 			item_code,
+			warehouse,
 			posting_date,
-			SUM(actual_qty) AS actual_qty
+			CAST(SUBSTRING_INDEX(GROUP_CONCAT(
+				COALESCE(qty_after_transaction, 0)
+				ORDER BY posting_time DESC, creation DESC, name DESC
+				SEPARATOR ','
+			), ',', 1) AS DECIMAL(21, 9)) AS closing_qty
 		FROM `tabStock Ledger Entry`
 		WHERE
 			posting_date BETWEEN %(start_date)s AND %(end_date)s
 			AND item_code IN %(item_codes)s
-		GROUP BY item_code, posting_date
-		ORDER BY item_code, posting_date
+		GROUP BY item_code, warehouse, posting_date
+		ORDER BY item_code, posting_date, warehouse
 	""", {
 		'start_date': filters.start_date,
 		'end_date': filters.end_date,
 		'item_codes': tuple(items_for_stock_check)
 	}, as_dict=1)
 
-	opening_by_item = dict(
-		(row.item_code, row.opening_qty or 0) for row in opening_rows
-	)
+	opening_by_item = {}
+	for row in opening_rows:
+		opening_by_item.setdefault(row.item_code, {})[row.warehouse] = row.opening_qty or 0
 	movements_by_item = {}
 	for row in movement_rows:
-		movements_by_item.setdefault(row.item_code, {})[getdate(row.posting_date)] = row.actual_qty or 0
+		movements_by_item.setdefault(row.item_code, {}).setdefault(
+			getdate(row.posting_date), []
+		).append((row.warehouse, row.closing_qty or 0))
 
 	start_date = getdate(filters.start_date)
 	total_days = date_diff(filters.end_date, filters.start_date) + 1
 	for item_code in items_for_stock_check:
-		balance = opening_by_item.get(item_code, 0)
+		warehouse_balances = dict(opening_by_item.get(item_code, {}))
+		balance = sum(warehouse_balances.values())
 		movements = movements_by_item.get(item_code, {})
 		out_of_stock_days = 0
 		selling_days = 0
 		current_date = start_date
 		for unused_day in range(total_days):
-			balance += movements.get(current_date, 0)
+			for warehouse, closing_qty in movements.get(current_date, []):
+				balance += closing_qty - warehouse_balances.get(warehouse, 0)
+				warehouse_balances[warehouse] = closing_qty
 			if current_date in working_dates:
 				selling_days += 1
 				if balance <= 0:
