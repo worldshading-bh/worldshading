@@ -1059,7 +1059,7 @@ def get_data(filters, pricing_context):
 		converted_planning_requirement = converted_monthly_sales * (
 			float(filters.months_to_arrive)
 			+ float(filters.minimum_months)
-			+ (2 * float(filters.minimum_stock_months))
+			+ float(filters.minimum_stock_months)
 		)
 		converted_repack_available = min(
 			raw_converted_repack_available,
@@ -1079,7 +1079,6 @@ def get_data(filters, pricing_context):
 		expected_order_quantity = (
 			usable_balance_after_arrival
 			- purchase_coverage_qty
-			- minimum_qty
 			- minimum_qty
 			- minimum_purchase_qty
 		)
