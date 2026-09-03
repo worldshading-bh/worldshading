@@ -16,7 +16,6 @@ The report estimates purchasing requirements using:
 - expected sales while waiting for replenishment;
 - purchase coverage months;
 - minimum-stock reserve;
-- existing Item Re-Order Level;
 - optional missed sales while out of stock; and
 - optional demand and stock from repacked Items.
 
@@ -37,7 +36,7 @@ RFQ Order Qty            = 500
 
 | Filter | Business meaning |
 |---|---|
-| Start Date | Beginning of the historical sales period. Selecting it suggests the final day of that year as End Date. |
+| Start Date | Beginning of the historical sales period. Selecting it suggests an inclusive one-year period ending 12 months minus one day later. |
 | End Date | End of the historical period. It remains editable or clearable and cannot be later than today. |
 | Supplier | Items previously purchased on submitted invoices from the selected Supplier. |
 | Supplier Group | Items purchased from Suppliers in the selected group or its subgroups. |
@@ -141,7 +140,6 @@ Expected Order Quantity =
     Usable Balance
     - Purchase Coverage Qty
     - Min
-    - Existing Re-Order Level
 ```
 
 Therefore:
@@ -149,7 +147,7 @@ Therefore:
 - Purchase Plan Months is applied once;
 - Min Stock Months calculates the displayed Min;
 - that Min is applied once; and
-- existing ERPNext Re-Order Level is applied separately.
+- existing ERPNext Re-Order Level remains visible but is not deducted.
 
 Example:
 
@@ -159,11 +157,12 @@ Purchase Plan Months    = 6
 Min Stock Months        = 2
 Purchase Coverage Qty   = round(53.25 × 6) = 320
 Min                     = round(53.25 × 2) = 107
-Usable Balance          = 1.072
-Existing Re-Order Level = 0
+Available Total Qty     = 1.072
+Arrival Period Exp Sales = 106.5
+Usable Balance          = max(1.072 - 106.5, 0) = 0
 
-Expected Order Quantity = 1.072 - 320 - 107 = -425.928
-RFQ Order Qty            = round(425.928) = 426
+Expected Order Quantity = 0 - 320 - 107 = -427
+RFQ Order Qty            = 427
 ```
 
 ## 7. Standard columns
@@ -329,7 +328,7 @@ The following are intentional and should be confirmed before changing:
 
 - Min is applied once.
 - Purchase Plan Months is applied once.
-- Existing Re-Order Level is additional to Purchase Coverage and the Min reserve.
+- Existing Re-Order Level is displayed for reference and is not deducted.
 - Negative arrival-period balance is treated as zero in the final order formula.
 - Purchase Coverage and Min are rounded before calculating the final RFQ quantity.
 - Report months use 30-day periods rather than calendar months.
