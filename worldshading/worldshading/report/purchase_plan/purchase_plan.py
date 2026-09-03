@@ -1080,7 +1080,6 @@ def get_data(filters, pricing_context):
 			usable_balance_after_arrival
 			- purchase_coverage_qty
 			- minimum_qty
-			- minimum_purchase_qty
 		)
 		if cint(filters.get('purchase_required_only')) and expected_order_quantity >= 0:
 			continue

@@ -17,8 +17,7 @@ Purchase Plan estimates how much of each purchasing item is needed by combining:
 - a growth percentage;
 - current stock across all warehouses;
 - outstanding submitted Purchase Orders;
-- lead time and minimum-stock reserves; and
-- the existing Item Reorder level.
+- lead time and minimum-stock reserves.
 
 It also shows the current default selling price, historical/configured Item Suppliers
 ranked by their latest comparable cost, and the least supplier cost.
@@ -55,7 +54,7 @@ exists in every report path.
 
 | Filter | Current behavior |
 |---|---|
-| Start Date / End Date | Required. Choosing Start Date suggests 31 December of that year as End Date; End Date remains manually editable or clearable. Start cannot exceed End. End cannot exceed today. |
+| Start Date / End Date | Required. Choosing Start Date suggests an inclusive one-year period (12 months minus one day) as End Date; End Date remains manually editable or clearable. Start cannot exceed End. End cannot exceed today. |
 | Supplier | Includes items found on submitted Purchase Invoices for that Supplier. |
 | Supplier Group | Includes Suppliers in the selected group and all descendant groups, then items found on their submitted Purchase Invoices. |
 | Supplier Country | Includes Suppliers with that country, then items found on their submitted Purchase Invoices. |
@@ -180,7 +179,6 @@ PO = On Purchase
 L = How Many Months to Arrive
 C = Purchase Plan for How Many Months
 M = Min Stock for How Many Months
-RL = existing Re-order Level
 ```
 
 Current formulas are:
@@ -195,7 +193,7 @@ Shortage Happend         = (A + PO) - Arrival Period Exp Sales
 Min                     = round_half_up(Monthly Sales * M)
 Purchase Coverage Qty   = round_half_up(Monthly Sales * C)
 Usable Balance          = max(Shortage Happend, 0)
-Expected Order Quantity = Usable Balance - Purchase Coverage Qty - Min - RL
+Expected Order Quantity = Usable Balance - Purchase Coverage Qty - Min
 Priority Month          = (A + PO) / Monthly Sales, or 0
 Available Total Qty     = A + PO
 ```
@@ -212,10 +210,9 @@ Example:
 Available after arrival = 40
 Purchase Coverage Qty   = 180
 Min                     = 30
-Existing Re-order Level = 10
 
-Expected Order Quantity = 40 - 180 - 30 - 10 = -180
-RFQ quantity            = 180
+Expected Order Quantity = 40 - 180 - 30 = -170
+RFQ quantity            = 170
 Total Cost              = RFQ quantity * Last Purchase Cost
 Total Selling Price     = RFQ quantity * Selling Price
 ```
@@ -238,7 +235,7 @@ Months controls the purchasing coverage once. Min Stock Months controls the disp
 Min value, and that Min reserve is applied once in Expected Order Quantity. For example,
 Purchase Plan Months = 6 and Min Stock Months = 1 requests six months of purchasing
 coverage plus one one-month Min reserve after the arrival-period demand. Existing Item
-Reorder level is still applied independently.
+Reorder levels remain visible for reference but are not deducted in this calculation.
 
 ## 7. Out-of-stock estimation
 
