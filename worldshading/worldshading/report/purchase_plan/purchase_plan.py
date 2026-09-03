@@ -94,6 +94,43 @@ def get_rfq_report_filter_log(report_filters):
 	return '\n'.join(filter_log)
 
 
+def get_prepared_purchase_plan(prepared_report_name):
+	if not prepared_report_name:
+		return None
+
+	prepared_report = frappe.db.get_value(
+		'Prepared Report',
+		prepared_report_name,
+		['name', 'report_name', 'status', 'owner'],
+		as_dict=1
+	)
+	if not prepared_report \
+			or prepared_report.report_name != 'Purchase Plan' \
+			or prepared_report.status != 'Completed':
+		frappe.throw(_('The linked Prepared Purchase Plan is invalid or incomplete.'))
+
+	if prepared_report.owner != frappe.session.user \
+			and 'System Manager' not in frappe.get_roles():
+		frappe.throw(
+			_('You do not have permission to link this Prepared Purchase Plan.'),
+			frappe.PermissionError
+		)
+
+	return prepared_report.name
+
+
+@frappe.whitelist()
+def get_prepared_purchase_plan_filters(prepared_report_name=None):
+	if not prepared_report_name:
+		frappe.throw(_('Prepared Purchase Plan is required.'))
+	prepared_report_name = get_prepared_purchase_plan(prepared_report_name)
+	prepared_report_filters = frappe.db.get_value(
+		'Prepared Report', prepared_report_name, 'filters')
+	filters = frappe.parse_json(prepared_report_filters) \
+		if isinstance(prepared_report_filters, str) else prepared_report_filters
+	return filters if isinstance(filters, dict) else {}
+
+
 def get_pricing_context():
 	price_list = frappe.db.get_single_value('Selling Settings', 'selling_price_list')
 	price_list_values = frappe.db.get_value(
@@ -274,6 +311,10 @@ def make_request_for_quotation(source_name=None):
 	rfq.status = 'Draft'
 	rfq.supplier_group = supplier_group
 	rfq.country_of_purchase = purchase_country
+	if frappe.get_meta('Request for Quotation').has_field(
+			'prepared_purchase_plan'):
+		rfq.prepared_purchase_plan = get_prepared_purchase_plan(
+			args.get('prepared_purchase_plan'))
 	if frappe.get_meta('Request for Quotation').has_field('report_filter'):
 		rfq.report_filter = get_rfq_report_filter_log(args.get('report_filters'))
 	rfq.message_for_supplier = _(
