@@ -104,6 +104,30 @@ function purchase_plan_selected_options_first(fieldname, options) {
 }
 
 
+function restore_prepared_purchase_plan_filters(report) {
+	var query_params = report.get_query_params ? report.get_query_params() : {};
+	var prepared_report_name = query_params.prepared_report_name;
+	if (!prepared_report_name) {
+		return Promise.resolve();
+	}
+
+	return frappe.call({
+		method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_prepared_purchase_plan_filters",
+		args: {
+			prepared_report_name: prepared_report_name
+		}
+	}).then(function (response) {
+		var filters = response.message || {};
+		(report.filters || []).forEach(function (field) {
+			var fieldname = field.df.fieldname;
+			if (Object.prototype.hasOwnProperty.call(filters, fieldname)) {
+				field.set_input(filters[fieldname]);
+			}
+		});
+	});
+}
+
+
 function apply_purchase_plan_filter_labels(report) {
 	var page_form = report.page.main.find(".page-form");
 	page_form.addClass("purchase-plan-filter-form");
@@ -698,6 +722,9 @@ function create_request_for_quotation(report) {
 	var item_purchase_country = report.get_filter_value("purchased_from") || null;
 	var item_origin_country = report.get_filter_value("country_of_origin") || null;
 	var report_filters = report.get_filter_values ? report.get_filter_values() : {};
+	var prepared_purchase_plan = report.raw_data && report.raw_data.doc
+		? report.raw_data.doc.name
+		: null;
 	var dialog = new frappe.ui.Dialog({
 		title: __("Create Request for Quotation"),
 		fields: [
@@ -743,6 +770,7 @@ function create_request_for_quotation(report) {
 					item_purchase_country: item_purchase_country,
 					item_origin_country: item_origin_country,
 					report_filters: JSON.stringify(report_filters),
+					prepared_purchase_plan: prepared_purchase_plan,
 					warehouse: values.warehouse
 				},
 				freeze_message: __("Preparing Request for Quotation..."),
@@ -1118,6 +1146,7 @@ frappe.query_reports["Purchase Plan"] = {
 			});
 		}
 		update_purchase_plan_filter_summary(report);
+		return restore_prepared_purchase_plan_filters(report);
 	},
 	"after_datatable_render": function (datatable) {
 		enable_purchase_plan_rfq_qty_editing(datatable);
