@@ -250,8 +250,10 @@ completed months = integer(date difference / 30), when at least 30 days
 average invoices = distinct Sales Invoice count / completed months
 ```
 
-If average invoices are `<= 5`, stock-day analysis is skipped, estimated missed sales
-remain zero, and the UI shows **N/A**. The threshold is invoice frequency, not quantity.
+The required average monthly invoice frequency is half the number of completed report
+months. For example, a 12-month report requires at least 6 invoices per month. Items
+below the calculated threshold skip stock-day analysis, estimated missed sales remain
+zero, and the UI shows **N/A**. The threshold is invoice frequency, not quantity.
 
 ### Working-day strategy
 
@@ -261,12 +263,13 @@ Fridays or other weekdays are not hardcoded.
 
 For each active item:
 
-1. obtain opening stock from all Stock Ledger Entries before Start Date;
-2. aggregate Stock Ledger movement per day across all warehouses;
+1. obtain each warehouse's latest authoritative `qty_after_transaction` before Start Date;
+2. obtain the final `qty_after_transaction` for each item, warehouse and day;
 3. walk every day in the selected range;
-4. on inferred working days, count the day as out of stock when balance is `<= 0`;
-5. derive in-stock selling days; and
-6. estimate missed demand as:
+4. update each warehouse balance from those authoritative closing snapshots;
+5. on inferred working days, count the day as out of stock when the combined balance is `<= 0`;
+6. derive in-stock selling days; and
+7. estimate missed demand as:
 
 ```text
 Estimated Out-of-Stock Sales Qty

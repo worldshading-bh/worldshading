@@ -217,6 +217,11 @@ When **Include Repack to Parent** is selected, the report adds:
 The optional estimate reviews the Item's stock position during the selected period and
 identifies working days when its balance was zero or negative.
 
+An Item qualifies when its average monthly invoice count is at least half the number of
+completed report months. For example, a 12-month report requires at least 6 invoices per
+month. Eligible Items use the latest authoritative Stock Ledger balance for each warehouse
+and day, so Stock Reconciliations are respected.
+
 ```text
 Estimated Out-of-Stock Sales =
     sales per in-stock working day × out-of-stock working days
