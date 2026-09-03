@@ -891,7 +891,9 @@ frappe.query_reports["Purchase Plan"] = {
 				if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date || "")) {
 					return;
 				}
-				var suggested_end_date = start_date.slice(0, 4) + "-12-31";
+				var suggested_end_date = frappe.datetime.add_days(
+					frappe.datetime.add_months(start_date, 12), -1
+				);
 				var today = frappe.datetime.get_today();
 				frappe.query_report.set_filter_value(
 					"end_date",
@@ -938,19 +940,6 @@ frappe.query_reports["Purchase Plan"] = {
 			"options":"Item",
 					},
 		{
-			"fieldname": "parent_item_group",
-			"label": __("Parent Item Groups"),
-			"fieldtype": "MultiSelectList",
-			"options":"Item Group",
-			get_data: function(txt) {
-				return frappe.db.get_link_options("Item Group", txt, {
-					"is_group": 1
-				}).then(function(options) {
-					return purchase_plan_selected_options_first("parent_item_group", options);
-				});
-			}
-		},
-		{
 			"fieldname": "child_item_group",
 			"label": __("Child Item Groups"),
 			"fieldtype": "MultiSelectList",
@@ -965,6 +954,19 @@ frappe.query_reports["Purchase Plan"] = {
 					return purchase_plan_selected_options_first(
 						"child_item_group", response.message || []
 					);
+				});
+			}
+		},
+		{
+			"fieldname": "parent_item_group",
+			"label": __("Parent Item Groups"),
+			"fieldtype": "MultiSelectList",
+			"options":"Item Group",
+			get_data: function(txt) {
+				return frappe.db.get_link_options("Item Group", txt, {
+					"is_group": 1
+				}).then(function(options) {
+					return purchase_plan_selected_options_first("parent_item_group", options);
 				});
 			}
 		},
