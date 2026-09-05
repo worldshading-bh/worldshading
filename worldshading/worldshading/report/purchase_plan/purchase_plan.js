@@ -128,6 +128,31 @@ function restore_prepared_purchase_plan_filters(report) {
 }
 
 
+function bind_current_prepared_report_download(report) {
+	var prepared_report = report.raw_data && report.raw_data.doc;
+	if (!prepared_report || !prepared_report.name) {
+		return;
+	}
+
+	var download_button = report.page.inner_toolbar.find(
+		'button[data-label="' + encodeURIComponent(__("Download Report")) + '"]'
+	);
+	if (!download_button.length) {
+		return;
+	}
+
+	// Frappe v12 keeps the first callback when an inner button with the same
+	// label already exists. Rebind it so a rebuilt report downloads its own file.
+	download_button.off("click").on("click", function () {
+		window.open(
+			frappe.urllib.get_full_url(
+				"/api/method/frappe.core.doctype.prepared_report.prepared_report.download_attachment?" +
+					"dn=" + encodeURIComponent(prepared_report.name)
+			)
+		);
+	});
+}
+
 function apply_purchase_plan_filter_labels(report) {
 	var page_form = report.page.main.find(".page-form");
 	page_form.addClass("purchase-plan-filter-form");
@@ -1152,6 +1177,7 @@ frappe.query_reports["Purchase Plan"] = {
 		enable_purchase_plan_rfq_qty_editing(datatable);
 		apply_purchase_plan_sticky_columns(datatable);
 		update_purchase_plan_filter_summary(frappe.query_report);
+		bind_current_prepared_report_download(frappe.query_report);
 	},
 	"formatter": function (value, row, column, data, default_formatter) {
 		var transaction_link_fields = {
