@@ -17,6 +17,60 @@ def set_total_quantity(doc, method=None):
 	doc.total_quantity = sum(flt(row.qty) for row in (doc.items or []))
 
 
+def set_packing_details(doc, method=None):
+	"""Build a compact packing summary from the Item master before save."""
+	if not frappe.get_meta("Request for Quotation Item").has_field(
+		"packing_details"
+	):
+		return
+
+	item_codes = list(set(
+		row.item_code for row in (doc.items or []) if row.item_code
+	))
+	item_details = {}
+	if item_codes:
+		item_details = {
+			item.name: item for item in frappe.get_all(
+				"Item",
+				filters={"name": ("in", item_codes)},
+				fields=[
+					"name", "length", "width", "height",
+					"weight_per_unit", "gross_weight"
+				],
+				limit_page_length=0
+			)
+		}
+
+	for row in (doc.items or []):
+		item = item_details.get(row.item_code)
+		row.packing_details = _format_packing_details(item) if item else ""
+
+
+def _format_packing_details(item):
+	parts = []
+	length = flt(item.length)
+	width = flt(item.width)
+	height = flt(item.height)
+
+	if length > 0 and width > 0 and height > 0:
+		volume = length * width * height
+		parts.append(
+			"{0:.2f} × {1:.2f} × {2:.2f} m / {3:.3f} m³".format(
+				length, width, height, volume
+			)
+		)
+
+	net_weight = flt(item.weight_per_unit)
+	if net_weight > 0:
+		parts.append("Net: {0:.2f} kg".format(net_weight))
+
+	gross_weight = flt(item.gross_weight)
+	if gross_weight > 0:
+		parts.append("Gross: {0:.2f} kg".format(gross_weight))
+
+	return " | ".join(parts)
+
+
 @frappe.whitelist()
 def block_standard_supplier_email_send(rfq_name=None):
 	"""Prevent the core RFQ sender from creating supplier portal users."""

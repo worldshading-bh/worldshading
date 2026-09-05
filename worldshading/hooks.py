@@ -175,6 +175,7 @@ scheduler_events = {
 
         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
         "worldshading.scheduler_events.draft_cleanup_schedule.execute",
+        "worldshading.scheduler_events.prepared_report_cleanup.execute",
         # "worldshading.scheduler_events.overdue_assignments.assign_overdue_sales_orders",
         "worldshading.scheduler_events.journal_entry_followups.auto_transition_jv",
         "worldshading.scheduler_events.purchase_order_scheduler.auto_update_purchase_order",
@@ -278,9 +279,15 @@ doc_events = {
     "Request for Quotation": {
         "validate": [
             "worldshading.api.request_for_quotation.set_total_quantity",
+            "worldshading.api.request_for_quotation.set_packing_details",
             "worldshading.api.request_for_quotation.set_last_purchase_details",
             "worldshading.api.request_for_quotation.validate_supplier_item_groups"
         ]
+    },
+
+    "Supplier Quotation": {
+        "validate": "worldshading.api.supplier_quotation.set_last_supplier_purchase_details",
+        "on_update_after_submit": "worldshading.api.supplier_quotation.reject_competing_supplier_quotations"
     },
 
     "Email Account": {
