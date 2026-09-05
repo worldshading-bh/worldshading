@@ -539,7 +539,7 @@ def get_columns(filters, pricing_context):
 		{
 			'fieldname': 'total_sales',
 			'label': _('Direct Sales'),
-			'fieldtype':'Float/1:60',
+			'fieldtype': 'Float',
 
 		},
 		{
@@ -581,13 +581,13 @@ def get_columns(filters, pricing_context):
 		{
 			'fieldname': 'percentage',
 			'label': _('Percentage %'),
-			'fieldtype':'Float/1:60',
+			'fieldtype': 'Percent',
 
 		},
 		{
 			'fieldname': 'expected_total_sales',
 			'label': _('Expected Total Sale'),
-			'fieldtype':'Float/1:60',
+			'fieldtype': 'Float',
 
 		},
 		{
@@ -599,7 +599,7 @@ def get_columns(filters, pricing_context):
 		{
 			'fieldname': 'available_quantity',
 			'label': _('Available Quantity'),
-			'fieldtype':'Float/1:60',
+			'fieldtype': 'Float',
 
 		},
 	] + ([
@@ -612,7 +612,7 @@ def get_columns(filters, pricing_context):
 		{
 			'fieldname': 'on_purchase',
 			'label': _('On Purchase'),
-			'fieldtype':'Float/1:60',
+			'fieldtype': 'Float',
 
 		},
 		{
@@ -659,7 +659,7 @@ def get_columns(filters, pricing_context):
 		{
 			'fieldname': 'available_total_qty',
 			'label': _('Available Total Qty'),
-			'fieldtype':'Float/1:60',
+			'fieldtype': 'Float',
 
 		},
 		{
