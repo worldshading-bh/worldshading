@@ -41,7 +41,7 @@ def execute(filters=None):
 	data = build_rows(movements, reconciliations, current_balances, filters)
 	add_business_references(data, business_references)
 	add_later_stock_activity(data)
-	add_physical_review_totals(data)
+	add_physical_review_totals(data, filters)
 	message = get_message(data, filters)
 	report_summary = get_report_summary(data)
 
@@ -431,7 +431,10 @@ def add_later_stock_activity(data):
 			row.later_activity = _("No later movements")
 
 
-def add_physical_review_totals(data):
+def add_physical_review_totals(data, filters):
+	if not filters.get("item_code"):
+		return
+
 	totals = {}
 	for row in data:
 		if row.risk_status != "ACTION REQUIRED":
