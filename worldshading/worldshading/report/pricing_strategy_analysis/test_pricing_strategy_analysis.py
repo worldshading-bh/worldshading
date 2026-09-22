@@ -170,8 +170,11 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 
 	def test_sales_weighted_average_uses_company_currency_stock_uom_values(self):
 		rows = [{"item_code": "A", "sales_qty": 4, "sales_value": 50}]
-		normalized = report.normalize_sales_rows(rows)
+		normalized = report.normalize_sales_rows(rows, [
+			{"item_code": "A", "last_sold_rate": 14}
+		])
 		self.assertEqual(normalized["A"]["weighted_average_sold_rate"], Decimal("12.500"))
+		self.assertEqual(normalized["A"]["last_sold_rate"], Decimal("14.000"))
 
 	def test_purchase_return_imbalance_has_no_average(self):
 		result = report.normalize_purchase_rows(
@@ -190,6 +193,16 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 		self.assertEqual(result["A"]["valuation_rate"], Decimal("10.000"))
 		self.assertEqual(result["B"]["valuation_rate"], Decimal("8.000"))
 		self.assertIn("Valuation uses latest Stock Ledger rate", result["B"]["warnings"])
+
+	def test_warehouse_filter_uses_each_stock_table_alias(self):
+		filters = {"company": "WS", "warehouse": "Main - WS", "to_date": date(2026, 12, 31)}
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = [[], []]
+			report.get_stock_data(filters, ["A"])
+		bin_query = frappe_mock.db.sql.call_args_list[0][0][0]
+		sle_query = frappe_mock.db.sql.call_args_list[1][0][0]
+		self.assertIn("bin.warehouse = %(warehouse)s", bin_query)
+		self.assertIn("sle.warehouse = %(warehouse)s", sle_query)
 
 	def test_duplicate_item_prices_are_deterministic(self):
 		rows = [
@@ -233,6 +246,29 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 			frappe_mock.throw.side_effect = frappe.ValidationError
 			with self.assertRaises(frappe.ValidationError):
 					report.validate_master_filters(filters)
+
+	def test_item_price_query_matches_v12_schema_and_stock_uom(self):
+		filters = {
+			"regular_price_list": "Regular", "b2b_price_list": None,
+			"to_date": date(2026, 12, 31)
+		}
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.return_value = []
+			report.get_item_prices(filters, ["A"])
+		query = frappe_mock.db.sql.call_args[0][0]
+		self.assertNotIn("min_qty", query)
+		self.assertIn("price_not_uom_dependent", query)
+		self.assertIn("item.stock_uom", query)
+
+	def test_item_group_lookup_uses_v12_get_all_without_pluck(self):
+		filters = {"item_group": "Products"}
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.get_value.return_value = frappe._dict({"lft": 1, "rgt": 2})
+			frappe_mock.get_all.return_value = [frappe._dict({"name": "Products"})]
+			frappe_mock.get_list.return_value = []
+			report.get_items(filters)
+		self.assertNotIn("pluck", frappe_mock.get_all.call_args[1])
+		self.assertEqual(frappe_mock.get_list.call_args[1]["filters"]["item_group"], ("in", ["Products"]))
 
 
 class TestPricingStrategyReport(unittest.TestCase):

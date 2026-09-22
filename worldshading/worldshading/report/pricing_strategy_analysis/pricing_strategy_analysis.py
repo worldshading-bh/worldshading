@@ -335,13 +335,14 @@ def get_items(filters):
 		)
 		if not group:
 			return []
-		groups = frappe.get_all(
+		group_rows = frappe.get_all(
 			"Item Group",
 			filters={"lft": (">=", group.lft), "rgt": ("<=", group.rgt)},
-			pluck="name"
+			fields=["name"]
 		)
+		groups = [row.name for row in group_rows]
 		item_filters["item_group"] = ("in", groups)
-	return frappe.get_all(
+	return frappe.get_list(
 		"Item", filters=item_filters,
 		fields=["name as item_code", "item_name", "item_group", "brand", "stock_uom"],
 		order_by="name asc"
@@ -357,7 +358,7 @@ def get_stock_data(filters, item_codes):
 		"item_codes": tuple(item_codes),
 		"to_date": filters["to_date"]
 	}
-	warehouse_condition = " and warehouse = %(warehouse)s" if filters.get("warehouse") else ""
+	bin_warehouse_condition = " and bin.warehouse = %(warehouse)s" if filters.get("warehouse") else ""
 	bin_rows = frappe.db.sql("""
 		select
 			bin.item_code,
@@ -371,7 +372,7 @@ def get_stock_data(filters, item_codes):
 			and bin.item_code in %(item_codes)s
 			{warehouse_condition}
 		group by bin.item_code
-	""".format(warehouse_condition=warehouse_condition), values, as_dict=True)
+	""".format(warehouse_condition=bin_warehouse_condition), values, as_dict=True)
 	positive_items = set(
 		row.get("item_code") for row in bin_rows if to_decimal(row.get("positive_qty")) > 0
 	)
@@ -379,6 +380,7 @@ def get_stock_data(filters, item_codes):
 	sle_rows = []
 	if fallback_items:
 		values["fallback_items"] = fallback_items
+		sle_warehouse_condition = " and sle.warehouse = %(warehouse)s" if filters.get("warehouse") else ""
 		sle_rows = frappe.db.sql("""
 			select sle.item_code, sle.valuation_rate
 			from `tabStock Ledger Entry` sle
@@ -389,7 +391,7 @@ def get_stock_data(filters, item_codes):
 				and sle.posting_date <= %(to_date)s
 				{warehouse_condition}
 			order by sle.item_code, sle.posting_date desc, sle.posting_time desc, sle.creation desc
-		""".format(warehouse_condition=warehouse_condition), values, as_dict=True)
+		""".format(warehouse_condition=sle_warehouse_condition), values, as_dict=True)
 	return normalize_stock_rows(bin_rows, sle_rows)
 
 
@@ -472,6 +474,10 @@ def normalize_purchase_rows(average_rows, latest_rows):
 def get_sales_data(filters, item_codes):
 	if not item_codes:
 		return {}
+	values = {
+		"company": filters["company"], "from_date": filters["from_date"],
+		"to_date": filters["to_date"], "item_codes": tuple(item_codes)
+	}
 	rows = frappe.db.sql("""
 		select sii.item_code, sum(sii.stock_qty) as sales_qty,
 			sum(sii.base_net_amount) as sales_value,
@@ -485,14 +491,21 @@ def get_sales_data(filters, item_codes):
 			and si.posting_date between %(from_date)s and %(to_date)s
 			and sii.item_code in %(item_codes)s
 		group by sii.item_code
-	""", {
-		"company": filters["company"], "from_date": filters["from_date"],
-		"to_date": filters["to_date"], "item_codes": tuple(item_codes)
-	}, as_dict=True)
-	return normalize_sales_rows(rows)
+	""", values, as_dict=True)
+	latest_rows = frappe.db.sql("""
+		select sii.item_code,
+			case when sii.stock_qty = 0 then null else sii.base_net_amount / sii.stock_qty end as last_sold_rate
+		from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		where si.docstatus = 1 and si.company = %(company)s
+			and si.posting_date between %(from_date)s and %(to_date)s
+			and sii.item_code in %(item_codes)s and sii.stock_qty > 0
+		order by sii.item_code, si.posting_date desc, si.posting_time desc, si.creation desc, sii.idx desc
+	""", values, as_dict=True)
+	return normalize_sales_rows(rows, latest_rows)
 
 
-def normalize_sales_rows(rows):
+def normalize_sales_rows(rows, latest_rows=None):
 	result = {}
 	for row in rows or []:
 		qty = to_decimal(row.get("sales_qty"))
@@ -511,6 +524,10 @@ def normalize_sales_rows(rows):
 			if entry.get(fieldname) is not None:
 				entry[fieldname] = quantize_money(entry[fieldname])
 		result[row.get("item_code")] = entry
+	for row in latest_rows or []:
+		entry = result.get(row.get("item_code"))
+		if entry is not None and entry.get("last_sold_rate") is None:
+			entry["last_sold_rate"] = quantize_money(row.get("last_sold_rate"))
 	return result
 
 
@@ -521,13 +538,17 @@ def get_item_prices(filters, item_codes):
 	if filters.get("b2b_price_list"):
 		price_lists.append(filters["b2b_price_list"])
 	rows = frappe.db.sql("""
-		select name, item_code, price_list, price_list_rate, uom, valid_from, valid_upto, creation
-		from `tabItem Price`
-		where selling = 1 and item_code in %(item_codes)s and price_list in %(price_lists)s
-			and (valid_from is null or valid_from <= %(to_date)s)
-			and (valid_upto is null or valid_upto >= %(to_date)s)
-			and (min_qty is null or min_qty <= 1)
-		order by item_code, price_list, valid_from desc, creation desc, name desc
+		select ip.name, ip.item_code, ip.price_list, ip.price_list_rate, ip.uom,
+			ip.valid_from, ip.valid_upto, ip.creation
+		from `tabItem Price` ip
+		inner join `tabPrice List` price_list on price_list.name = ip.price_list
+		inner join `tabItem` item on item.name = ip.item_code
+		where ip.selling = 1 and ip.item_code in %(item_codes)s
+			and ip.price_list in %(price_lists)s
+			and (ip.valid_from is null or ip.valid_from <= %(to_date)s)
+			and (ip.valid_upto is null or ip.valid_upto >= %(to_date)s)
+			and (price_list.price_not_uom_dependent = 1 or ifnull(ip.uom, '') = '' or ip.uom = item.stock_uom)
+		order by ip.item_code, ip.price_list, ip.valid_from desc, ip.creation desc, ip.name desc
 	""", {
 		"item_codes": tuple(item_codes), "price_lists": tuple(price_lists),
 		"to_date": filters["to_date"]
