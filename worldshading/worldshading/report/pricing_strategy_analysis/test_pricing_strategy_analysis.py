@@ -153,5 +153,84 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		}
 
 
+class TestPricingStrategyDataSources(unittest.TestCase):
+
+	def test_sales_zero_net_quantity_has_no_average(self):
+		rows = [{
+			"item_code": "A", "sales_qty": 0, "sales_value": 20,
+			"invoice_count": 2, "last_sale_date": "2026-08-01",
+			"last_sold_rate": 10, "lowest_sold_rate": 9, "highest_sold_rate": 11
+		}]
+		normalized = report.normalize_sales_rows(rows)
+		self.assertIsNone(normalized["A"]["weighted_average_sold_rate"])
+		self.assertIn("Sales returns equal or exceed sales", normalized["A"]["warnings"])
+
+	def test_sales_weighted_average_uses_company_currency_stock_uom_values(self):
+		rows = [{"item_code": "A", "sales_qty": 4, "sales_value": 50}]
+		normalized = report.normalize_sales_rows(rows)
+		self.assertEqual(normalized["A"]["weighted_average_sold_rate"], Decimal("12.500"))
+
+	def test_purchase_return_imbalance_has_no_average(self):
+		result = report.normalize_purchase_rows(
+			[{"item_code": "A", "purchase_qty": -1, "purchase_value": -10}],
+			[{"item_code": "A", "latest_purchase_rate": 12}]
+		)
+		self.assertIsNone(result["A"]["weighted_average_purchase_rate"])
+		self.assertEqual(result["A"]["latest_purchase_rate"], Decimal("12.000"))
+		self.assertIn("Purchase returns equal or exceed purchases", result["A"]["warnings"])
+
+	def test_stock_uses_positive_bins_and_sle_fallback(self):
+		result = report.normalize_stock_rows([
+			{"item_code": "A", "actual_qty": 3, "valuation_value": 30},
+			{"item_code": "B", "actual_qty": 0, "valuation_value": 0}
+		], [{"item_code": "B", "valuation_rate": 8}])
+		self.assertEqual(result["A"]["valuation_rate"], Decimal("10.000"))
+		self.assertEqual(result["B"]["valuation_rate"], Decimal("8.000"))
+		self.assertIn("Valuation uses latest Stock Ledger rate", result["B"]["warnings"])
+
+	def test_duplicate_item_prices_are_deterministic(self):
+		rows = [
+			{"name": "OLD", "item_code": "A", "price_list": "Standard Selling", "price_list_rate": 10,
+			 "valid_from": "2026-01-01", "creation": "2026-01-01 10:00:00"},
+			{"name": "NEW", "item_code": "A", "price_list": "Standard Selling", "price_list_rate": 11,
+			 "valid_from": "2026-02-01", "creation": "2026-02-01 10:00:00"}
+		]
+		prices = report.normalize_item_prices(rows, "Standard Selling", None)
+		self.assertEqual(prices["A"]["current_normal_price"], Decimal("11.000"))
+		self.assertIn("Multiple valid normal Item Prices", prices["A"]["warnings"])
+
+	def test_database_readers_use_parameters_and_latest_purchase_ignores_from_date(self):
+		filters = {"company": "WS", "from_date": date(2026, 1, 1), "to_date": date(2026, 12, 31)}
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.return_value = []
+			report.get_purchase_data(filters, ["A", "B"])
+			sql = frappe_mock.db.sql
+		self.assertEqual(sql.call_count, 2)
+		average_query, average_values = sql.call_args_list[0][0][0:2]
+		latest_query, latest_values = sql.call_args_list[1][0][0:2]
+		self.assertIn("%(from_date)s", average_query)
+		self.assertNotIn("%(from_date)s", latest_query)
+		self.assertEqual(average_values["item_codes"], ("A", "B"))
+		self.assertEqual(latest_values["company"], "WS")
+
+	def test_price_list_currency_must_match_company(self):
+		filters = {
+			"company": "WS", "regular_price_list": "Regular", "b2b_price_list": "B2B"
+		}
+		values = {
+			("Company", "WS"): "BHD",
+			("Price List", "Regular"): {"enabled": 1, "selling": 1, "currency": "BHD"},
+			("Price List", "B2B"): {"enabled": 1, "selling": 1, "currency": "USD"}
+		}
+		def get_value(doctype, name, fields=None, as_dict=False):
+			value = values[(doctype, name)]
+			return frappe._dict(value) if isinstance(value, dict) else value
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.get_value.side_effect = get_value
+			frappe_mock.throw.side_effect = frappe.ValidationError
+			with self.assertRaises(frappe.ValidationError):
+				report.validate_master_filters(filters)
+
+
 if __name__ == "__main__":
 	unittest.main()

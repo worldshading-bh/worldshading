@@ -284,3 +284,271 @@ def _percentage_difference(base_value, lower_value):
 	return quantize_percent(
 		(base_value - to_decimal(lower_value)) / base_value * Decimal("100")
 	)
+
+
+def validate_master_filters(filters):
+	company_currency = frappe.db.get_value("Company", filters["company"], "default_currency")
+	if not company_currency:
+		frappe.throw("Company {0} has no default currency".format(filters["company"]))
+
+	for fieldname in ("regular_price_list", "b2b_price_list"):
+		price_list = filters.get(fieldname)
+		if not price_list:
+			continue
+		details = frappe.db.get_value(
+			"Price List", price_list, ["enabled", "selling", "currency"], as_dict=True
+		)
+		if not details or not details.enabled or not details.selling:
+			frappe.throw("Price List {0} must be enabled and marked as Selling".format(price_list))
+		if details.currency != company_currency:
+			frappe.throw(
+				"Price List {0} must use company currency {1}".format(price_list, company_currency)
+			)
+
+	warehouse = filters.get("warehouse")
+	if warehouse:
+		warehouse_company = frappe.db.get_value("Warehouse", warehouse, "company")
+		if warehouse_company != filters["company"]:
+			frappe.throw("Warehouse must belong to the selected Company")
+	return company_currency
+
+
+def get_items(filters):
+	item_filters = {"disabled": 0, "is_stock_item": 1}
+	if filters.get("item"):
+		item_filters["name"] = filters["item"]
+	if filters.get("brand"):
+		item_filters["brand"] = filters["brand"]
+	if filters.get("item_group"):
+		group = frappe.db.get_value(
+			"Item Group", filters["item_group"], ["lft", "rgt"], as_dict=True
+		)
+		if not group:
+			return []
+		groups = frappe.get_all(
+			"Item Group",
+			filters={"lft": (">=", group.lft), "rgt": ("<=", group.rgt)},
+			pluck="name"
+		)
+		item_filters["item_group"] = ("in", groups)
+	return frappe.get_all(
+		"Item", filters=item_filters,
+		fields=["name as item_code", "item_name", "item_group", "brand", "stock_uom"],
+		order_by="name asc"
+	)
+
+
+def get_stock_data(filters, item_codes):
+	if not item_codes:
+		return {}
+	values = {
+		"company": filters["company"],
+		"warehouse": filters.get("warehouse"),
+		"item_codes": tuple(item_codes),
+		"to_date": filters["to_date"]
+	}
+	warehouse_condition = " and warehouse = %(warehouse)s" if filters.get("warehouse") else ""
+	bin_rows = frappe.db.sql("""
+		select
+			bin.item_code,
+			sum(bin.actual_qty) as actual_qty,
+			sum(case when bin.actual_qty > 0 then bin.actual_qty else 0 end) as positive_qty,
+			sum(case when bin.actual_qty > 0 then bin.actual_qty * bin.valuation_rate else 0 end) as valuation_value
+		from `tabBin` bin
+		inner join `tabWarehouse` warehouse on warehouse.name = bin.warehouse
+		where warehouse.company = %(company)s
+			and warehouse.disabled = 0
+			and bin.item_code in %(item_codes)s
+			{warehouse_condition}
+		group by bin.item_code
+	""".format(warehouse_condition=warehouse_condition), values, as_dict=True)
+	positive_items = set(
+		row.get("item_code") for row in bin_rows if to_decimal(row.get("positive_qty")) > 0
+	)
+	fallback_items = tuple(code for code in item_codes if code not in positive_items)
+	sle_rows = []
+	if fallback_items:
+		values["fallback_items"] = fallback_items
+		sle_rows = frappe.db.sql("""
+			select sle.item_code, sle.valuation_rate
+			from `tabStock Ledger Entry` sle
+			inner join `tabWarehouse` warehouse on warehouse.name = sle.warehouse
+			where sle.docstatus < 2
+				and warehouse.company = %(company)s
+				and sle.item_code in %(fallback_items)s
+				and sle.posting_date <= %(to_date)s
+				{warehouse_condition}
+			order by sle.item_code, sle.posting_date desc, sle.posting_time desc, sle.creation desc
+		""".format(warehouse_condition=warehouse_condition), values, as_dict=True)
+	return normalize_stock_rows(bin_rows, sle_rows)
+
+
+def normalize_stock_rows(bin_rows, sle_rows):
+	result = {}
+	for row in bin_rows or []:
+		item_code = row.get("item_code")
+		positive_qty = to_decimal(row.get("positive_qty", row.get("actual_qty")))
+		valuation_rate = None
+		if positive_qty > 0:
+			valuation_rate = quantize_money(to_decimal(row.get("valuation_value")) / positive_qty)
+		result[item_code] = {
+			"available_qty": quantize_money(row.get("actual_qty")),
+			"valuation_rate": valuation_rate,
+			"warnings": []
+		}
+	for row in sle_rows or []:
+		item_code = row.get("item_code")
+		entry = result.setdefault(item_code, {
+			"available_qty": Decimal("0.000"), "valuation_rate": None, "warnings": []
+		})
+		if entry["valuation_rate"] is None and to_decimal(row.get("valuation_rate")) > 0:
+			entry["valuation_rate"] = quantize_money(row.get("valuation_rate"))
+			entry["warnings"].append("Valuation uses latest Stock Ledger rate")
+	return result
+
+
+def get_purchase_data(filters, item_codes):
+	if not item_codes:
+		return {}
+	values = {
+		"company": filters["company"], "from_date": filters["from_date"],
+		"to_date": filters["to_date"], "item_codes": tuple(item_codes)
+	}
+	average_rows = frappe.db.sql("""
+		select pri.item_code, sum(pri.stock_qty) as purchase_qty,
+			sum(pri.base_net_amount) as purchase_value
+		from `tabPurchase Receipt Item` pri
+		inner join `tabPurchase Receipt` pr on pr.name = pri.parent
+		where pr.docstatus = 1 and pr.company = %(company)s
+			and pr.posting_date between %(from_date)s and %(to_date)s
+			and pri.item_code in %(item_codes)s
+		group by pri.item_code
+	""", values, as_dict=True)
+	latest_rows = frappe.db.sql("""
+		select pri.item_code,
+			case when pri.stock_qty = 0 then null else pri.base_net_amount / pri.stock_qty end as latest_purchase_rate
+		from `tabPurchase Receipt Item` pri
+		inner join `tabPurchase Receipt` pr on pr.name = pri.parent
+		where pr.docstatus = 1 and pr.company = %(company)s
+			and pr.posting_date <= %(to_date)s
+			and pri.item_code in %(item_codes)s and pri.stock_qty > 0
+		order by pri.item_code, pr.posting_date desc, pr.posting_time desc, pr.creation desc, pri.idx desc
+	""", values, as_dict=True)
+	return normalize_purchase_rows(average_rows, latest_rows)
+
+
+def normalize_purchase_rows(average_rows, latest_rows):
+	result = {}
+	for row in average_rows or []:
+		qty = to_decimal(row.get("purchase_qty"))
+		entry = result.setdefault(row.get("item_code"), {"warnings": []})
+		entry["weighted_average_purchase_rate"] = None
+		if qty > 0:
+			entry["weighted_average_purchase_rate"] = quantize_money(
+				to_decimal(row.get("purchase_value")) / qty
+			)
+		else:
+			entry["warnings"].append("Purchase returns equal or exceed purchases")
+	for row in latest_rows or []:
+		entry = result.setdefault(row.get("item_code"), {"warnings": []})
+		if "latest_purchase_rate" not in entry:
+			entry["latest_purchase_rate"] = quantize_money(row.get("latest_purchase_rate"))
+	for entry in result.values():
+		entry.setdefault("latest_purchase_rate", None)
+		entry.setdefault("weighted_average_purchase_rate", None)
+	return result
+
+
+def get_sales_data(filters, item_codes):
+	if not item_codes:
+		return {}
+	rows = frappe.db.sql("""
+		select sii.item_code, sum(sii.stock_qty) as sales_qty,
+			sum(sii.base_net_amount) as sales_value,
+			count(distinct si.name) as invoice_count,
+			max(si.posting_date) as last_sale_date,
+			min(case when sii.stock_qty > 0 then sii.base_net_amount / sii.stock_qty end) as lowest_sold_rate,
+			max(case when sii.stock_qty > 0 then sii.base_net_amount / sii.stock_qty end) as highest_sold_rate
+		from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		where si.docstatus = 1 and si.company = %(company)s
+			and si.posting_date between %(from_date)s and %(to_date)s
+			and sii.item_code in %(item_codes)s
+		group by sii.item_code
+	""", {
+		"company": filters["company"], "from_date": filters["from_date"],
+		"to_date": filters["to_date"], "item_codes": tuple(item_codes)
+	}, as_dict=True)
+	return normalize_sales_rows(rows)
+
+
+def normalize_sales_rows(rows):
+	result = {}
+	for row in rows or []:
+		qty = to_decimal(row.get("sales_qty"))
+		entry = dict(row)
+		entry["warnings"] = list(entry.get("warnings") or [])
+		entry["sales_qty"] = quantize_money(qty)
+		entry["sales_value"] = quantize_money(row.get("sales_value"))
+		entry["weighted_average_sold_rate"] = None
+		if qty > 0:
+			entry["weighted_average_sold_rate"] = quantize_money(
+				to_decimal(row.get("sales_value")) / qty
+			)
+		else:
+			entry["warnings"].append("Sales returns equal or exceed sales")
+		for fieldname in ("last_sold_rate", "lowest_sold_rate", "highest_sold_rate"):
+			if entry.get(fieldname) is not None:
+				entry[fieldname] = quantize_money(entry[fieldname])
+		result[row.get("item_code")] = entry
+	return result
+
+
+def get_item_prices(filters, item_codes):
+	if not item_codes:
+		return {}
+	price_lists = [filters["regular_price_list"]]
+	if filters.get("b2b_price_list"):
+		price_lists.append(filters["b2b_price_list"])
+	rows = frappe.db.sql("""
+		select name, item_code, price_list, price_list_rate, uom, valid_from, valid_upto, creation
+		from `tabItem Price`
+		where selling = 1 and item_code in %(item_codes)s and price_list in %(price_lists)s
+			and (valid_from is null or valid_from <= %(to_date)s)
+			and (valid_upto is null or valid_upto >= %(to_date)s)
+			and (min_qty is null or min_qty <= 1)
+		order by item_code, price_list, valid_from desc, creation desc, name desc
+	""", {
+		"item_codes": tuple(item_codes), "price_lists": tuple(price_lists),
+		"to_date": filters["to_date"]
+	}, as_dict=True)
+	return normalize_item_prices(
+		rows, filters["regular_price_list"], filters.get("b2b_price_list")
+	)
+
+
+def normalize_item_prices(rows, regular_price_list, b2b_price_list):
+	result = {}
+	grouped = {}
+	for row in rows or []:
+		key = (row.get("item_code"), row.get("price_list"))
+		grouped.setdefault(key, []).append(row)
+	for key, price_rows in grouped.items():
+		item_code, price_list = key
+		price_rows.sort(key=lambda row: (
+			str(row.get("valid_from") or ""), str(row.get("creation") or ""),
+			str(row.get("name") or "")
+		), reverse=True)
+		entry = result.setdefault(item_code, {"warnings": []})
+		if price_list == regular_price_list:
+			entry["current_normal_price"] = quantize_money(price_rows[0].get("price_list_rate"))
+			if len(price_rows) > 1:
+				entry["warnings"].append("Multiple valid normal Item Prices")
+		elif b2b_price_list and price_list == b2b_price_list:
+			entry["current_b2b_price"] = quantize_money(price_rows[0].get("price_list_rate"))
+			if len(price_rows) > 1:
+				entry["warnings"].append("Multiple valid B2B Item Prices")
+	for entry in result.values():
+		entry.setdefault("current_normal_price", None)
+		entry.setdefault("current_b2b_price", None)
+	return result
