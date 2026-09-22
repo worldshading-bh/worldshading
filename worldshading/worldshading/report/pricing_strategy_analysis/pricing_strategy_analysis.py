@@ -52,7 +52,20 @@ def round_to_increment(value, increment, method):
 	return rounded_units * increment
 
 
-def calculate_price(loaded_cost, markup_percent, vat_percent, increment, method):
+def get_rounding_increment(gross_price):
+	gross_price = to_decimal(gross_price)
+	if gross_price < Decimal("0.100"):
+		return Decimal("0.005")
+	if gross_price < Decimal("30"):
+		return Decimal("0.100")
+	if gross_price < Decimal("100"):
+		return Decimal("0.500")
+	if gross_price < Decimal("1000"):
+		return Decimal("1.000")
+	return Decimal("10.000")
+
+
+def calculate_price(loaded_cost, markup_percent, vat_percent, method):
 	loaded_cost = to_decimal(loaded_cost)
 	markup_percent = to_decimal(markup_percent)
 	vat_percent = to_decimal(vat_percent)
@@ -61,6 +74,7 @@ def calculate_price(loaded_cost, markup_percent, vat_percent, increment, method)
 
 	raw_net_price = loaded_cost * (Decimal("1") + markup_percent / Decimal("100"))
 	raw_gross_price = raw_net_price * (Decimal("1") + vat_percent / Decimal("100"))
+	increment = get_rounding_increment(raw_gross_price)
 	rounded_gross_price = round_to_increment(raw_gross_price, increment, method)
 	vat_factor = Decimal("1") + vat_percent / Decimal("100")
 	if vat_factor <= 0:
@@ -78,7 +92,9 @@ def calculate_price(loaded_cost, markup_percent, vat_percent, increment, method)
 		"gross_price": quantize_money(rounded_gross_price),
 		"profit": quantize_money(profit),
 		"actual_markup_percent": quantize_percent(actual_markup),
-		"gross_margin_percent": quantize_percent(gross_margin)
+		"gross_margin_percent": quantize_percent(gross_margin),
+		"rounding_increment": increment,
+		"net_rounding_increment": quantize_money(increment / vat_factor)
 	}
 
 
@@ -130,7 +146,6 @@ def validate_and_normalize_filters(filters):
 	numeric_defaults = {
 		"expense_burden": "0",
 		"vat_percent": "10",
-		"rounding_increment": "1",
 		"regular_markup": "43",
 		"b2b_markup": "33"
 	}
@@ -141,9 +156,6 @@ def validate_and_normalize_filters(filters):
 	for fieldname in ("expense_burden", "vat_percent", "regular_markup", "b2b_markup"):
 		if result[fieldname] < 0:
 			frappe.throw("{0} cannot be negative".format(fieldname.replace("_", " ").title()))
-	if result["rounding_increment"] <= 0:
-		frappe.throw("Rounding Increment must be greater than zero")
-
 	result["include_items_without_sales"] = bool(cint(filters.get("include_items_without_sales", 1)))
 	result["tiers"] = _normalize_tiers(filters)
 	result["gap_messages"] = _validate_tiers(result["tiers"])
@@ -265,11 +277,11 @@ def calculate_item_row(item, context):
 
 	regular = calculate_price(
 		loaded_cost, context["regular_markup"], context["vat_percent"],
-		context["rounding_increment"], context["rounding_method"]
+		context["rounding_method"]
 	)
 	b2b = calculate_price(
 		loaded_cost, context["b2b_markup"], context["vat_percent"],
-		context["rounding_increment"], context["rounding_method"]
+		context["rounding_method"]
 	)
 	_apply_price_result(row, "recommended_regular", regular)
 	_apply_price_result(row, "recommended_b2b", b2b)
@@ -278,7 +290,7 @@ def calculate_item_row(item, context):
 	for index, tier in enumerate(context["tiers"], 1):
 		tier_result = calculate_price(
 			loaded_cost, tier["markup"], context["vat_percent"],
-			context["rounding_increment"], context["rounding_method"]
+			context["rounding_method"]
 		)
 		_apply_price_result(row, "tier_{0}".format(index), tier_result)
 		row["tier_{0}_discount_percent".format(index)] = _percentage_difference(
@@ -295,7 +307,7 @@ def calculate_item_row(item, context):
 			change / to_decimal(current_price) * Decimal("100")
 		)
 	row["suggested_action"] = get_suggested_action(
-		current_price, regular["net_price"], context["rounding_increment"]
+		current_price, regular["net_price"], regular["net_rounding_increment"]
 	)
 	row["warnings"] = compose_warnings(warnings)
 	return row

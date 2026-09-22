@@ -114,7 +114,6 @@ are already part of valuation.
 |---|---|---:|---:|
 | VAT % | Percent | Yes | 10 |
 | Rounding Method | Select | Yes | Nearest |
-| Rounding Increment | Float | Yes | 1.000 |
 | Regular Markup % | Percent | Yes | 43 |
 | B2B Markup % | Percent | Yes | 33 |
 | Tier 1 Qty Range | Data | Yes | `5:9` |
@@ -126,9 +125,19 @@ are already part of valuation.
 | Tier 4 Qty Range | Data | Yes | `40+` |
 | Tier 4 Markup % | Percent | Yes | 25 |
 
-Rounding Method options are `Nearest`, `Up`, and `Down`. Rounding applies to the
-VAT-inclusive price using the selected increment. The resulting net rate is then
-calculated by removing VAT.
+Rounding Method options are `Nearest`, `Up`, and `Down`. Rounding applies to the raw
+VAT-inclusive price using this fixed commercial schedule:
+
+| Raw VAT-inclusive price | Increment |
+|---|---:|
+| Below BHD 0.100 | BHD 0.005 (5 fils) |
+| BHD 0.100 to below BHD 30 | BHD 0.100 (100 fils) |
+| BHD 30 to below BHD 100 | BHD 0.500 (500 fils) |
+| BHD 100 to below BHD 1,000 | BHD 1.000 |
+| BHD 1,000 and above | BHD 10.000 |
+
+The exact lower boundary belongs to the new band. The resulting ERPNext net rate is
+calculated by removing VAT from the rounded gross price.
 
 Quantity ranges use `From:To` for a bounded range and `From+` for an open-ended final
 tier. Filter labels remain visible above their controls after values are entered.
@@ -139,7 +148,6 @@ Before querying item data, the report will reject:
 
 - From Date after To Date;
 - negative VAT, expense burden, or markup values;
-- zero or negative rounding increments;
 - zero or negative tier quantities;
 - a quantity range not written as `From:To` or `From+`;
 - a tier maximum below its minimum;
@@ -261,7 +269,8 @@ For Regular, B2B, and each tier:
 ```text
 raw net price = fully loaded cost * (1 + target markup % / 100)
 raw gross price = raw net price * (1 + VAT % / 100)
-rounded gross price = round raw gross price to the selected increment and method
+rounding increment = fixed schedule lookup using raw gross price
+rounded gross price = round raw gross price to the scheduled increment and selected method
 recommended net price = rounded gross price / (1 + VAT % / 100)
 profit per unit = recommended net price - fully loaded cost
 actual markup % = profit per unit / fully loaded cost * 100
@@ -269,7 +278,7 @@ gross margin % = profit per unit / recommended net price * 100
 ```
 
 `Nearest` uses commercial half-up rounding. `Up` rounds away from zero to the next
-increment, and `Down` rounds toward zero to the previous increment. Prices and monetary
+scheduled increment, and `Down` rounds toward zero to the previous increment. Prices and monetary
 metrics are finally quantized to the Company currency precision for display. Percentage
 metrics use three decimal places.
 

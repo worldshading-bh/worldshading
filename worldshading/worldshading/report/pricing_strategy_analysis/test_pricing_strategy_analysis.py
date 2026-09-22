@@ -17,9 +17,21 @@ from worldshading.worldshading.report.pricing_strategy_analysis import pricing_s
 class TestPricingStrategyCalculation(unittest.TestCase):
 
 	def test_workbook_regular_example(self):
-		result = report.calculate_price("46", "43", "10", "1", "Nearest")
-		self.assertEqual(result["gross_price"], Decimal("72.000"))
-		self.assertEqual(result["net_price"], Decimal("65.455"))
+		result = report.calculate_price("46", "43", "10", "Nearest")
+		self.assertEqual(result["gross_price"], Decimal("72.500"))
+		self.assertEqual(result["net_price"], Decimal("65.909"))
+		self.assertEqual(result["rounding_increment"], Decimal("0.500"))
+
+	def test_automatic_rounding_increment_boundaries(self):
+		cases = (
+			("0.001", "0.005"), ("0.099", "0.005"),
+			("0.100", "0.100"), ("29.999", "0.100"),
+			("30.000", "0.500"), ("99.999", "0.500"),
+			("100.000", "1.000"), ("999.999", "1.000"),
+			("1000.000", "10.000"), ("5000", "10.000")
+		)
+		for gross_price, expected in cases:
+			self.assertEqual(report.get_rounding_increment(gross_price), Decimal(expected))
 
 	def test_rounding_methods(self):
 		self.assertEqual(
@@ -36,19 +48,19 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		)
 
 	def test_markup_and_margin_are_distinct_after_rounding(self):
-		result = report.calculate_price("46", "43", "10", "1", "Nearest")
-		self.assertEqual(result["actual_markup_percent"], Decimal("42.292"))
-		self.assertEqual(result["gross_margin_percent"], Decimal("29.722"))
+		result = report.calculate_price("46", "43", "10", "Nearest")
+		self.assertEqual(result["actual_markup_percent"], Decimal("43.281"))
+		self.assertEqual(result["gross_margin_percent"], Decimal("30.207"))
 
 	def test_zero_cost_returns_no_price(self):
 		self.assertIsNone(
-			report.calculate_price("0", "43", "10", "1", "Nearest")
+			report.calculate_price("0", "43", "10", "Nearest")
 		)
 
 	def test_zero_vat_does_not_divide_by_zero(self):
-		result = report.calculate_price("10", "25", "0", "1", "Nearest")
-		self.assertEqual(result["net_price"], Decimal("13.000"))
-		self.assertEqual(result["gross_price"], Decimal("13.000"))
+		result = report.calculate_price("10", "25", "0", "Nearest")
+		self.assertEqual(result["net_price"], Decimal("12.500"))
+		self.assertEqual(result["gross_price"], Decimal("12.500"))
 
 	def test_warning_order_is_stable_and_duplicates_are_removed(self):
 		warnings = report.compose_warnings([
@@ -138,9 +150,6 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		case["vat_percent"] = -1
 		invalid_cases.append(case)
 		case = self._valid_filters()
-		case["rounding_increment"] = 0
-		invalid_cases.append(case)
-		case = self._valid_filters()
 		case["tier_2_minimum"] = 9
 		invalid_cases.append(case)
 		case = self._valid_filters()
@@ -162,7 +171,6 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			"expense_burden": 5,
 			"vat_percent": 10,
 			"rounding_method": "Nearest",
-			"rounding_increment": 1,
 			"regular_markup": 43,
 			"b2b_markup": 33,
 			"tier_1_minimum": 5,
@@ -305,7 +313,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 		with self._mock_readers() as readers:
 			columns, data, message, chart = report.execute(filters)
 		self.assertEqual(data[0]["item_code"], "A")
-		self.assertEqual(data[0]["recommended_regular_gross"], 72.0)
+		self.assertEqual(data[0]["recommended_regular_gross"], 72.5)
 		self.assertEqual(data[0]["suggested_action"], "Increase Price")
 		self.assertIsNone(chart)
 		self.assertIsNone(message)
@@ -358,7 +366,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 			"company": "WS", "from_date": "2026-01-01", "to_date": "2026-12-31",
 			"regular_price_list": "Regular", "b2b_price_list": "B2B",
 			"cost_source": "Current Valuation Rate", "expense_burden": 0,
-			"vat_percent": 10, "rounding_method": "Nearest", "rounding_increment": 1,
+			"vat_percent": 10, "rounding_method": "Nearest",
 			"regular_markup": 43, "b2b_markup": 33,
 			"tier_1_minimum": 5, "tier_1_maximum": 9, "tier_1_markup": 31,
 			"tier_2_minimum": 10, "tier_2_maximum": 19, "tier_2_markup": 29,
@@ -415,7 +423,7 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		required_fields = [
 			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
 			"regular_price_list", "b2b_price_list", "include_items_without_sales", "cost_source",
-			"expense_burden", "vat_percent", "rounding_method", "rounding_increment",
+			"expense_burden", "vat_percent", "rounding_method",
 			"regular_markup", "b2b_markup"
 		]
 		for index in range(1, 5):
@@ -435,8 +443,9 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertEqual(filter_order[-1], "include_items_without_sales")
 		self.assertEqual(filter_order[9:14], [
 			"cost_source", "expense_burden", "vat_percent",
-			"rounding_method", "rounding_increment"
+			"rounding_method", "regular_markup"
 		])
+		self.assertNotIn('"fieldname": "rounding_increment"', javascript)
 		self.assertNotIn("margin:0 !important;padding:0 !important", javascript)
 		self.assertIn("padding-top:0 !important;padding-bottom:0 !important", javascript)
 

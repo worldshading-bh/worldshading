@@ -89,7 +89,6 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 			"fieldname": "rounding_method", "label": __("Rounding Method"), "fieldtype": "Select",
 			"options": "Nearest\nUp\nDown", "default": "Nearest", "reqd": 1
 		},
-		{"fieldname": "rounding_increment", "label": __("Rounding Increment"), "fieldtype": "Float", "default": 1, "reqd": 1},
 		{"fieldname": "regular_markup", "label": __("Normal Price Markup %"), "fieldtype": "Percent", "default": 43},
 		{"fieldname": "b2b_markup", "label": __("B2B Markup %"), "fieldtype": "Percent", "default": 33},
 		{"fieldname": "tier_1_qty_range", "label": __("Tier 1 Qty Range"), "fieldtype": "Data", "default": "5:9"},
