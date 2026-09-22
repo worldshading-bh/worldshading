@@ -104,6 +104,30 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			["Quantity tier gap between 9 and 11"]
 		)
 
+	def test_single_quantity_range_fields_are_normalized(self):
+		filters = self._valid_filters()
+		filters.update({
+			"tier_1_qty_range": "5:9",
+			"tier_2_qty_range": "10:19",
+			"tier_3_qty_range": "20:39",
+			"tier_4_qty_range": "40+"
+		})
+		for index in range(1, 5):
+			filters.pop("tier_{0}_minimum".format(index))
+			filters.pop("tier_{0}_maximum".format(index))
+		result = report.validate_and_normalize_filters(filters)
+		self.assertEqual(result["tiers"][0]["minimum"], Decimal("5"))
+		self.assertEqual(result["tiers"][0]["maximum"], Decimal("9"))
+		self.assertEqual(result["tiers"][3]["minimum"], Decimal("40"))
+		self.assertIsNone(result["tiers"][3]["maximum"])
+
+	def test_invalid_single_quantity_range_is_rejected(self):
+		filters = self._valid_filters()
+		filters["tier_1_qty_range"] = "five to nine"
+		with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+			with self.assertRaises(frappe.ValidationError):
+				report.validate_and_normalize_filters(filters)
+
 	def test_invalid_filter_values_are_rejected(self):
 		invalid_cases = []
 		case = self._valid_filters()
@@ -311,6 +335,23 @@ class TestPricingStrategyReport(unittest.TestCase):
 		self.assertIn("Qty 40+ Net", labels)
 		self.assertIn("Quantity tier gap between 9 and 11", message)
 
+	def test_columns_are_compact_and_omit_repeated_analysis_fields(self):
+		filters = report.validate_and_normalize_filters(self._filters())
+		fieldnames = [column["fieldname"] for column in report.get_columns(filters)]
+		for unwanted in (
+			"valuation_rate", "latest_purchase_rate", "weighted_average_purchase_rate",
+			"expense_amount", "sales_value", "invoice_count", "last_sale_date",
+			"lowest_sold_rate", "highest_sold_rate", "recommended_regular_profit",
+			"recommended_regular_actual_markup_percent", "recommended_b2b_profit",
+			"tier_1_profit", "tier_2_profit", "tier_3_profit", "tier_4_profit"
+		):
+			self.assertNotIn(unwanted, fieldnames)
+		for required in (
+			"selected_base_cost", "fully_loaded_cost", "weighted_average_sold_rate",
+			"recommended_regular_net", "recommended_regular_gross", "tier_4_gross"
+		):
+			self.assertIn(required, fieldnames)
+
 	def _filters(self):
 		return {
 			"company": "WS", "from_date": "2026-01-01", "to_date": "2026-12-31",
@@ -377,16 +418,18 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 			"regular_markup", "b2b_markup"
 		]
 		for index in range(1, 5):
-			required_fields.extend([
-				"tier_{0}_minimum".format(index), "tier_{0}_maximum".format(index),
-				"tier_{0}_markup".format(index)
-			])
+			required_fields.extend(["tier_{0}_qty_range".format(index), "tier_{0}_markup".format(index)])
 		for fieldname in required_fields:
 			self.assertIn('"fieldname": "{0}"'.format(fieldname), javascript)
 		self.assertIn(r"Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate", javascript)
 		self.assertIn(r"Nearest\nUp\nDown", javascript)
 		self.assertNotIn("frappe.call", javascript)
 		self.assertNotIn("add_inner_button", javascript)
+		self.assertIn("pricing-strategy-filter-label", javascript)
+		self.assertIn('"prepared_report": 0', json.dumps(metadata))
+		self.assertIn('"disable_prepared_report": 1', json.dumps(metadata))
+		self.assertNotIn('"fieldname": "tier_1_minimum"', javascript)
+		self.assertNotIn('"fieldname": "tier_1_maximum"', javascript)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,44 @@
 /* global frappe, __ */
 
+function apply_pricing_strategy_filter_labels(report) {
+	var page_form = report.page.main.find(".page-form");
+	page_form.addClass("pricing-strategy-filter-form");
+	(report.filters || []).forEach(function (filter) {
+		var field = filter.df || {};
+		var wrapper = $(filter.wrapper);
+		if (!field.fieldname || !wrapper.length ||
+			wrapper.children(".pricing-strategy-filter-label").length) {
+			return;
+		}
+		wrapper.addClass("pricing-strategy-filter-control");
+		var label = $("<label class='pricing-strategy-filter-label'></label>");
+		if (field.fieldtype === "Check") {
+			label.addClass("pricing-strategy-filter-label-spacer")
+				.attr("aria-hidden", "true").html("&nbsp;");
+		} else {
+			label.text(__(field.label || field.fieldname));
+			field.placeholder = "";
+			wrapper.find("input").attr("placeholder", "");
+		}
+		wrapper.prepend(label);
+	});
+	if (!document.getElementById("pricing-strategy-filter-label-style")) {
+		$("<style id='pricing-strategy-filter-label-style'>" +
+			".pricing-strategy-filter-form{padding-top:4px;}" +
+			".pricing-strategy-filter-form .pricing-strategy-filter-control{" +
+				"box-sizing:border-box;height:50px;min-height:50px;margin:0 !important;padding:0 !important;}" +
+			".pricing-strategy-filter-form .pricing-strategy-filter-label{" +
+				"display:block;height:13px;margin:0;overflow:hidden;color:#7c8793;font-size:10px;" +
+				"font-weight:600;line-height:13px;text-overflow:ellipsis;white-space:nowrap;}" +
+			".pricing-strategy-filter-form .pricing-strategy-filter-label-spacer{visibility:hidden;}" +
+			"</style>").appendTo("head");
+	}
+}
+
 frappe.query_reports["Pricing Strategy Analysis"] = {
+	"onload": function (report) {
+		apply_pricing_strategy_filter_labels(report);
+	},
 	"filters": [
 		{
 			"fieldname": "company", "label": __("Company"), "fieldtype": "Link",
@@ -52,17 +90,13 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 		{"fieldname": "rounding_increment", "label": __("Rounding Increment"), "fieldtype": "Float", "default": 1, "reqd": 1},
 		{"fieldname": "regular_markup", "label": __("Regular Markup %"), "fieldtype": "Percent", "default": 43},
 		{"fieldname": "b2b_markup", "label": __("B2B Markup %"), "fieldtype": "Percent", "default": 33},
-		{"fieldname": "tier_1_minimum", "label": __("Tier 1 Min Qty"), "fieldtype": "Float", "default": 5},
-		{"fieldname": "tier_1_maximum", "label": __("Tier 1 Max Qty"), "fieldtype": "Float", "default": 9},
+		{"fieldname": "tier_1_qty_range", "label": __("Tier 1 Qty Range"), "fieldtype": "Data", "default": "5:9"},
 		{"fieldname": "tier_1_markup", "label": __("Tier 1 Markup %"), "fieldtype": "Percent", "default": 31},
-		{"fieldname": "tier_2_minimum", "label": __("Tier 2 Min Qty"), "fieldtype": "Float", "default": 10},
-		{"fieldname": "tier_2_maximum", "label": __("Tier 2 Max Qty"), "fieldtype": "Float", "default": 19},
+		{"fieldname": "tier_2_qty_range", "label": __("Tier 2 Qty Range"), "fieldtype": "Data", "default": "10:19"},
 		{"fieldname": "tier_2_markup", "label": __("Tier 2 Markup %"), "fieldtype": "Percent", "default": 29},
-		{"fieldname": "tier_3_minimum", "label": __("Tier 3 Min Qty"), "fieldtype": "Float", "default": 20},
-		{"fieldname": "tier_3_maximum", "label": __("Tier 3 Max Qty"), "fieldtype": "Float", "default": 39},
+		{"fieldname": "tier_3_qty_range", "label": __("Tier 3 Qty Range"), "fieldtype": "Data", "default": "20:39"},
 		{"fieldname": "tier_3_markup", "label": __("Tier 3 Markup %"), "fieldtype": "Percent", "default": 27},
-		{"fieldname": "tier_4_minimum", "label": __("Tier 4 Min Qty"), "fieldtype": "Float", "default": 40},
-		{"fieldname": "tier_4_maximum", "label": __("Tier 4 Max Qty (blank = no limit)"), "fieldtype": "Float"},
+		{"fieldname": "tier_4_qty_range", "label": __("Tier 4 Qty Range"), "fieldtype": "Data", "default": "40+"},
 		{"fieldname": "tier_4_markup", "label": __("Tier 4 Markup %"), "fieldtype": "Percent", "default": 25}
 	]
 };

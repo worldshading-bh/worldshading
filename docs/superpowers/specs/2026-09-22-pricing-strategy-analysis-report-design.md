@@ -60,6 +60,11 @@ historical-sales or expense calculations; those are defined explicitly below.
 The report JSON will assign access to `Accounts Manager` and `System Manager`. It will
 remain read-only and expose no whitelisted mutation method or update button.
 
+The report remains a normal synchronous Script Report rather than a Prepared Report.
+Pricing analysis is interactive, and observed execution is approximately 2.6 seconds;
+preparing and storing a new result for frequent assumption changes would add delay
+without a current performance benefit.
+
 The report must not bypass standard document permissions. If the established report
 pattern in this application does not automatically apply user permissions, the server
 code will explicitly verify access to the report and relevant records before returning
@@ -112,22 +117,21 @@ are already part of valuation.
 | Rounding Increment | Float | Yes | 1.000 |
 | Regular Markup % | Percent | Yes | 43 |
 | B2B Markup % | Percent | Yes | 33 |
-| Tier 1 Minimum Qty | Float | Yes | 5 |
-| Tier 1 Maximum Qty | Float | No | 9 |
+| Tier 1 Qty Range | Data | Yes | `5:9` |
 | Tier 1 Markup % | Percent | Yes | 31 |
-| Tier 2 Minimum Qty | Float | Yes | 10 |
-| Tier 2 Maximum Qty | Float | No | 19 |
+| Tier 2 Qty Range | Data | Yes | `10:19` |
 | Tier 2 Markup % | Percent | Yes | 29 |
-| Tier 3 Minimum Qty | Float | Yes | 20 |
-| Tier 3 Maximum Qty | Float | No | 39 |
+| Tier 3 Qty Range | Data | Yes | `20:39` |
 | Tier 3 Markup % | Percent | Yes | 27 |
-| Tier 4 Minimum Qty | Float | Yes | 40 |
-| Tier 4 Maximum Qty | Float | No | Blank, meaning no upper limit |
+| Tier 4 Qty Range | Data | Yes | `40+` |
 | Tier 4 Markup % | Percent | Yes | 25 |
 
 Rounding Method options are `Nearest`, `Up`, and `Down`. Rounding applies to the
 VAT-inclusive price using the selected increment. The resulting net rate is then
 calculated by removing VAT.
+
+Quantity ranges use `From:To` for a bounded range and `From+` for an open-ended final
+tier. Filter labels remain visible above their controls after values are entered.
 
 ## 6. Input Validation
 
@@ -137,6 +141,7 @@ Before querying item data, the report will reject:
 - negative VAT, expense burden, or markup values;
 - zero or negative rounding increments;
 - zero or negative tier quantities;
+- a quantity range not written as `From:To` or `From+`;
 - a tier maximum below its minimum;
 - overlapping tiers;
 - tiers not ordered by minimum quantity;
@@ -146,8 +151,8 @@ Before querying item data, the report will reject:
 - unsupported Cost Source or Rounding Method values.
 
 Gaps between quantity tiers are permitted but produce a visible report message because
-no proposed tier price will cover those quantities. A blank maximum is permitted only
-for the final tier.
+no proposed tier price will cover those quantities. Only the final tier may use the
+open-ended `From+` form.
 
 ## 7. Data Sources and Normalization
 
@@ -298,24 +303,15 @@ The report returns the following groups in this order.
 - Brand
 - Stock UOM
 - Available Qty
-- Current Valuation Rate
-- Latest Purchase Rate
-- Weighted Average Purchase Rate
 - Selected Base Cost
 - Cost Source Detail
-- Expense Amount
 - Fully Loaded Cost
 
 ### Historical sales and current prices
 
 - Sales Qty
-- Sales Value
-- Sales Invoice Count
-- Last Sale Date
 - Last Sold Rate
 - Weighted Average Sold Rate
-- Lowest Sold Rate
-- Highest Sold Rate
 - Current Normal Price
 - Current B2B Price
 
@@ -323,15 +319,12 @@ The report returns the following groups in this order.
 
 - Recommended Regular Net
 - Recommended Regular Including VAT
-- Regular Profit/Unit
-- Regular Actual Markup %
 - Regular Gross Margin %
 - Change from Current Normal
 - Change from Current Normal %
 - Recommended B2B Net
 - Recommended B2B Including VAT
 - B2B Discount from Regular %
-- B2B Profit/Unit
 - B2B Gross Margin %
 
 ### Quantity tiers
@@ -342,7 +335,6 @@ Each tier returns:
 - recommended net price;
 - recommended VAT-inclusive price;
 - discount from recommended B2B price;
-- profit per unit; and
 - gross margin percentage.
 
 ### Decision support

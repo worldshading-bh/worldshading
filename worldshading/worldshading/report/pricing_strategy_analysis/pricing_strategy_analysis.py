@@ -159,6 +159,13 @@ def _normalize_tiers(filters):
 	)
 	tiers = []
 	for index, default_values in enumerate(defaults, 1):
+		range_fieldname = "tier_{0}_qty_range".format(index)
+		if range_fieldname in filters:
+			minimum, maximum = _parse_qty_range(filters.get(range_fieldname), index)
+			markup_value = filters.get("tier_{0}_markup".format(index))
+			markup = to_decimal(default_values[2] if markup_value in (None, "") else markup_value)
+			tiers.append({"minimum": minimum, "maximum": maximum, "markup": markup})
+			continue
 		minimum_value = filters.get("tier_{0}_minimum".format(index))
 		maximum_fieldname = "tier_{0}_maximum".format(index)
 		maximum_value = filters.get(maximum_fieldname)
@@ -177,6 +184,21 @@ def _normalize_tiers(filters):
 			"markup": markup
 		})
 	return tiers
+
+
+def _parse_qty_range(value, index):
+	text = str(value or "").strip().replace(" ", "")
+	try:
+		if text.endswith("+"):
+			return to_decimal(text[:-1]), None
+		parts = text.split(":")
+		if len(parts) == 2 and parts[0] and parts[1]:
+			return to_decimal(parts[0]), to_decimal(parts[1])
+	except (InvalidOperation, TypeError, ValueError):
+		pass
+	frappe.throw(
+		"Tier {0} Qty Range must use From:To or From+ format, for example 5:9 or 40+".format(index)
+	)
 
 
 def _validate_tiers(tiers):
@@ -675,30 +697,21 @@ def get_columns(filters):
 		_column("Brand", "brand", "Link", 100, "Brand"),
 		_column("Stock UOM", "stock_uom", "Link", 90, "UOM"),
 		_column("Available Qty", "available_qty", "Float", 100),
-		_column("Valuation Rate", "valuation_rate", "Currency", 110),
-		_column("Latest Purchase Rate", "latest_purchase_rate", "Currency", 125),
-		_column("Average Purchase Rate", "weighted_average_purchase_rate", "Currency", 130),
 		_column("Selected Base Cost", "selected_base_cost", "Currency", 120),
 		_column("Cost Source", "cost_source_detail", "Data", 150),
-		_column("Expense Amount", "expense_amount", "Currency", 110),
 		_column("Fully Loaded Cost", "fully_loaded_cost", "Currency", 120),
 		_column("Sales Qty", "sales_qty", "Float", 90),
-		_column("Sales Value", "sales_value", "Currency", 105),
-		_column("Invoice Count", "invoice_count", "Int", 95),
-		_column("Last Sale Date", "last_sale_date", "Date", 105),
 		_column("Last Sold Rate", "last_sold_rate", "Currency", 105),
 		_column("Average Sold Rate", "weighted_average_sold_rate", "Currency", 115),
-		_column("Lowest Sold Rate", "lowest_sold_rate", "Currency", 110),
-		_column("Highest Sold Rate", "highest_sold_rate", "Currency", 110),
 		_column("Current Normal Price", "current_normal_price", "Currency", 125),
 		_column("Current B2B Price", "current_b2b_price", "Currency", 115)
 	]
-	columns.extend(_price_columns("Regular", "recommended_regular", True))
+	columns.extend(_compact_price_columns("Regular", "recommended_regular"))
 	columns.extend([
 		_column("Change from Current", "change_from_current_normal", "Currency", 120),
 		_column("Change from Current %", "change_from_current_normal_percent", "Percent", 130)
 	])
-	columns.extend(_price_columns("B2B", "recommended_b2b", False))
+	columns.extend(_compact_price_columns("B2B", "recommended_b2b"))
 	columns.append(_column("B2B Discount from Regular %", "b2b_discount_percent", "Percent", 155))
 	for index, tier in enumerate(filters["tiers"], 1):
 		label = _tier_label(tier)
@@ -707,7 +720,6 @@ def get_columns(filters):
 			_column(label + " Net", prefix + "_net", "Currency", 105),
 			_column(label + " Incl. VAT", prefix + "_gross", "Currency", 115),
 			_column(label + " Discount %", prefix + "_discount_percent", "Percent", 120),
-			_column(label + " Profit/Unit", prefix + "_profit", "Currency", 115),
 			_column(label + " Gross Margin %", prefix + "_gross_margin_percent", "Percent", 135)
 		])
 	columns.extend([
@@ -715,6 +727,14 @@ def get_columns(filters):
 		_column("Warnings", "warnings", "Data", 280)
 	])
 	return columns
+
+
+def _compact_price_columns(label, prefix):
+	return [
+		_column("Recommended {0} Net".format(label), prefix + "_net", "Currency", 130),
+		_column("Recommended {0} Incl. VAT".format(label), prefix + "_gross", "Currency", 145),
+		_column(label + " Gross Margin %", prefix + "_gross_margin_percent", "Percent", 130)
+	]
 
 
 def _price_columns(label, prefix, include_markup):
