@@ -1,6 +1,6 @@
 from __future__ import unicode_literals
 
-from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 
 import frappe
 from frappe.utils import cint, getdate
@@ -14,7 +14,6 @@ COST_SOURCES = (
 	"Latest Purchase Rate",
 	"Weighted Average Purchase Rate"
 )
-ROUNDING_METHODS = ("Nearest", "Up", "Down")
 
 
 def to_decimal(value):
@@ -34,21 +33,13 @@ def quantize_percent(value):
 	return to_decimal(value).quantize(PERCENT_QUANTUM, rounding=ROUND_HALF_UP)
 
 
-def round_to_increment(value, increment, method):
+def round_to_increment(value, increment):
 	value = to_decimal(value)
 	increment = to_decimal(increment)
 	if increment <= 0:
 		frappe.throw("Rounding Increment must be greater than zero")
-	if method not in ROUNDING_METHODS:
-		frappe.throw("Unsupported Rounding Method: {0}".format(method))
-
 	units = value / increment
-	if method == "Nearest":
-		rounded_units = units.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-	elif method == "Up":
-		rounded_units = units.quantize(Decimal("1"), rounding=ROUND_CEILING)
-	else:
-		rounded_units = units.quantize(Decimal("1"), rounding=ROUND_FLOOR)
+	rounded_units = units.quantize(Decimal("1"), rounding=ROUND_CEILING)
 	return rounded_units * increment
 
 
@@ -65,7 +56,7 @@ def get_rounding_increment(gross_price):
 	return Decimal("10.000")
 
 
-def calculate_price(loaded_cost, markup_percent, vat_percent, method):
+def calculate_price(loaded_cost, markup_percent, vat_percent):
 	loaded_cost = to_decimal(loaded_cost)
 	markup_percent = to_decimal(markup_percent)
 	vat_percent = to_decimal(vat_percent)
@@ -75,7 +66,7 @@ def calculate_price(loaded_cost, markup_percent, vat_percent, method):
 	raw_net_price = loaded_cost * (Decimal("1") + markup_percent / Decimal("100"))
 	raw_gross_price = raw_net_price * (Decimal("1") + vat_percent / Decimal("100"))
 	increment = get_rounding_increment(raw_gross_price)
-	rounded_gross_price = round_to_increment(raw_gross_price, increment, method)
+	rounded_gross_price = round_to_increment(raw_gross_price, increment)
 	vat_factor = Decimal("1") + vat_percent / Decimal("100")
 	if vat_factor <= 0:
 		frappe.throw("VAT percentage produces an invalid price divisor")
@@ -138,10 +129,6 @@ def validate_and_normalize_filters(filters):
 	result["cost_source"] = filters.get("cost_source") or "Current Valuation Rate"
 	if result["cost_source"] not in COST_SOURCES:
 		frappe.throw("Unsupported Cost Source: {0}".format(result["cost_source"]))
-
-	result["rounding_method"] = filters.get("rounding_method") or "Nearest"
-	if result["rounding_method"] not in ROUNDING_METHODS:
-		frappe.throw("Unsupported Rounding Method: {0}".format(result["rounding_method"]))
 
 	numeric_defaults = {
 		"expense_burden": "0",
@@ -276,12 +263,10 @@ def calculate_item_row(item, context):
 	row["fully_loaded_cost"] = quantize_money(loaded_cost)
 
 	regular = calculate_price(
-		loaded_cost, context["regular_markup"], context["vat_percent"],
-		context["rounding_method"]
+		loaded_cost, context["regular_markup"], context["vat_percent"]
 	)
 	b2b = calculate_price(
-		loaded_cost, context["b2b_markup"], context["vat_percent"],
-		context["rounding_method"]
+		loaded_cost, context["b2b_markup"], context["vat_percent"]
 	)
 	_apply_price_result(row, "recommended_regular", regular)
 	_apply_price_result(row, "recommended_b2b", b2b)
@@ -289,8 +274,7 @@ def calculate_item_row(item, context):
 
 	for index, tier in enumerate(context["tiers"], 1):
 		tier_result = calculate_price(
-			loaded_cost, tier["markup"], context["vat_percent"],
-			context["rounding_method"]
+			loaded_cost, tier["markup"], context["vat_percent"]
 		)
 		_apply_price_result(row, "tier_{0}".format(index), tier_result)
 		row["tier_{0}_discount_percent".format(index)] = _percentage_difference(

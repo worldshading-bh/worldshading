@@ -113,7 +113,6 @@ are already part of valuation.
 | Label | Field type | Required | Default |
 |---|---|---:|---:|
 | VAT % | Percent | Yes | 10 |
-| Rounding Method | Select | Yes | Nearest |
 | Regular Markup % | Percent | Yes | 43 |
 | B2B Markup % | Percent | Yes | 33 |
 | Tier 1 Qty Range | Data | Yes | `5:9` |
@@ -125,8 +124,8 @@ are already part of valuation.
 | Tier 4 Qty Range | Data | Yes | `40+` |
 | Tier 4 Markup % | Percent | Yes | 25 |
 
-Rounding Method options are `Nearest`, `Up`, and `Down`. Rounding applies to the raw
-VAT-inclusive price using this fixed commercial schedule:
+The report always rounds upward. It applies upward rounding to the raw VAT-inclusive
+price using this fixed commercial schedule:
 
 | Raw VAT-inclusive price | Increment |
 |---|---:|
@@ -156,7 +155,7 @@ Before querying item data, the report will reject:
 - a non-selling or disabled selected Price List;
 - a selected B2B Price List that is not a selling Price List;
 - a Warehouse belonging to another company; and
-- unsupported Cost Source or Rounding Method values.
+- unsupported Cost Source values.
 
 Gaps between quantity tiers are permitted but produce a visible report message because
 no proposed tier price will cover those quantities. Only the final tier may use the
@@ -270,17 +269,16 @@ For Regular, B2B, and each tier:
 raw net price = fully loaded cost * (1 + target markup % / 100)
 raw gross price = raw net price * (1 + VAT % / 100)
 rounding increment = fixed schedule lookup using raw gross price
-rounded gross price = round raw gross price to the scheduled increment and selected method
+rounded gross price = round raw gross price upward to the scheduled increment
 recommended net price = rounded gross price / (1 + VAT % / 100)
 profit per unit = recommended net price - fully loaded cost
 actual markup % = profit per unit / fully loaded cost * 100
 gross margin % = profit per unit / recommended net price * 100
 ```
 
-`Nearest` uses commercial half-up rounding. `Up` rounds away from zero to the next
-scheduled increment, and `Down` rounds toward zero to the previous increment. Prices and monetary
-metrics are finally quantized to the Company currency precision for display. Percentage
-metrics use three decimal places.
+An exact multiple remains unchanged; any remainder moves the price to the next scheduled
+increment. Prices and monetary metrics are finally quantized to three decimal places for
+display. Percentage metrics use three decimal places.
 
 ### 8.3 Discount comparisons
 
@@ -402,7 +400,7 @@ before changing existing files.
 Focused tests will cover:
 
 - the workbook example (cost 46, VAT 10%, and its six markup levels);
-- nearest, up, and down increment rounding;
+- fixed upward rounding at every increment boundary;
 - actual markup versus true gross margin;
 - expense burden calculations;
 - tier validation, overlap, gaps, and open-ended final tier;

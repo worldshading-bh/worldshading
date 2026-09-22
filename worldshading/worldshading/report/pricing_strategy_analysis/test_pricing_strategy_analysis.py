@@ -17,7 +17,7 @@ from worldshading.worldshading.report.pricing_strategy_analysis import pricing_s
 class TestPricingStrategyCalculation(unittest.TestCase):
 
 	def test_workbook_regular_example(self):
-		result = report.calculate_price("46", "43", "10", "Nearest")
+		result = report.calculate_price("46", "43", "10")
 		self.assertEqual(result["gross_price"], Decimal("72.500"))
 		self.assertEqual(result["net_price"], Decimal("65.909"))
 		self.assertEqual(result["rounding_increment"], Decimal("0.500"))
@@ -33,32 +33,28 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		for gross_price, expected in cases:
 			self.assertEqual(report.get_rounding_increment(gross_price), Decimal(expected))
 
-	def test_rounding_methods(self):
+	def test_rounding_always_moves_up_to_the_next_increment(self):
 		self.assertEqual(
-			report.round_to_increment("72.11", "0.5", "Nearest"),
-			Decimal("72.0")
-		)
-		self.assertEqual(
-			report.round_to_increment("72.11", "0.5", "Up"),
+			report.round_to_increment("72.11", "0.5"),
 			Decimal("72.5")
 		)
 		self.assertEqual(
-			report.round_to_increment("72.89", "0.5", "Down"),
+			report.round_to_increment("72.5", "0.5"),
 			Decimal("72.5")
 		)
 
 	def test_markup_and_margin_are_distinct_after_rounding(self):
-		result = report.calculate_price("46", "43", "10", "Nearest")
+		result = report.calculate_price("46", "43", "10")
 		self.assertEqual(result["actual_markup_percent"], Decimal("43.281"))
 		self.assertEqual(result["gross_margin_percent"], Decimal("30.207"))
 
 	def test_zero_cost_returns_no_price(self):
 		self.assertIsNone(
-			report.calculate_price("0", "43", "10", "Nearest")
+			report.calculate_price("0", "43", "10")
 		)
 
 	def test_zero_vat_does_not_divide_by_zero(self):
-		result = report.calculate_price("10", "25", "0", "Nearest")
+		result = report.calculate_price("10", "25", "0")
 		self.assertEqual(result["net_price"], Decimal("12.500"))
 		self.assertEqual(result["gross_price"], Decimal("12.500"))
 
@@ -170,7 +166,6 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			"cost_source": "Current Valuation Rate",
 			"expense_burden": 5,
 			"vat_percent": 10,
-			"rounding_method": "Nearest",
 			"regular_markup": 43,
 			"b2b_markup": 33,
 			"tier_1_minimum": 5,
@@ -366,7 +361,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 			"company": "WS", "from_date": "2026-01-01", "to_date": "2026-12-31",
 			"regular_price_list": "Regular", "b2b_price_list": "B2B",
 			"cost_source": "Current Valuation Rate", "expense_burden": 0,
-			"vat_percent": 10, "rounding_method": "Nearest",
+			"vat_percent": 10,
 			"regular_markup": 43, "b2b_markup": 33,
 			"tier_1_minimum": 5, "tier_1_maximum": 9, "tier_1_markup": 31,
 			"tier_2_minimum": 10, "tier_2_maximum": 19, "tier_2_markup": 29,
@@ -423,7 +418,7 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		required_fields = [
 			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
 			"regular_price_list", "b2b_price_list", "include_items_without_sales", "cost_source",
-			"expense_burden", "vat_percent", "rounding_method",
+			"expense_burden", "vat_percent",
 			"regular_markup", "b2b_markup"
 		]
 		for index in range(1, 5):
@@ -431,7 +426,6 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		for fieldname in required_fields:
 			self.assertIn('"fieldname": "{0}"'.format(fieldname), javascript)
 		self.assertIn(r"Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate", javascript)
-		self.assertIn(r"Nearest\nUp\nDown", javascript)
 		self.assertNotIn("frappe.call", javascript)
 		self.assertNotIn("add_inner_button", javascript)
 		self.assertIn("pricing-strategy-filter-label", javascript)
@@ -443,9 +437,10 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertEqual(filter_order[-1], "include_items_without_sales")
 		self.assertEqual(filter_order[9:14], [
 			"cost_source", "expense_burden", "vat_percent",
-			"rounding_method", "regular_markup"
+			"regular_markup", "b2b_markup"
 		])
 		self.assertNotIn('"fieldname": "rounding_increment"', javascript)
+		self.assertNotIn('"fieldname": "rounding_method"', javascript)
 		self.assertNotIn("margin:0 !important;padding:0 !important", javascript)
 		self.assertIn("padding-top:0 !important;padding-bottom:0 !important", javascript)
 
