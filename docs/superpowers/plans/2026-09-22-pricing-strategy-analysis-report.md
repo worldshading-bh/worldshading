@@ -239,6 +239,10 @@ Register the standard report under module `Worldshading`, reference DocType `Ite
 
 Use `frappe.query_reports["Pricing Strategy Analysis"] = {filters: [...]}`. Use functions only for safe defaults and link queries. Supply all spec filters with the exact backend fieldnames. Use ordinary ES5-compatible function syntax and no external library.
 
+The Cost Source options must be exactly `Current Valuation Rate`, `Latest Purchase
+Rate`, and `Weighted Average Purchase Rate`. The Rounding Method options must be
+exactly `Nearest`, `Up`, and `Down`.
+
 - [ ] **Step 4: Run tests and static checks**
 
 Run:
