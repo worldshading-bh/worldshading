@@ -57,7 +57,7 @@ def test_rounding_methods(self):
 
 def test_markup_and_margin_are_distinct(self):
     result = report.calculate_price("46", "43", "10", "1", "Nearest")
-    self.assertEqual(result["actual_markup_percent"], Decimal("42.293"))
+    self.assertEqual(result["actual_markup_percent"], Decimal("42.292"))
     self.assertEqual(result["gross_margin_percent"], Decimal("29.722"))
 ```
 
@@ -85,7 +85,7 @@ Use `Decimal(str(value or 0))`, `ROUND_HALF_UP`, `ROUND_CEILING`, and `ROUND_FLO
     "net_price": Decimal("65.455"),
     "gross_price": Decimal("72.000"),
     "profit": Decimal("19.455"),
-    "actual_markup_percent": Decimal("42.293"),
+    "actual_markup_percent": Decimal("42.292"),
     "gross_margin_percent": Decimal("29.722")
 }
 ```
