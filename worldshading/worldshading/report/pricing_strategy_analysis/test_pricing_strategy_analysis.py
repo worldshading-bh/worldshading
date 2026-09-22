@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 
 import unittest
+from contextlib import ExitStack
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
@@ -229,7 +230,89 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 			frappe_mock.db.get_value.side_effect = get_value
 			frappe_mock.throw.side_effect = frappe.ValidationError
 			with self.assertRaises(frappe.ValidationError):
-				report.validate_master_filters(filters)
+					report.validate_master_filters(filters)
+
+
+class TestPricingStrategyReport(unittest.TestCase):
+
+	def test_execute_assembles_json_serializable_row(self):
+		filters = self._filters()
+		with self._mock_readers() as readers:
+			columns, data, message, chart = report.execute(filters)
+		self.assertEqual(data[0]["item_code"], "A")
+		self.assertEqual(data[0]["recommended_regular_gross"], 72.0)
+		self.assertEqual(data[0]["suggested_action"], "Increase Price")
+		self.assertIsNone(chart)
+		self.assertIsNone(message)
+		self.assertTrue(any(column["fieldname"] == "tier_4_net" for column in columns))
+		self.assertEqual(readers["items"].call_count, 1)
+
+	def test_execute_excludes_items_without_sales_when_requested(self):
+		filters = self._filters()
+		filters["include_items_without_sales"] = 0
+		with self._mock_readers(sales={}):
+			columns, data, message, chart = report.execute(filters)
+		self.assertEqual(data, [])
+
+	def test_execute_keeps_missing_cost_with_warning(self):
+		filters = self._filters()
+		with self._mock_readers(stock={"A": {"valuation_rate": None, "available_qty": 0, "warnings": []}}):
+			columns, data, message, chart = report.execute(filters)
+		self.assertIsNone(data[0]["recommended_regular_net"])
+		self.assertIn("Missing cost", data[0]["warnings"])
+
+	def test_runtime_tier_labels_and_gap_message(self):
+		filters = self._filters()
+		filters["tier_2_minimum"] = 11
+		with self._mock_readers():
+			columns, data, message, chart = report.execute(filters)
+		labels = [column["label"] for column in columns]
+		self.assertIn("Qty 5-9 Net", labels)
+		self.assertIn("Qty 40+ Net", labels)
+		self.assertIn("Quantity tier gap between 9 and 11", message)
+
+	def _filters(self):
+		return {
+			"company": "WS", "from_date": "2026-01-01", "to_date": "2026-12-31",
+			"regular_price_list": "Regular", "b2b_price_list": "B2B",
+			"cost_source": "Current Valuation Rate", "expense_burden": 0,
+			"vat_percent": 10, "rounding_method": "Nearest", "rounding_increment": 1,
+			"regular_markup": 43, "b2b_markup": 33,
+			"tier_1_minimum": 5, "tier_1_maximum": 9, "tier_1_markup": 31,
+			"tier_2_minimum": 10, "tier_2_maximum": 19, "tier_2_markup": 29,
+			"tier_3_minimum": 20, "tier_3_maximum": 39, "tier_3_markup": 27,
+			"tier_4_minimum": 40, "tier_4_maximum": "", "tier_4_markup": 25,
+			"include_items_without_sales": 1
+		}
+
+	def _mock_readers(self, stock=None, sales=None):
+		stock = stock if stock is not None else {
+			"A": {"valuation_rate": Decimal("46"), "available_qty": Decimal("3"), "warnings": []}
+		}
+		sales = sales if sales is not None else {
+			"A": {"sales_qty": Decimal("2"), "sales_value": Decimal("130"),
+				  "weighted_average_sold_rate": Decimal("65"), "warnings": []}
+		}
+		stack = ExitStack()
+		mocks = {
+			"master": stack.enter_context(patch.object(report, "validate_master_filters", return_value="BHD")),
+			"items": stack.enter_context(patch.object(report, "get_items", return_value=[{
+				"item_code": "A", "item_name": "Item A", "item_group": "Products",
+				"brand": "", "stock_uom": "Nos"
+			}])),
+			"stock": stack.enter_context(patch.object(report, "get_stock_data", return_value=stock)),
+			"purchase": stack.enter_context(patch.object(report, "get_purchase_data", return_value={})),
+			"sales": stack.enter_context(patch.object(report, "get_sales_data", return_value=sales)),
+			"prices": stack.enter_context(patch.object(report, "get_item_prices", return_value={
+				"A": {"current_normal_price": Decimal("60"), "current_b2b_price": Decimal("55"), "warnings": []}
+			}))
+		}
+		class ManagedStack(object):
+			def __enter__(self_inner):
+				return mocks
+			def __exit__(self_inner, exc_type, exc_value, traceback):
+				return stack.__exit__(exc_type, exc_value, traceback)
+		return ManagedStack()
 
 
 if __name__ == "__main__":

@@ -223,6 +223,16 @@ def calculate_item_row(item, context):
 			"suggested_action": "",
 			"warnings": compose_warnings(warnings + ["Missing cost"])
 		})
+		for prefix in ["recommended_regular", "recommended_b2b"] + [
+			"tier_{0}".format(index) for index in range(1, 5)
+		]:
+			for suffix in ("net", "gross", "profit", "actual_markup_percent", "gross_margin_percent"):
+				row[prefix + "_" + suffix] = None
+		row["b2b_discount_percent"] = None
+		row["change_from_current_normal"] = None
+		row["change_from_current_normal_percent"] = None
+		for index in range(1, 5):
+			row["tier_{0}_discount_percent".format(index)] = None
 		return row
 
 	expense_amount = base_cost * context["expense_burden"] / Decimal("100")
@@ -552,3 +562,163 @@ def normalize_item_prices(rows, regular_price_list, b2b_price_list):
 		entry.setdefault("current_normal_price", None)
 		entry.setdefault("current_b2b_price", None)
 	return result
+
+
+def execute(filters=None):
+	filters = validate_and_normalize_filters(filters)
+	validate_master_filters(filters)
+	items = get_items(filters)
+	item_codes = [row.get("item_code") for row in items]
+	stock_data = get_stock_data(filters, item_codes)
+	purchase_data = get_purchase_data(filters, item_codes)
+	sales_data = get_sales_data(filters, item_codes)
+	price_data = get_item_prices(filters, item_codes)
+
+	data = []
+	for item in items:
+		item_code = item.get("item_code")
+		sales = sales_data.get(item_code)
+		if not filters["include_items_without_sales"] and not sales:
+			continue
+		stock = stock_data.get(item_code, {})
+		purchase = purchase_data.get(item_code, {})
+		prices = price_data.get(item_code, {})
+		row = dict(item)
+		row.update({
+			"available_qty": stock.get("available_qty", Decimal("0.000")),
+			"valuation_rate": stock.get("valuation_rate"),
+			"latest_purchase_rate": purchase.get("latest_purchase_rate"),
+			"weighted_average_purchase_rate": purchase.get("weighted_average_purchase_rate"),
+			"current_normal_price": prices.get("current_normal_price"),
+			"current_b2b_price": prices.get("current_b2b_price")
+		})
+		if sales:
+			row.update(sales)
+		warnings = []
+		for source in (stock, purchase, sales or {}, prices):
+			warnings.extend(source.get("warnings") or [])
+		if not sales:
+			warnings.append("No recent sales")
+		row["warnings"] = warnings
+		_set_selected_cost(row, filters["cost_source"])
+		row = calculate_item_row(row, filters)
+		_add_analysis_warnings(row)
+		data.append(_serialize_row(row))
+
+	message = None
+	if filters["gap_messages"]:
+		message = "<br>".join(filters["gap_messages"])
+	return get_columns(filters), data, message, None
+
+
+def _set_selected_cost(row, cost_source):
+	field_by_source = {
+		"Current Valuation Rate": "valuation_rate",
+		"Latest Purchase Rate": "latest_purchase_rate",
+		"Weighted Average Purchase Rate": "weighted_average_purchase_rate"
+	}
+	fieldname = field_by_source[cost_source]
+	row["selected_base_cost"] = row.get(fieldname)
+	row["cost_source_detail"] = cost_source
+
+
+def _add_analysis_warnings(row):
+	warnings = []
+	if row.get("warnings"):
+		warnings.extend(str(row["warnings"]).split("; "))
+	loaded_cost = row.get("fully_loaded_cost")
+	current_price = row.get("current_normal_price")
+	average_rate = row.get("weighted_average_sold_rate")
+	recommended = row.get("recommended_regular_net")
+	if loaded_cost is not None and current_price is not None:
+		if to_decimal(current_price) < to_decimal(loaded_cost):
+			warnings.append("Current normal price is below loaded cost")
+	if recommended is not None and average_rate is not None:
+		if to_decimal(recommended) < to_decimal(average_rate):
+			warnings.append("Recommended regular price is below historical average")
+	row["warnings"] = compose_warnings(warnings)
+
+
+def _serialize_row(row):
+	result = {}
+	for key, value in row.items():
+		result[key] = float(value) if isinstance(value, Decimal) else value
+	return result
+
+
+def get_columns(filters):
+	columns = [
+		_column("Item Code", "item_code", "Link", 130, "Item"),
+		_column("Item Name", "item_name", "Data", 200),
+		_column("Item Group", "item_group", "Link", 130, "Item Group"),
+		_column("Brand", "brand", "Link", 100, "Brand"),
+		_column("Stock UOM", "stock_uom", "Link", 90, "UOM"),
+		_column("Available Qty", "available_qty", "Float", 100),
+		_column("Valuation Rate", "valuation_rate", "Currency", 110),
+		_column("Latest Purchase Rate", "latest_purchase_rate", "Currency", 125),
+		_column("Average Purchase Rate", "weighted_average_purchase_rate", "Currency", 130),
+		_column("Selected Base Cost", "selected_base_cost", "Currency", 120),
+		_column("Cost Source", "cost_source_detail", "Data", 150),
+		_column("Expense Amount", "expense_amount", "Currency", 110),
+		_column("Fully Loaded Cost", "fully_loaded_cost", "Currency", 120),
+		_column("Sales Qty", "sales_qty", "Float", 90),
+		_column("Sales Value", "sales_value", "Currency", 105),
+		_column("Invoice Count", "invoice_count", "Int", 95),
+		_column("Last Sale Date", "last_sale_date", "Date", 105),
+		_column("Last Sold Rate", "last_sold_rate", "Currency", 105),
+		_column("Average Sold Rate", "weighted_average_sold_rate", "Currency", 115),
+		_column("Lowest Sold Rate", "lowest_sold_rate", "Currency", 110),
+		_column("Highest Sold Rate", "highest_sold_rate", "Currency", 110),
+		_column("Current Normal Price", "current_normal_price", "Currency", 125),
+		_column("Current B2B Price", "current_b2b_price", "Currency", 115)
+	]
+	columns.extend(_price_columns("Regular", "recommended_regular", True))
+	columns.extend([
+		_column("Change from Current", "change_from_current_normal", "Currency", 120),
+		_column("Change from Current %", "change_from_current_normal_percent", "Percent", 130)
+	])
+	columns.extend(_price_columns("B2B", "recommended_b2b", False))
+	columns.append(_column("B2B Discount from Regular %", "b2b_discount_percent", "Percent", 155))
+	for index, tier in enumerate(filters["tiers"], 1):
+		label = _tier_label(tier)
+		prefix = "tier_{0}".format(index)
+		columns.extend([
+			_column(label + " Net", prefix + "_net", "Currency", 105),
+			_column(label + " Incl. VAT", prefix + "_gross", "Currency", 115),
+			_column(label + " Discount %", prefix + "_discount_percent", "Percent", 120),
+			_column(label + " Profit/Unit", prefix + "_profit", "Currency", 115),
+			_column(label + " Gross Margin %", prefix + "_gross_margin_percent", "Percent", 135)
+		])
+	columns.extend([
+		_column("Suggested Action", "suggested_action", "Data", 110),
+		_column("Warnings", "warnings", "Data", 280)
+	])
+	return columns
+
+
+def _price_columns(label, prefix, include_markup):
+	columns = [
+		_column("Recommended {0} Net".format(label), prefix + "_net", "Currency", 130),
+		_column("Recommended {0} Incl. VAT".format(label), prefix + "_gross", "Currency", 145),
+		_column(label + " Profit/Unit", prefix + "_profit", "Currency", 115)
+	]
+	if include_markup:
+		columns.append(_column(label + " Actual Markup %", prefix + "_actual_markup_percent", "Percent", 130))
+	columns.append(_column(label + " Gross Margin %", prefix + "_gross_margin_percent", "Percent", 130))
+	return columns
+
+
+def _tier_label(tier):
+	minimum = _format_decimal(tier["minimum"])
+	if tier["maximum"] is None:
+		return "Qty {0}+".format(minimum)
+	return "Qty {0}-{1}".format(minimum, _format_decimal(tier["maximum"]))
+
+
+def _column(label, fieldname, fieldtype, width, options=None):
+	column = {
+		"label": label, "fieldname": fieldname, "fieldtype": fieldtype, "width": width
+	}
+	if options:
+		column["options"] = options
+	return column
