@@ -311,6 +311,10 @@ def make_request_for_quotation(source_name=None):
 	rfq.status = 'Draft'
 	rfq.supplier_group = supplier_group
 	rfq.country_of_purchase = purchase_country
+	if frappe.get_meta('Request for Quotation').has_field('warehouse'):
+		rfq.warehouse = warehouse_values[0].name
+	if frappe.get_meta('Request for Quotation').has_field('required_date'):
+		rfq.required_date = nowdate()
 	if frappe.get_meta('Request for Quotation').has_field(
 			'prepared_purchase_plan'):
 		rfq.prepared_purchase_plan = get_prepared_purchase_plan(

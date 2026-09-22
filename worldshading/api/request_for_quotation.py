@@ -5,16 +5,38 @@ import re
 import frappe
 from frappe import _
 from frappe.core.doctype.communication.email import make
-from frappe.utils import cint, flt, validate_email_address
+from frappe.utils import cint, flt, nowdate, validate_email_address
 
 
 SUPPLIER_ITEM_GROUP_FIELD = "supplier_item_group"
 SUPPLIER_ITEM_GROUP_DOCTYPE = "Supplier Item Group"
+LOCAL_RECEIVING_WAREHOUSE = "Receiving - Local - WS"
+IMPORT_RECEIVING_WAREHOUSE = "Receiving - Import - WS"
 
 
 def set_total_quantity(doc, method=None):
 	"""Set the RFQ total quantity from its item rows before save."""
 	doc.total_quantity = sum(flt(row.qty) for row in (doc.items or []))
+
+
+def set_item_schedule_and_warehouse(doc, method=None):
+	"""Apply populated RFQ header values to every Item row before save."""
+	warehouse = doc.get("warehouse")
+	if not warehouse and doc.meta.has_field("warehouse"):
+		country = (doc.get("country_of_purchase") or "").strip().lower()
+		warehouse = LOCAL_RECEIVING_WAREHOUSE \
+			if country == "bahrain" else IMPORT_RECEIVING_WAREHOUSE
+		doc.warehouse = warehouse
+	required_date = doc.get("required_date")
+	if not required_date and doc.meta.has_field("required_date"):
+		required_date = nowdate()
+		doc.required_date = required_date
+
+	for row in (doc.items or []):
+		if warehouse:
+			row.warehouse = warehouse
+		if required_date:
+			row.schedule_date = required_date
 
 
 def set_packing_details(doc, method=None):
@@ -94,7 +116,7 @@ def send_supplier_emails_with_review(
 	if rfq.docstatus != 1:
 		frappe.throw(_("Only submitted Requests for Quotation can be emailed."))
 
-	sender = _validate_outgoing_sender(sender)
+	sender, email_account = _validate_outgoing_sender(sender)
 	subject = _append_rfq_number(subject, rfq.name)
 	message = message or ""
 	if not subject:
@@ -105,6 +127,18 @@ def send_supplier_emails_with_review(
 	cc_recipients = _get_reviewed_recipients(
 		cc, required=False, field_label=_("CC")
 	)
+	default_cc = (email_account.get("custom_default_cc") or "").strip()
+	default_cc_recipients = _get_reviewed_recipients(
+		default_cc, required=False, field_label=_("Default CC")
+	)
+	if default_cc_recipients:
+		default_cc_addresses = set([
+			email_id.lower() for email_id in default_cc_recipients
+		])
+		cc_recipients = default_cc_recipients + [
+			email_id for email_id in cc_recipients
+			if email_id.lower() not in default_cc_addresses
+		]
 	bcc_recipients = _get_reviewed_recipients(
 		bcc, required=False, field_label=_("BCC")
 	)
@@ -241,7 +275,7 @@ def _validate_outgoing_sender(sender):
 	if not linked_account:
 		frappe.throw(_("You are not permitted to send from {0}.").format(sender))
 
-	return sender
+	return sender, frappe.get_doc("Email Account", account)
 
 
 def _get_last_purchase_details(item_codes, company=None):

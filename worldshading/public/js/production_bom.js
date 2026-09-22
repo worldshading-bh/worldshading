@@ -41,6 +41,26 @@
 		frm.__production_bom_loaded_qty_by_parent = frm.__production_bom_loaded_qty_by_parent || {};
 	}
 
+	function reapply_quotation_pricing_rules(frm) {
+		if (
+			!frm
+			|| frm.doctype !== "Quotation"
+			|| frm.doc.docstatus !== 0
+			|| !frm.cscript
+			|| !frm.cscript.apply_pricing_rule
+			|| frm.__mixed_condition_pricing_scheduled
+		) {
+			return;
+		}
+
+		frm.__mixed_condition_pricing_scheduled = true;
+
+		frappe.after_ajax(function () {
+			frm.__mixed_condition_pricing_scheduled = false;
+			return frm.cscript.apply_pricing_rule();
+		});
+	}
+
 	function calculate_totals(frm) {
 		var total = 0;
 		var table_changed = false;
@@ -917,6 +937,59 @@
 	frappe.ui.form.on("Quotation", {
 		refresh: function (frm) {
 			calculate_totals(frm);
+
+			if (frm.doc.docstatus === 1 && ["Lost", "Expired", "Ordered", "Cancelled"].indexOf(frm.doc.status) === -1) {
+				frm.add_custom_button(__("Payment Request"), function () {
+					frappe.call({
+						method: "worldshading.payments.quotation.get_available_amount",
+						args: { quotation: frm.doc.name },
+						callback: function (r) {
+							var available = r.message && r.message.amount;
+							var currency = (r.message && r.message.currency) || frm.doc.currency;
+
+							if (!available || available <= 0) {
+								frappe.msgprint(__("The full Quotation amount has already been requested."));
+								return;
+							}
+
+							var dialog = new frappe.ui.Dialog({
+								title: __("Payment Request"),
+								fields: [
+									{
+										fieldname: "amount",
+										fieldtype: "Currency",
+										label: __("Amount"),
+										options: currency,
+										reqd: 1,
+										default: available
+									}
+								],
+								primary_action_label: __("Create"),
+								primary_action: function (values) {
+									dialog.get_primary_btn().prop("disabled", true);
+									frappe.call({
+										method: "worldshading.payments.quotation.create_draft_payment_request",
+										args: {
+											quotation: frm.doc.name,
+											amount: values.amount
+										},
+										callback: function (create_response) {
+											if (create_response.message && create_response.message.name) {
+												dialog.hide();
+												frappe.set_route("Form", "Payment Request", create_response.message.name);
+											}
+										},
+										always: function () {
+											dialog.get_primary_btn().prop("disabled", false);
+										}
+									});
+								}
+							});
+							dialog.show();
+						}
+					});
+				}, __("Create"));
+			}
 		},
 		validate: function (frm) {
 			remove_orphan_rows(frm);
@@ -959,9 +1032,11 @@
 			load_parent_bom(frm, locals[cdt][cdn], {
 				reload_existing: true
 			});
+			reapply_quotation_pricing_rules(frm);
 		},
 		items_remove: function (frm) {
 			remove_orphan_rows(frm);
+			reapply_quotation_pricing_rules(frm);
 		}
 	});
 

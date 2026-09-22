@@ -233,6 +233,15 @@ def link_blocked_reason(txn):
 	# Whatever settled it -- cash, another gateway, a credit note -- if nothing is
 	# owed then nothing should be collectable through this link.
 	if reference_doctype and reference_name:
+		if reference_doctype == "Quotation":
+			quotation = frappe.db.get_value(
+				"Quotation", reference_name, ["docstatus", "status"], as_dict=True
+			)
+			if not quotation or quotation.docstatus != 1:
+				return _("This quotation is no longer submitted.")
+			if quotation.status in ("Lost", "Expired", "Ordered", "Cancelled"):
+				return _("This quotation is {0}.").format(quotation.status)
+
 		if frappe.get_meta(reference_doctype).has_field("outstanding_amount"):
 			outstanding = frappe.db.get_value(
 				reference_doctype, reference_name, "outstanding_amount"
@@ -328,6 +337,7 @@ def settle(txn_name):
 		return
 
 	if row[0].get("settled"):
+		_create_sales_order_for_settled_quotation(txn_name)
 		return
 
 	txn = frappe.get_doc(TRANSACTION_DOCTYPE, txn_name)
@@ -342,6 +352,14 @@ def settle(txn_name):
 		return
 
 	payment_request = frappe.get_doc("Payment Request", txn.payment_request)
+	if payment_request.reference_doctype == "Quotation":
+		# Serialize settlement per request as well as per gateway transaction. This
+		# prevents two captured attempts for one link from both posting an advance.
+		frappe.db.sql(
+			"select name from `tabPayment Request` where name = %s for update",
+			payment_request.name,
+		)
+		payment_request.reload()
 
 	if payment_request.docstatus != 1:
 		logger().error(
@@ -369,13 +387,17 @@ def settle(txn_name):
 		# We do not use the documented on_payment_authorized() hook either: it wraps
 		# set_as_paid() in webshop redirect logic that is meaningless for a Payment
 		# Request emailed to a customer.
-		payment_entry = payment_request.create_payment_entry(submit=False)
+		if payment_request.reference_doctype == "Quotation":
+			from worldshading.payments.quotation import create_advance_payment_entry
+			payment_entry = create_advance_payment_entry(payment_request, txn)
+		else:
+			payment_entry = payment_request.create_payment_entry(submit=False)
 
 		# mode_of_payment is mandatory on Payment Entry on this site (a Property
 		# Setter), and ERPNext's get_payment_entry() never populates it. The first
 		# live settlement died on exactly this. Take it from the gateway's Settings.
 		mode_of_payment = gateway_mode_of_payment(txn.gateway)
-		if mode_of_payment:
+		if payment_request.reference_doctype != "Quotation" and mode_of_payment:
 			payment_entry.mode_of_payment = mode_of_payment
 
 		# Money lands in the account of the gateway that actually took it, not the
@@ -384,7 +406,7 @@ def settle(txn_name):
 		from worldshading.payments.gateways import deposit_account
 
 		account = deposit_account(txn.gateway)
-		if account:
+		if payment_request.reference_doctype != "Quotation" and account:
 			payment_entry.paid_to = account
 
 		# Leave workflow_state ALONE. Payment Entry has an active workflow: a new
@@ -393,16 +415,25 @@ def settle(txn_name):
 		# ("Completed") as part of submit. Setting it here would be rejected as an
 		# illegal transition, because a brand new doc has no _doc_before_save to
 		# transition from.
-		payment_entry.insert(ignore_permissions=True)
+		if payment_request.reference_doctype != "Quotation":
+			payment_entry.insert(ignore_permissions=True)
 
 		# Submitting fires ERPNext's update_payment_req_status, which moves the
 		# Payment Request to Paid / Partially Paid on its own. We never set that
 		# status ourselves.
-		payment_entry.submit()
+		if payment_request.reference_doctype != "Quotation":
+			payment_entry.submit()
 
 		# Mirrors the second half of set_as_paid(). A no-op unless the reference is
 		# a Shopping Cart order, which ours never are.
-		payment_request.make_invoice()
+		if payment_request.reference_doctype != "Quotation":
+			payment_request.make_invoice()
+		else:
+			payment_request.reload()
+			if payment_request.status != "Paid":
+				frappe.throw(
+					_("Quotation Payment Request status was not updated after settlement.")
+				)
 
 		txn.db_set("payment_entry", payment_entry.name, update_modified=False)
 		txn.db_set("settled", 1, update_modified=False)
@@ -421,6 +452,37 @@ def settle(txn_name):
 		# Leave settled = 0 so a later reconciliation can retry. The money is
 		# captured at the bank either way; the transaction record proves it.
 		raise
+
+	_create_sales_order_for_settled_quotation(txn_name)
+
+
+def _create_sales_order_for_settled_quotation(txn_name):
+	"""Create the downstream draft without risking an already-posted payment."""
+	try:
+		txn = frappe.get_doc(TRANSACTION_DOCTYPE, txn_name)
+		if not txn.settled or not txn.payment_entry or not txn.payment_request:
+			return
+
+		payment_request = frappe.get_doc("Payment Request", txn.payment_request)
+		if payment_request.reference_doctype != "Quotation":
+			return
+
+		from worldshading.payments.quotation import create_draft_sales_order_if_missing
+
+		sales_order = create_draft_sales_order_if_missing(
+			payment_request.reference_name
+		)
+		frappe.db.commit()
+		logger().info(
+			"quotation %s -> draft Sales Order %s",
+			payment_request.reference_name, sales_order,
+		)
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error(
+			frappe.get_traceback(),
+			"Automatic Sales Order creation failed: {0}".format(txn_name),
+		)
 
 
 def record_payload(txn, field, payload):

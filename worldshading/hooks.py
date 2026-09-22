@@ -146,6 +146,7 @@ app_include_css = "/assets/worldshading/css/custom_theme.css"
 
 app_include_js = [
     "/assets/worldshading/js/email_signature_preview.js",
+    "/assets/worldshading/js/email_validation.js",
     "/assets/worldshading/js/whatsapp_notification.js",
     "/assets/worldshading/js/customer_quick_entry.js",
     "/assets/worldshading/js/global_list_patch.js",
@@ -179,7 +180,11 @@ scheduler_events = {
         # "worldshading.scheduler_events.overdue_assignments.assign_overdue_sales_orders",
         "worldshading.scheduler_events.journal_entry_followups.auto_transition_jv",
         "worldshading.scheduler_events.purchase_order_scheduler.auto_update_purchase_order",
-        "worldshading.scheduler_events.payment_entry_scheduler.auto_activate_scheduled_payments"
+        "worldshading.scheduler_events.payment_entry_scheduler.auto_activate_scheduled_payments",
+        "worldshading.api.sijilat.mark_expired_customer_crs"
+    ],
+    "monthly": [
+        "worldshading.api.sijilat.enqueue_expired_customer_cr_rechecks"
     ],
     "hourly": [
         "worldshading.scheduler_events.hourly_tasks.assign_unpaid_invoices"
@@ -207,7 +212,8 @@ scheduler_events = {
         "*/5 * * * *": [
             "worldshading.scheduler_events.service_visit_scheduler.send_service_visit_reminders",
             "worldshading.scheduler_events.work_order_scheduler.send_work_order_reminders",
-            "worldshading.scheduler_events.sent_items_sync.sync_sent_items"
+            "worldshading.scheduler_events.sent_items_sync.sync_sent_items",
+            "worldshading.api.sijilat.enqueue_existing_customer_cr_verification"
         ],
 
         # "*/10 7-19 * * *": [
@@ -219,6 +225,14 @@ scheduler_events = {
 
 
 fixtures = [
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["name", "in", [
+                "Email Account-custom_default_cc"
+            ]]
+        ]
+    },
     {
         "doctype": "DocType",
         "filters": [
@@ -240,16 +254,25 @@ fixtures = [
 
 doctype_js = {
     "Material Request": "public/js/material_request.js",
-    "Quotation": "public/js/production_bom.js",
-    "Sales Order": "public/js/production_bom.js",
+    "Quotation": [
+        "public/js/production_bom.js",
+        "public/js/dynamic_rounding_preview.js"
+    ],
+    "Sales Order": [
+        "public/js/production_bom.js",
+        "public/js/dynamic_rounding_preview.js"
+    ],
+    "Sales Invoice": "public/js/dynamic_rounding_preview.js",
     "Work Order": "public/js/work_order_team.js",
-    "Request for Quotation": "public/js/request_for_quotation.js"
+    "Request for Quotation": "public/js/request_for_quotation.js",
+    "Email Account": "public/js/email_account.js"
 }
 
 
 
 override_whitelisted_methods = {
     "frappe.desk.form.utils.validate_link": "worldshading.api.legacy_groups.validate_link",
+    "frappe.core.doctype.communication.email.make": "worldshading.api.email_signature.make_with_default_cc",
     "erpnext.buying.doctype.request_for_quotation.request_for_quotation.send_supplier_emails": "worldshading.api.request_for_quotation.block_standard_supplier_email_send",
     "worldshading.api.public_pdf.download_public_pdf": "worldshading.api.public_pdf.download_public_pdf",
     "worldshading.api.loyalty.get_loyalty_points": "worldshading.api.loyalty.get_loyalty_points",
@@ -260,6 +283,8 @@ override_whitelisted_methods = {
 
 doctype_list_js = {
     "Material Request": "public/js/material_request_list.js",
+    "Sales Order": "public/js/sales_order_list.js",
+    "Customer": "public/js/customer_list.js",
     # "Purchase Invoice": "public/js/purchase_invoice_list.js",
 }
 
@@ -279,6 +304,7 @@ doc_events = {
     "Request for Quotation": {
         "validate": [
             "worldshading.api.request_for_quotation.set_total_quantity",
+            "worldshading.api.request_for_quotation.set_item_schedule_and_warehouse",
             "worldshading.api.request_for_quotation.set_packing_details",
             "worldshading.api.request_for_quotation.set_last_purchase_details",
             "worldshading.api.request_for_quotation.validate_supplier_item_groups"
@@ -294,6 +320,15 @@ doc_events = {
         "validate": "worldshading.events.email_account.sync_signature_html"
     },
 
+    "Payment Request": {
+        "before_validate": "worldshading.payments.quotation.install_quotation_amount_support",
+        "before_submit": [
+            "worldshading.payments.quotation.validate_quotation_payment_request",
+            "worldshading.events.payment_request_email.mute_automatic_email_on_submit"
+        ],
+        "on_submit": "worldshading.events.payment_request_email.generate_payment_url_without_email"
+    },
+
     "Material Request": {
         "before_submit": "worldshading.events.material_request_event.make_stock_qty_zero"
     },
@@ -305,6 +340,12 @@ doc_events = {
     },
     "Supplier": {
         "validate": "worldshading.api.legacy_groups.validate_active_group_assignment"
+    },
+    "Customer": {
+        "validate": [
+            "worldshading.api.sijilat.reset_customer_cr_verification",
+            "worldshading.api.business_pricing.validate_customer_secret_price_list_assignment"
+        ]
     },
     "Item Group": {
         "validate": "worldshading.api.legacy_groups.validate_group_state"
@@ -323,7 +364,11 @@ doc_events = {
     "Quotation": {
         "validate": [
             "worldshading.overrides.quotation.cleanup_abandoned_packed_items",
-            "worldshading.events.production_bom.validate_transaction_bom"
+            "worldshading.events.production_bom.validate_transaction_bom",
+            "worldshading.api.quotation_packed_pricing.apply_quotation_packed_pricing",
+            "worldshading.api.business_pricing.set_regular_price_list_rates",
+            "worldshading.api.business_pricing.validate_verified_business_price_list",
+            "worldshading.api.dynamic_rounding.apply_dynamic_rounding"
         ],
         "after_insert": "worldshading.events.service_visit_link.sync_quotation_link",
         "on_submit": "worldshading.events.service_visit_link.mark_visit_quotation_created",
@@ -335,7 +380,10 @@ doc_events = {
     "Sales Order": {
         "validate": [
             "worldshading.overrides.sales_order.validate",
-            "worldshading.events.production_bom.validate_transaction_bom"
+            "worldshading.events.production_bom.validate_transaction_bom",
+            "worldshading.api.business_pricing.set_regular_price_list_rates",
+            "worldshading.api.business_pricing.validate_verified_business_price_list",
+            "worldshading.api.dynamic_rounding.apply_dynamic_rounding"
         ],
         "after_save": "worldshading.overrides.sales_order.custom_after_save",
         "after_insert": "worldshading.events.service_visit_link.sync_sales_order_link",
@@ -348,6 +396,11 @@ doc_events = {
     },
 
     "Sales Invoice": {
+        "validate": [
+            "worldshading.api.business_pricing.set_regular_price_list_rates",
+            "worldshading.api.business_pricing.validate_verified_business_price_list",
+            "worldshading.api.dynamic_rounding.apply_dynamic_rounding"
+        ],
         "after_insert": "worldshading.events.service_visit_link.sync_sales_invoice_link",
         "on_submit": "worldshading.events.service_visit_link.mark_visit_invoiced",
         "before_cancel": "worldshading.events.service_visit_link.unlink_sales_invoice_on_cancel",
@@ -355,6 +408,10 @@ doc_events = {
     },
 
     "Payment Entry": {
+        "validate": [
+            "worldshading.events.payment_entry_contact.set_payment_entry_contact",
+            "worldshading.events.payment_entry_balance_snapshot.set_invoice_balance_snapshot"
+        ],
         "before_submit": [
             "worldshading.events.service_visit_link.validate_payment_entry_service_visit_customer",
             "worldshading.events.payment_request_status.snapshot_related_statuses",

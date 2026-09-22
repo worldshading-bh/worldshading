@@ -1,0 +1,223 @@
+{%- from "templates/print_formats/standard_macros.html" import add_header -%}
+{{ add_header(0, 1, doc, letter_head, no_letterhead) }}
+
+<style>
+  .invoice-box {
+    color: #333;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 12.5px;
+    margin: auto;
+    max-width: 750px;
+    padding: 5px 0;
+  }
+
+  .invoice-box table {
+    border-collapse: collapse;
+    font-size: 11.5px;
+    margin-bottom: 10px;
+    width: 100%;
+  }
+
+  .invoice-box th,
+  .invoice-box td {
+    border: 1px solid #ccc;
+    padding: 6px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .invoice-box th {
+    background-color: #f5f5f5 !important;
+    font-weight: bold;
+  }
+
+  .invoice-box .details-table th {
+    width: 30%;
+  }
+
+  .invoice-box .section-title {
+    font-size: 12px;
+    font-weight: bold;
+    margin: 15px 0 5px;
+  }
+
+  .invoice-box .number {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .invoice-box .center {
+    text-align: center;
+  }
+
+  .invoice-box .primary-table {
+    border: 1px solid #000;
+  }
+
+  .invoice-box .primary-table th,
+  .invoice-box .primary-table td {
+    border-color: #000;
+  }
+
+  .invoice-box .balance-title {
+    color: #555;
+    font-size: 11px;
+    font-weight: normal;
+    margin-top: 14px;
+  }
+
+  .invoice-box .balance-table th {
+    background-color: #fafafa !important;
+  }
+
+  .invoice-box .total-row td {
+    font-weight: bold;
+  }
+
+  .invoice-box .signatures {
+    margin-top: 45px;
+    page-break-inside: avoid;
+  }
+
+  .invoice-box .signatures td {
+    border: 0;
+    padding: 0 14px !important;
+    text-align: center;
+    width: 33.33%;
+  }
+
+  .invoice-box .signature-line {
+    border-top: 1px solid #555;
+    display: block;
+    padding-top: 5px;
+  }
+
+  .invoice-box .notes {
+    color: #666;
+    font-size: 10px;
+    margin-top: 18px;
+    text-align: center;
+  }
+
+  .invoice-box tr {
+    page-break-inside: avoid;
+  }
+</style>
+
+<div class="invoice-box">
+  {% set payment_currency = doc.paid_from_account_currency if doc.payment_type == "Receive" else doc.paid_to_account_currency %}
+
+  <div class="section-title">Payment Details</div>
+  <table class="details-table">
+    <tbody>
+      <tr>
+        <th>Voucher No.</th>
+        <td>{{ doc.name }}</td>
+      </tr>
+      <tr>
+        <th>Date</th>
+        <td>{{ frappe.utils.formatdate(doc.posting_date, "dd-MM-yyyy") }}</td>
+      </tr>
+      <tr>
+        <th>{% if doc.payment_type == "Receive" %}Received From{% else %}Paid To{% endif %}</th>
+        <td><strong>{{ doc.party_name or doc.party or "" }}</strong></td>
+      </tr>
+      <tr>
+        <th>Payment Method</th>
+        <td>{{ doc.mode_of_payment or "-" }}</td>
+      </tr>
+      <tr>
+        <th>{% if doc.payment_type == "Receive" %}Amount Received{% else %}Amount Paid{% endif %}</th>
+        <td><strong>{{ doc.get_formatted("base_paid_amount") }}</strong></td>
+      </tr>
+      <tr>
+        <th>Amount in Words</th>
+        <td>{{ frappe.utils.money_in_words(doc.base_paid_amount or doc.base_received_amount) }}</td>
+      </tr>
+      {% if doc.mode_of_payment == "Cheque" %}
+      <tr>
+        <th>Cheque No.</th>
+        <td>{{ doc.reference_no or "-" }}</td>
+      </tr>
+      <tr>
+        <th>Cheque Date</th>
+        <td>{{ doc.get_formatted("reference_date") }}</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  {% if doc.references %}
+  <div class="section-title">Payment References</div>
+  <table class="primary-table">
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Reference</th>
+        <th class="number">Prev Outstanding</th>
+        <th class="number">Allocated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set allocated_amounts = [] %}
+      {% for item in doc.references %}
+      {% if allocated_amounts.append(item.allocated_amount) %}{% endif %}
+      <tr>
+        <td>{{ item.reference_doctype or "" }}</td>
+        <td>{{ item.reference_name or "" }}</td>
+        <td class="number">{{ frappe.format_value(item.outstanding_amount, {"fieldtype": "Currency"}, currency=payment_currency) }}</td>
+        <td class="number"><strong>{{ frappe.format_value(item.allocated_amount, {"fieldtype": "Currency"}, currency=payment_currency) }}</strong></td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td colspan="3" class="number">Total Allocated</td>
+        <td class="number">{{ frappe.format_value(allocated_amounts | sum, {"fieldtype": "Currency"}, currency=payment_currency) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if doc.invoice_balance_snapshot %}
+  <div class="section-title balance-title">Outstanding Invoices After Payment</div>
+  <table class="balance-table">
+    <thead>
+      <tr>
+        <th>Invoice Number</th>
+        <th class="center">Invoice Date</th>
+        <th class="number">Invoice Amount</th>
+        <th class="number">Remaining Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set remaining_amounts = [] %}
+      {% for item in doc.invoice_balance_snapshot %}
+      {% if remaining_amounts.append(item.remaining_amount) %}{% endif %}
+      <tr>
+        <td>{{ item.invoice_number }}</td>
+        <td class="center">{{ frappe.utils.formatdate(item.invoice_date, "dd-MM-yyyy") }}</td>
+        <td class="number">{{ item.get_formatted("invoice_amount", doc) }}</td>
+        <td class="number">{{ item.get_formatted("remaining_amount", doc) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td colspan="3" class="number">Total Outstanding After Payment</td>
+        <td class="number">{{ frappe.format_value(remaining_amounts | sum, {"fieldtype": "Currency"}, currency=payment_currency) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+
+  <table class="signatures">
+    <tbody>
+      <tr>
+        <td><span class="signature-line">Prepared By</span></td>
+        <td><span class="signature-line">Authorized By</span></td>
+        <td><span class="signature-line">Customer Acknowledgement</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="notes">
+    Thank you for your payment.
+  </div>
+</div>

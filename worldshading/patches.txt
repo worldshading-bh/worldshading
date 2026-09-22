@@ -1,2 +1,5 @@
 worldshading.patches.v1.add_disabled_to_legacy_groups
 worldshading.patches.v1.add_whatsapp_url_button_fields
+worldshading.patches.v1.add_payment_entry_invoice_balance
+worldshading.patches.v1.add_payment_entry_balance_print_format
+worldshading.patches.v1.add_quotation_payment_link

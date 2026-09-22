@@ -1,0 +1,77 @@
+{
+ "creation": "2026-09-08 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "invoice_number",
+  "invoice_date",
+  "invoice_amount",
+  "this_payment",
+  "remaining_amount",
+  "currency"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "invoice_number",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Invoice Number",
+   "options": "Sales Invoice",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Invoice Date",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "invoice_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Invoice Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "this_payment",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "This Payment",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "remaining_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Remaining Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-09-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Payment Entry Invoice Balance",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC"
+}

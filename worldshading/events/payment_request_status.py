@@ -41,6 +41,10 @@ def status_for_allocation(payment_request_type, grand_total, allocated_amount, p
 def snapshot_related_statuses(doc, method=None):
 	"""Remember related PR statuses before ERPNext v12's broad status hook runs."""
 	snapshot = {}
+	linked_request = _linked_payment_request(doc)
+	if linked_request:
+		snapshot[linked_request.name] = linked_request.status
+
 	for reference_doctype, reference_name in _business_references(doc):
 		rows = frappe.get_all(
 			"Payment Request",
@@ -60,6 +64,10 @@ def snapshot_related_statuses(doc, method=None):
 def validate_explicit_allocation(doc, method=None):
 	"""Block a second PE from allocating more than the exact PR requested."""
 	linked_request = _linked_payment_request(doc)
+	if doc.get("quotation") and not linked_request:
+		frappe.throw(
+			"A Quotation advance must name its submitted Payment Request in Reference No."
+		)
 	if not linked_request:
 		return
 
@@ -87,6 +95,20 @@ def allocation_exceeds_request(requested, existing, proposed, precision=3):
 	return flt(existing + proposed, precision) > flt(requested, precision)
 
 
+def is_fully_settled(outstanding_amount, precision=3):
+	"""Return whether a referenced document has no outstanding balance."""
+	return flt(outstanding_amount, precision) == 0
+
+
+def is_paid_invoice(docstatus, status, outstanding_amount, precision=3):
+	"""Exclude cancelled and credit-note-settled invoices from manual payment sync."""
+	return (
+		docstatus == 1
+		and status == "Paid"
+		and is_fully_settled(outstanding_amount, precision)
+	)
+
+
 def party_currency(payment_type, paid_from_currency, paid_to_currency):
 	"""Return the party-side currency using ERPNext v12 Payment Entry fields."""
 	if payment_type == "Receive":
@@ -108,11 +130,28 @@ def _synchronize(doc):
 	"""Undo v12's unrelated update, then update the explicitly linked PR."""
 	snapshot = doc.flags.get(SNAPSHOT_FLAG) or {}
 	linked_request = _linked_payment_request(doc)
+	fully_settled = _fully_settled_business_references(doc)
 
 	# ERPNext v12 selects an arbitrary submitted Payment Request for each business
 	# document. Restore every snapshotted request except the one this PE proves it
-	# belongs to.
+	# belongs to. If a manual Payment Entry has fully settled the business document,
+	# every request against it is satisfied even though Reference No contains the
+	# customer's bank reference rather than a Payment Request name.
 	for name, status in snapshot.items():
+		request_reference = frappe.db.get_value(
+			"Payment Request", name, ["reference_doctype", "reference_name"],
+			as_dict=True,
+		)
+		if request_reference and (
+			request_reference.reference_doctype,
+			request_reference.reference_name,
+		) in fully_settled:
+			if frappe.db.get_value("Payment Request", name, "status") != "Paid":
+				frappe.db.set_value(
+					"Payment Request", name, "status", "Paid",
+					update_modified=False,
+				)
+			continue
 		if linked_request and name == linked_request.name:
 			continue
 		if frappe.db.get_value("Payment Request", name, "status") != status:
@@ -121,6 +160,11 @@ def _synchronize(doc):
 			)
 
 	if not linked_request:
+		return
+	if (
+		linked_request.reference_doctype,
+		linked_request.reference_name,
+	) in fully_settled:
 		return
 
 	allocated = _submitted_allocation(linked_request)
@@ -180,6 +224,32 @@ def _business_references(doc):
 	return result
 
 
+def _fully_settled_business_references(doc):
+	"""Return submitted invoice references currently marked Paid with zero outstanding."""
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_reference_details
+
+	result = set()
+	precision = frappe.get_precision("Payment Request", "grand_total") or 3
+	for reference_doctype, reference_name in _business_references(doc):
+		if reference_doctype not in ("Sales Invoice", "Purchase Invoice"):
+			continue
+		invoice = frappe.db.get_value(
+			reference_doctype, reference_name, ["docstatus", "status"], as_dict=True
+		)
+		if not invoice:
+			continue
+		details = get_reference_details(
+			reference_doctype,
+			reference_name,
+			doc.get("party_account_currency"),
+		)
+		if is_paid_invoice(
+			invoice.docstatus, invoice.status, details.outstanding_amount, precision
+		):
+			result.add((reference_doctype, reference_name))
+	return result
+
+
 def _linked_payment_request(doc):
 	"""Return a strictly correlated PR, or None for ordinary manual PEs."""
 	name = (doc.get("reference_no") or "").strip()
@@ -198,6 +268,11 @@ def _linked_payment_request(doc):
 	if not row:
 		return None
 
+	if row.reference_doctype == "Quotation":
+		if doc.get("quotation") != row.reference_name:
+			return None
+		return row
+
 	if (row.reference_doctype, row.reference_name) not in _business_references(doc):
 		return None
 	return row
@@ -205,6 +280,24 @@ def _linked_payment_request(doc):
 
 def _submitted_allocation(payment_request):
 	"""Sum same-currency submitted PE allocations explicitly naming this PR."""
+	if payment_request.reference_doctype == "Quotation":
+		entries = frappe.get_all(
+			"Payment Entry",
+			filters={
+				"reference_no": payment_request.name,
+				"quotation": payment_request.reference_name,
+				"docstatus": 1,
+				"payment_type": "Receive",
+			},
+			fields=[
+				"paid_amount", "paid_from_account_currency",
+			],
+		)
+		for entry in entries:
+			if entry.paid_from_account_currency != payment_request.currency:
+				return None
+		return sum(flt(entry.paid_amount) for entry in entries)
+
 	entries = frappe.get_all(
 		"Payment Entry",
 		filters={"reference_no": payment_request.name, "docstatus": 1},
@@ -240,6 +333,15 @@ def _submitted_allocation(payment_request):
 
 
 def _document_allocation(doc, payment_request):
+	if payment_request.reference_doctype == "Quotation":
+		if doc.get("references"):
+			frappe.throw("A Quotation customer advance cannot contain allocation references.")
+		if doc.get("payment_type") != "Receive":
+			frappe.throw("A Quotation customer advance must be a Receive Payment Entry.")
+		if doc.get("paid_from_account_currency") != payment_request.currency:
+			return None
+		return flt(doc.get("paid_amount"))
+
 	document_currency = party_currency(
 		doc.get("payment_type"),
 		doc.get("paid_from_account_currency"),

@@ -3,24 +3,56 @@ from __future__ import unicode_literals
 
 import imaplib
 import re
+import socket
 import time
 from email.utils import parseaddr
 
 import frappe
 from frappe.email.queue import prepare_message
+from frappe.utils.background_jobs import enqueue, get_jobs
 from frappe.utils import now_datetime
 
 
 MAX_MESSAGES_PER_RUN = 100
 ERROR_COOLDOWN_SECONDS = 3600
+IMAP_CONNECTION_TIMEOUT_SECONDS = 15
+ACCOUNT_JOB_TIMEOUT_SECONDS = 90
+ACCOUNT_LOCK_TTL_SECONDS = 900
+
+
+class _TimedIMAP4(imaplib.IMAP4):
+    def __init__(self, host="", port=imaplib.IMAP4_PORT,
+            timeout=IMAP_CONNECTION_TIMEOUT_SECONDS):
+        self.connection_timeout = timeout
+        imaplib.IMAP4.__init__(self, host, port)
+
+    def _create_socket(self):
+        return socket.create_connection(
+            (self.host, self.port), self.connection_timeout
+        )
+
+
+class _TimedIMAP4SSL(imaplib.IMAP4_SSL):
+    def __init__(self, host="", port=imaplib.IMAP4_SSL_PORT,
+            timeout=IMAP_CONNECTION_TIMEOUT_SECONDS):
+        self.connection_timeout = timeout
+        imaplib.IMAP4_SSL.__init__(self, host, port)
+
+    def _create_socket(self):
+        raw_socket = socket.create_connection(
+            (self.host, self.port), self.connection_timeout
+        )
+        return self.ssl_context.wrap_socket(
+            raw_socket, server_hostname=self.host
+        )
 
 
 def sync_sent_items():
-    """Copy successfully sent ERPNext emails to their mailbox Sent folder.
+    """Queue one isolated Sent Items sync job for each eligible account.
 
-    SMTP delivery remains independent of this task. A failed IMAP copy is
-    logged and retried on a later run. The original Message-ID is searched
-    before APPEND so retries do not create duplicate Sent Items.
+    Keeping the scheduler job short prevents one slow IMAP server connection
+    from blocking every account or exhausting the scheduler's 300-second job
+    timeout. Account locks cover both queued and running jobs.
     """
     accounts = frappe.get_all(
         "Email Account",
@@ -32,8 +64,35 @@ def sync_sent_items():
         fields=["name"],
         order_by="name asc",
     )
+
+    site = frappe.local.site
+    queued_jobs = get_jobs(site=site, key="job_name").get(site, [])
     for row in accounts:
-        _sync_account(row.name)
+        job_name = "sent_items_sync|{0}".format(row.name)
+        if job_name in queued_jobs or not _acquire_account_lock(row.name):
+            continue
+
+        try:
+            enqueue(
+                sync_sent_items_for_account,
+                "short",
+                timeout=ACCOUNT_JOB_TIMEOUT_SECONDS,
+                event="all",
+                job_name=job_name,
+                account_name=row.name,
+            )
+            queued_jobs.append(job_name)
+        except Exception:
+            _release_account_lock(row.name)
+            raise
+
+
+def sync_sent_items_for_account(account_name):
+    """Run one mailbox sync and always release its scheduler lock."""
+    try:
+        _sync_account(account_name)
+    finally:
+        _release_account_lock(account_name)
 
 
 def _sync_account(account_name):
@@ -113,9 +172,17 @@ def _connect(account):
     password = account.get_password()
 
     if account.use_ssl:
-        client = imaplib.IMAP4_SSL(account.email_server, port)
+        client = _TimedIMAP4SSL(
+            account.email_server,
+            port,
+            timeout=IMAP_CONNECTION_TIMEOUT_SECONDS,
+        )
     else:
-        client = imaplib.IMAP4(account.email_server, port)
+        client = _TimedIMAP4(
+            account.email_server,
+            port,
+            timeout=IMAP_CONNECTION_TIMEOUT_SECONDS,
+        )
 
     status, response = client.login(login_id, password)
     if status != "OK":
@@ -294,3 +361,24 @@ def _clear_error_throttle(key_suffix):
     frappe.cache().delete_value(
         "worldshading:sent-items-error:{0}".format(key_suffix)
     )
+
+
+def _account_lock_key(account_name):
+    return "worldshading:sent-items-lock:{0}".format(account_name)
+
+
+def _acquire_account_lock(account_name):
+    cache = frappe.cache()
+    key = cache.make_key(_account_lock_key(account_name))
+    return bool(cache.set(
+        key,
+        b"1",
+        nx=True,
+        ex=ACCOUNT_LOCK_TTL_SECONDS,
+    ))
+
+
+def _release_account_lock(account_name):
+    cache = frappe.cache()
+    key = cache.make_key(_account_lock_key(account_name))
+    cache.delete(key)

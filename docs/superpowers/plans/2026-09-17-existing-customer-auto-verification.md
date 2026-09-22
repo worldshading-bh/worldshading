@@ -208,7 +208,7 @@ filters={
 ```
 
 Fetch `name`, all eligibility fields, `creation`, and order by
-`last_sijilat_check asc, creation asc`. Limit the candidate window to 20, skip candidates
+`last_sijilat_check asc, creation desc`. Limit the candidate window to 20, skip candidates
 inside the cooldown, enqueue only the first eligible Customer, return its name for
 observability/tests, and return `None` if no candidate is eligible.
 

@@ -480,7 +480,8 @@ def _send_whatsapp_from_notification_logic(
     notification_name,
     docname,
     doctype,
-    manual_mobile_no=None
+    manual_mobile_no=None,
+    allow_disabled_notification=False
 ):
     log = None
 
@@ -488,7 +489,7 @@ def _send_whatsapp_from_notification_logic(
         #Load Config
         config = frappe.get_doc("WhatsApp Notification", notification_name)
 
-        if not config.enable:
+        if not config.enable and not allow_disabled_notification:
             return
 
         #Load Document
@@ -897,9 +898,6 @@ def send_whatsapp_notification(
             notification_name
         )
 
-        if not notification.enable:
-            frappe.throw("WhatsApp Notification is disabled")
-
         # 🚫 Prevent duplicate sends
         # existing = frappe.get_all(
         #     "WhatsApp Log",
@@ -924,7 +922,8 @@ def send_whatsapp_notification(
             notification_name=notification_name,
             docname=docname,
             doctype=doctype,
-            manual_mobile_no=mobile_no
+            manual_mobile_no=mobile_no,
+            allow_disabled_notification=True
         )
 
         return "Queued"

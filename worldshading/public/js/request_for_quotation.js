@@ -22,6 +22,13 @@ frappe.ui.form.on("Request for Quotation", {
 	},
 
 	refresh: function (frm) {
+		if (frm.doc.docstatus === 0 && !frm.doc.warehouse) {
+			set_default_rfq_warehouse(frm);
+		}
+		if (frm.doc.docstatus === 0 && !frm.doc.required_date) {
+			frm.set_value("required_date", frappe.datetime.get_today());
+		}
+
 		if (frm.doc.docstatus === 1) {
 			replace_send_supplier_emails_button(frm);
 			return;
@@ -34,10 +41,58 @@ frappe.ui.form.on("Request for Quotation", {
 		}, __("Suppliers"));
 	},
 
+	warehouse: function (frm) {
+		sync_rfq_item_field(frm, "warehouse", "warehouse");
+	},
+
+	required_date: function (frm) {
+		sync_rfq_item_field(frm, "required_date", "schedule_date");
+	},
+
+	country_of_purchase: function (frm) {
+		if (frm.doc.docstatus === 0) {
+			set_default_rfq_warehouse(frm);
+		}
+	},
+
 	fetch_matching_suppliers: function (frm) {
 		fetch_matching_suppliers(frm);
 	}
 });
+
+frappe.ui.form.on("Request for Quotation Item", {
+	items_add: function (frm, cdt, cdn) {
+		var row = locals[cdt][cdn];
+		if (frm.doc.warehouse) {
+			frappe.model.set_value(row.doctype, row.name, "warehouse", frm.doc.warehouse);
+		}
+		if (frm.doc.required_date) {
+			frappe.model.set_value(
+				row.doctype, row.name, "schedule_date", frm.doc.required_date
+			);
+		}
+	}
+});
+
+function sync_rfq_item_field(frm, source_field, target_field) {
+	(frm.doc.items || []).forEach(function (row) {
+		frappe.model.set_value(
+			row.doctype, row.name, target_field, frm.doc[source_field] || null
+		);
+	});
+	frm.refresh_field("items");
+}
+
+function set_default_rfq_warehouse(frm) {
+	var country = (frm.doc.country_of_purchase || "").trim().toLowerCase();
+	var warehouse = country === "bahrain"
+		? "Receiving - Local - WS"
+		: "Receiving - Import - WS";
+
+	if (frm.doc.warehouse !== warehouse) {
+		frm.set_value("warehouse", warehouse);
+	}
+}
 
 function replace_send_supplier_emails_button(frm) {
 	frm.remove_custom_button(__("Send Supplier Emails"));
@@ -91,7 +146,8 @@ function show_supplier_email_dialog(frm) {
 					worldshading.email_signature.update_account_preview(
 						dialog,
 						"account_signature_preview",
-						dialog.get_value("sender")
+						dialog.get_value("sender"),
+						{dialog: dialog}
 					);
 				}
 			},
@@ -103,11 +159,15 @@ function show_supplier_email_dialog(frm) {
 				options: contact_list
 			},
 			{
-				fieldname: "separate_email_notice",
-				fieldtype: "HTML",
-				options: '<p class="text-muted small">' +
-					__("You can add or remove addresses. Use a comma to add more email addresses. Each recipient will receive a separate email with the RFQ PDF.") +
-					'</p>'
+				fieldtype: "Section Break",
+				label: __("CC Recipients"),
+				collapsible: 1
+			},
+			{
+				fieldname: "worldshading_default_cc",
+				fieldtype: "Data",
+				label: __("Default CC"),
+				read_only: 1
 			},
 			{
 				fieldname: "cc",
@@ -116,10 +176,7 @@ function show_supplier_email_dialog(frm) {
 				options: contact_list
 			},
 			{
-				fieldname: "bcc",
-				fieldtype: "MultiSelect",
-				label: __("BCC"),
-				options: contact_list
+				fieldtype: "Section Break"
 			},
 			{
 				fieldname: "email_template",
@@ -212,7 +269,7 @@ function show_supplier_email_dialog(frm) {
 		}
 	});
 
-	["recipients", "cc", "bcc"].forEach(function (fieldname) {
+	["recipients", "cc"].forEach(function (fieldname) {
 		dialog.fields_dict[fieldname].get_data = function () {
 			var data = dialog.fields_dict[fieldname].get_value() || "";
 			var match = data.match(/[^,\s*]*$/);
@@ -238,7 +295,8 @@ function show_supplier_email_dialog(frm) {
 	worldshading.email_signature.update_account_preview(
 		dialog,
 		"account_signature_preview",
-		dialog.get_value("sender")
+		dialog.get_value("sender"),
+		{dialog: dialog}
 	);
 	set_default_email_template(dialog, frm);
 	dialog.fields_dict.print_format.$wrapper.toggle(
@@ -362,8 +420,10 @@ function send_supplier_emails(frm, dialog, values) {
 			rfq_name: frm.doc.name,
 			sender: values.sender,
 			recipients: values.recipients,
-			cc: values.cc,
-			bcc: values.bcc,
+			cc: worldshading.email_signature.merge_cc(
+				dialog.worldshading_account_cc,
+				values.cc
+			),
 			subject: values.subject,
 			message: values.message,
 			email_template: values.email_template,

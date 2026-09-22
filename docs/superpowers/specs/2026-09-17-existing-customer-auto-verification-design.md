@@ -39,6 +39,9 @@ The dispatcher enqueues an individual background job instead of contacting Sijil
 inside the scheduler process. The worker rechecks eligibility before making an API call,
 protecting against duplicate or stale queued jobs.
 
+Untouched eligible Customers are selected from newest to oldest. Retry candidates retain
+their cooldown priority behind Customers that have never been checked.
+
 Customers waiting after a temporary failure are not eligible again for at least 24
 hours. This prevents one failing record from immediately consuming all three attempts.
 
@@ -188,4 +191,3 @@ Code rollback consists of removing the cron entry and the new dispatcher/worker
 functions. Removing the cron entry stops further automatic processing. Customer changes
 already made by successful jobs are not automatically reversed; their previous names can
 be recovered from ERPNext version/activity history and corrected individually.
-

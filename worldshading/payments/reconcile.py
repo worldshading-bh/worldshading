@@ -42,8 +42,38 @@ STALE_AFTER_MINUTES = 15
 
 def run():
 	"""Entry point for the scheduler."""
+	retry_captured_unsettled()
 	chase_redirected()
 	expire_unused_links()
+
+
+def retry_captured_unsettled():
+	"""Re-enqueue captured money that has not reached accounting yet.
+
+	The callback commits the Captured result before queueing settlement. If the
+	queue operation or worker is interrupted in between, this sweep closes that
+	gap. Repeated queueing is harmless: settle() locks the transaction row and
+	checks its settled flag before creating a Payment Entry.
+	"""
+	rows = frappe.get_all(
+		TRANSACTION_DOCTYPE,
+		filters={
+			"status": "Captured",
+			"settled": 0,
+		},
+		fields=["name"],
+		order_by="creation",
+	)
+
+	if not rows:
+		return
+
+	logger().info(
+		"reconcile: re-enqueueing %d captured unsettled transaction(s)",
+		len(rows),
+	)
+	for row in rows:
+		enqueue_settlement(row.name)
 
 
 def chase_redirected():
