@@ -338,14 +338,14 @@ def get_items(filters):
 		group_rows = frappe.get_all(
 			"Item Group",
 			filters={"lft": (">=", group.lft), "rgt": ("<=", group.rgt)},
-			fields=["name"]
+			fields=["name"], limit_page_length=0
 		)
 		groups = [row.name for row in group_rows]
 		item_filters["item_group"] = ("in", groups)
 	return frappe.get_list(
 		"Item", filters=item_filters,
 		fields=["name as item_code", "item_name", "item_group", "brand", "stock_uom"],
-		order_by="name asc"
+		order_by="name asc", limit_page_length=0
 	)
 
 

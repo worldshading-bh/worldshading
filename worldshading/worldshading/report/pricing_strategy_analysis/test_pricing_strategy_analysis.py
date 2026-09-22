@@ -268,6 +268,8 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 			frappe_mock.get_list.return_value = []
 			report.get_items(filters)
 		self.assertNotIn("pluck", frappe_mock.get_all.call_args[1])
+		self.assertEqual(frappe_mock.get_all.call_args[1]["limit_page_length"], 0)
+		self.assertEqual(frappe_mock.get_list.call_args[1]["limit_page_length"], 0)
 		self.assertEqual(frappe_mock.get_list.call_args[1]["filters"]["item_group"], ("in", ["Products"]))
 
 

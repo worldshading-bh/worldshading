@@ -221,8 +221,9 @@ rate is blank and a warning is shown.
 ### 7.4 Current prices
 
 Current normal and B2B prices come from valid `Item Price` records for the selected
-price lists and To Date. Matching respects Item, Stock UOM, minimum quantity of zero or
-one, validity dates, and the Price List's UOM-dependence setting.
+price lists and To Date. Matching respects Item, Stock UOM, validity dates, and the
+Price List's UOM-dependence setting. ERPNext v12 Item Price has no minimum-quantity
+field; quantity thresholds belong to Pricing Rule and are outside this read-only phase.
 
 If multiple records are valid, the most recently valid record is used deterministically
 and a duplicate-price warning is included. Currency conversion is outside this phase:
