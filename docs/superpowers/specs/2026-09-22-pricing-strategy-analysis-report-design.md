@@ -115,6 +115,7 @@ are already part of valuation.
 | VAT % | Percent | Yes | 10 |
 | Regular Markup % | Percent | Yes | 43 |
 | B2B Markup % | Percent | Yes | 33 |
+| Show Pricing Rule Strategy | Check | No | Disabled |
 | Tier 1 Qty Range | Data | Yes | `5:9` |
 | Tier 1 Markup % | Percent | Yes | 31 |
 | Tier 2 Qty Range | Data | Yes | `10:19` |
@@ -137,6 +138,10 @@ price using this fixed commercial schedule:
 
 The exact lower boundary belongs to the new band. The resulting ERPNext net rate is
 calculated by removing VAT from the rounded gross price.
+
+The default view is an Item Price strategy covering Regular and B2B price lists. When
+Show Pricing Rule Strategy is disabled, all tier filters, calculations, and columns are
+omitted. Enabling it reveals the Tier 1-4 controls and returns quantity-tier columns.
 
 Quantity ranges use `From:To` for a bounded range and `From+` for an open-ended final
 tier. Filter labels remain visible above their controls after values are entered.
@@ -336,7 +341,8 @@ The report returns the following groups in this order.
 
 ### Quantity tiers
 
-Each tier returns:
+Quantity-tier columns appear only when Show Pricing Rule Strategy is enabled. Each tier
+then returns:
 
 - label containing its runtime quantity range;
 - recommended net price;

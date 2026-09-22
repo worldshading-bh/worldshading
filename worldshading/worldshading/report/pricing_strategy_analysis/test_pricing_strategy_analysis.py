@@ -104,6 +104,14 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		self.assertIsNone(result["tiers"][3]["maximum"])
 		self.assertEqual(result["from_date"], date(2026, 1, 1))
 
+	def test_pricing_rule_strategy_is_disabled_by_default(self):
+		filters = self._valid_filters()
+		filters.pop("show_pricing_rule_strategy")
+		result = report.validate_and_normalize_filters(filters)
+		self.assertFalse(result["show_pricing_rule_strategy"])
+		self.assertEqual(result["tiers"], [])
+		self.assertEqual(result["gap_messages"], [])
+
 	def test_tier_gap_is_allowed_and_reported(self):
 		filters = self._valid_filters()
 		filters["tier_2_minimum"] = 11
@@ -168,6 +176,7 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			"vat_percent": 10,
 			"regular_markup": 43,
 			"b2b_markup": 33,
+			"show_pricing_rule_strategy": 1,
 			"tier_1_minimum": 5,
 			"tier_1_maximum": 9,
 			"tier_1_markup": 31,
@@ -322,6 +331,16 @@ class TestPricingStrategyReport(unittest.TestCase):
 			columns, data, message, chart = report.execute(filters)
 		self.assertEqual(data, [])
 
+	def test_basic_item_price_strategy_omits_tier_columns_and_values(self):
+		filters = self._filters()
+		filters["show_pricing_rule_strategy"] = 0
+		with self._mock_readers():
+			columns, data, message, chart = report.execute(filters)
+		fieldnames = [column["fieldname"] for column in columns]
+		self.assertFalse(any(fieldname.startswith("tier_") for fieldname in fieldnames))
+		self.assertFalse(any(fieldname.startswith("tier_") for fieldname in data[0]))
+		self.assertIsNone(message)
+
 	def test_execute_keeps_missing_cost_with_warning(self):
 		filters = self._filters()
 		with self._mock_readers(stock={"A": {"valuation_rate": None, "available_qty": 0, "warnings": []}}):
@@ -363,6 +382,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 			"cost_source": "Current Valuation Rate", "expense_burden": 0,
 			"vat_percent": 10,
 			"regular_markup": 43, "b2b_markup": 33,
+			"show_pricing_rule_strategy": 1,
 			"tier_1_minimum": 5, "tier_1_maximum": 9, "tier_1_markup": 31,
 			"tier_2_minimum": 10, "tier_2_maximum": 19, "tier_2_markup": 29,
 			"tier_3_minimum": 20, "tier_3_maximum": 39, "tier_3_markup": 27,
@@ -417,7 +437,8 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		)
 		required_fields = [
 			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
-			"regular_price_list", "b2b_price_list", "include_items_without_sales", "cost_source",
+			"regular_price_list", "b2b_price_list", "show_pricing_rule_strategy",
+			"include_items_without_sales", "cost_source",
 			"expense_burden", "vat_percent",
 			"regular_markup", "b2b_markup"
 		]
@@ -441,6 +462,8 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		])
 		self.assertNotIn('"fieldname": "rounding_increment"', javascript)
 		self.assertNotIn('"fieldname": "rounding_method"', javascript)
+		self.assertIn("toggle_pricing_rule_strategy_filters", javascript)
+		self.assertIn('"on_change": function ()', javascript)
 		self.assertNotIn("margin:0 !important;padding:0 !important", javascript)
 		self.assertIn("padding-top:0 !important;padding-bottom:0 !important", javascript)
 

@@ -41,9 +41,26 @@ function apply_pricing_strategy_filter_labels(report) {
 	}
 }
 
+var pricing_rule_strategy_fields = [
+	"tier_1_qty_range", "tier_1_markup",
+	"tier_2_qty_range", "tier_2_markup",
+	"tier_3_qty_range", "tier_3_markup",
+	"tier_4_qty_range", "tier_4_markup"
+];
+
+function toggle_pricing_rule_strategy_filters(report) {
+	var show_strategy = Boolean(Number(report.get_filter_value("show_pricing_rule_strategy") || 0));
+	(report.filters || []).forEach(function (filter) {
+		if (pricing_rule_strategy_fields.indexOf(filter.df.fieldname) !== -1) {
+			$(filter.wrapper).toggle(show_strategy);
+		}
+	});
+}
+
 frappe.query_reports["Pricing Strategy Analysis"] = {
 	"onload": function (report) {
 		apply_pricing_strategy_filter_labels(report);
+		toggle_pricing_rule_strategy_filters(report);
 	},
 	"filters": [
 		{
@@ -87,6 +104,14 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "default": 10},
 		{"fieldname": "regular_markup", "label": __("Normal Price Markup %"), "fieldtype": "Percent", "default": 43},
 		{"fieldname": "b2b_markup", "label": __("B2B Markup %"), "fieldtype": "Percent", "default": 33},
+		{
+			"fieldname": "show_pricing_rule_strategy", "label": __("Show Pricing Rule Strategy"),
+			"fieldtype": "Check", "default": 0,
+			"on_change": function () {
+				toggle_pricing_rule_strategy_filters(frappe.query_report);
+				frappe.query_report.refresh();
+			}
+		},
 		{"fieldname": "tier_1_qty_range", "label": __("Tier 1 Qty Range"), "fieldtype": "Data", "default": "5:9"},
 		{"fieldname": "tier_1_markup", "label": __("Tier 1 Markup %"), "fieldtype": "Percent", "default": 31},
 		{"fieldname": "tier_2_qty_range", "label": __("Tier 2 Qty Range"), "fieldtype": "Data", "default": "10:19"},

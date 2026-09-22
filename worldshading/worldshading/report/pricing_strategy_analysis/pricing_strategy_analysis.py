@@ -144,8 +144,13 @@ def validate_and_normalize_filters(filters):
 		if result[fieldname] < 0:
 			frappe.throw("{0} cannot be negative".format(fieldname.replace("_", " ").title()))
 	result["include_items_without_sales"] = bool(cint(filters.get("include_items_without_sales", 1)))
-	result["tiers"] = _normalize_tiers(filters)
-	result["gap_messages"] = _validate_tiers(result["tiers"])
+	result["show_pricing_rule_strategy"] = bool(cint(filters.get("show_pricing_rule_strategy", 0)))
+	if result["show_pricing_rule_strategy"]:
+		result["tiers"] = _normalize_tiers(filters)
+		result["gap_messages"] = _validate_tiers(result["tiers"])
+	else:
+		result["tiers"] = []
+		result["gap_messages"] = []
 	return result
 
 
