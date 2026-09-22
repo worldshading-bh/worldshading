@@ -4,6 +4,8 @@ import unittest
 from contextlib import ExitStack
 from datetime import date
 from decimal import Decimal
+import json
+import os
 from unittest.mock import patch
 
 import frappe
@@ -313,6 +315,40 @@ class TestPricingStrategyReport(unittest.TestCase):
 			def __exit__(self_inner, exc_type, exc_value, traceback):
 				return stack.__exit__(exc_type, exc_value, traceback)
 		return ManagedStack()
+
+
+class TestPricingStrategyReportFiles(unittest.TestCase):
+
+	def test_report_metadata_and_filter_contract(self):
+		base_path = os.path.dirname(__file__)
+		with open(os.path.join(base_path, "pricing_strategy_analysis.json")) as source:
+			metadata = json.load(source)
+		with open(os.path.join(base_path, "pricing_strategy_analysis.js")) as source:
+			javascript = source.read()
+		self.assertEqual(metadata["report_name"], "Pricing Strategy Analysis")
+		self.assertEqual(metadata["report_type"], "Script Report")
+		self.assertEqual(metadata["ref_doctype"], "Item")
+		self.assertEqual(
+			sorted(row["role"] for row in metadata["roles"]),
+			["Accounts Manager", "System Manager"]
+		)
+		required_fields = [
+			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
+			"regular_price_list", "b2b_price_list", "include_items_without_sales", "cost_source",
+			"expense_burden", "vat_percent", "rounding_method", "rounding_increment",
+			"regular_markup", "b2b_markup"
+		]
+		for index in range(1, 5):
+			required_fields.extend([
+				"tier_{0}_minimum".format(index), "tier_{0}_maximum".format(index),
+				"tier_{0}_markup".format(index)
+			])
+		for fieldname in required_fields:
+			self.assertIn('"fieldname": "{0}"'.format(fieldname), javascript)
+		self.assertIn(r"Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate", javascript)
+		self.assertIn(r"Nearest\nUp\nDown", javascript)
+		self.assertNotIn("frappe.call", javascript)
+		self.assertNotIn("add_inner_button", javascript)
 
 
 if __name__ == "__main__":
