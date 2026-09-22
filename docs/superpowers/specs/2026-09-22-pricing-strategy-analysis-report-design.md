@@ -53,7 +53,6 @@ historical-sales or expense calculations; those are defined explicitly below.
 - Updating or creating Pricing Rules.
 - Background jobs, scheduled tasks, workflow actions, and notifications.
 - ERPNext core changes.
-- Automatic allocation of General Ledger expenses to individual items.
 
 ## 4. Report Access and Safety
 
@@ -90,12 +89,11 @@ data.
 Only enabled stock items are included. Item variants are treated as separate items.
 Templates and disabled items are excluded.
 
-### 5.2 Cost and expense filters
+### 5.2 Cost filters
 
 | Label | Field type | Required | Default/behavior |
 |---|---|---:|---|
 | Cost Source | Select | Yes | `Current Valuation Rate` |
-| Expense Burden % | Percent | Yes | `0` |
 
 Cost Source options are:
 
@@ -104,9 +102,7 @@ Cost Source options are:
 3. `Weighted Average Purchase Rate`
 
 The purchase date range is the same From Date and To Date used for sales analysis.
-Expense Burden % is a user-supplied analytical assumption, not a value derived from GL
-Entry. This prevents arbitrary allocation and avoids double-counting landed costs that
-are already part of valuation.
+Indirect expense is derived automatically; it is not a user-entered filter.
 
 ### 5.3 Pricing and rounding filters
 
@@ -151,7 +147,7 @@ tier. Filter labels remain visible above their controls after values are entered
 Before querying item data, the report will reject:
 
 - From Date after To Date;
-- negative VAT, expense burden, or markup values;
+- negative VAT or markup values;
 - zero or negative tier quantities;
 - a quantity range not written as `From:To` or `From+`;
 - a tier maximum below its minimum;
@@ -167,6 +163,24 @@ no proposed tier price will cover those quantities. Only the final tier may use 
 open-ended `From+` form.
 
 ## 7. Data Sources and Normalization
+
+### 7.0 Indirect expense allocation
+
+The report sums posted GL Entries under the `Indirect Expenses - WS` account tree for
+the selected company and period. Period Closing Voucher entries are excluded. Company
+net sales are the sum of submitted Sales Invoice `base_net_total` for the same period.
+
+```text
+expense ratio = indirect expense total / company net sales
+sold item allocation = item net sales value * expense ratio
+sold item expense per unit = sold item allocation / item net sold quantity
+```
+
+An item without period sales uses its current Regular Item Price multiplied by the
+expense ratio as the estimated expense per unit. If it has neither sales nor a current
+Regular Item Price, the expense per unit remains blank and the report shows a warning.
+Stock and landed costs are not read from GL expense accounts, preventing those costs
+from being counted again in this allocation.
 
 ### 7.1 Item and stock information
 
@@ -259,8 +273,7 @@ binary floating-point arithmetic for commercial rounding.
 
 ```text
 selected base cost = value supplied by Cost Source
-expense amount = selected base cost * Expense Burden % / 100
-fully loaded cost = selected base cost + expense amount
+fully loaded cost = selected base cost + allocated expense per unit
 ```
 
 An item with no positive selected cost remains visible, but recommendations are blank
@@ -317,6 +330,8 @@ The report returns the following groups in this order.
 - Available Qty
 - Selected Base Cost
 - Cost Source Detail
+- Expense / Unit
+- Expense Basis
 - Fully Loaded Cost
 
 ### Historical sales and current prices
@@ -408,7 +423,7 @@ Focused tests will cover:
 - the workbook example (cost 46, VAT 10%, and its six markup levels);
 - fixed upward rounding at every increment boundary;
 - actual markup versus true gross margin;
-- expense burden calculations;
+- actual indirect-expense allocation and unsold-item fallback;
 - tier validation, overlap, gaps, and open-ended final tier;
 - missing and zero cost;
 - returns in weighted purchase and sales calculations;

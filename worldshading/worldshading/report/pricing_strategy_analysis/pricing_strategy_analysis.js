@@ -100,7 +100,6 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 			"options": "Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate",
 			"default": "Current Valuation Rate"
 		},
-		{"fieldname": "expense_burden", "label": __("Additional Expense %"), "fieldtype": "Percent", "default": 0},
 		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "default": 10},
 		{"fieldname": "regular_markup", "label": __("Normal Price Markup %"), "fieldtype": "Percent", "default": 43},
 		{"fieldname": "b2b_markup", "label": __("B2B Markup %"), "fieldtype": "Percent", "default": 33},

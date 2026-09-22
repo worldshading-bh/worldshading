@@ -8,6 +8,8 @@ from frappe.utils import cint, getdate
 
 MONEY_QUANTUM = Decimal("0.001")
 PERCENT_QUANTUM = Decimal("0.001")
+RATIO_QUANTUM = Decimal("0.000001")
+INDIRECT_EXPENSE_ACCOUNT = "Indirect Expenses - WS"
 
 COST_SOURCES = (
 	"Current Valuation Rate",
@@ -113,6 +115,36 @@ def get_suggested_action(current_price, recommended_price, increment):
 	return "Keep Price"
 
 
+def calculate_expense_allocation(sales_qty, sales_value, current_normal_price, expense_ratio):
+	sales_qty = to_decimal(sales_qty)
+	sales_value = to_decimal(sales_value)
+	expense_ratio = to_decimal(expense_ratio)
+	result = {"allocated_expense": None, "expense_per_unit": None, "expense_source": "", "warnings": []}
+	if expense_ratio <= 0:
+		result.update({
+			"allocated_expense": Decimal("0.000"),
+			"expense_per_unit": Decimal("0.000"),
+			"expense_source": "No indirect expense"
+		})
+		return result
+	if sales_qty > 0 and sales_value > 0:
+		allocated_expense = sales_value * expense_ratio
+		result.update({
+			"allocated_expense": quantize_money(allocated_expense),
+			"expense_per_unit": quantize_money(allocated_expense / sales_qty),
+			"expense_source": "Actual period sales"
+		})
+		return result
+	if current_normal_price is not None and to_decimal(current_normal_price) > 0:
+		result.update({
+			"expense_per_unit": quantize_money(to_decimal(current_normal_price) * expense_ratio),
+			"expense_source": "Regular Item Price fallback"
+		})
+		return result
+	result["warnings"].append("No basis for indirect expense allocation")
+	return result
+
+
 def validate_and_normalize_filters(filters):
 	filters = dict(filters or {})
 	result = dict(filters)
@@ -131,7 +163,6 @@ def validate_and_normalize_filters(filters):
 		frappe.throw("Unsupported Cost Source: {0}".format(result["cost_source"]))
 
 	numeric_defaults = {
-		"expense_burden": "0",
 		"vat_percent": "10",
 		"regular_markup": "43",
 		"b2b_markup": "33"
@@ -140,7 +171,7 @@ def validate_and_normalize_filters(filters):
 		value = filters.get(fieldname)
 		result[fieldname] = to_decimal(default if value in (None, "") else value)
 
-	for fieldname in ("expense_burden", "vat_percent", "regular_markup", "b2b_markup"):
+	for fieldname in ("vat_percent", "regular_markup", "b2b_markup"):
 		if result[fieldname] < 0:
 			frappe.throw("{0} cannot be negative".format(fieldname.replace("_", " ").title()))
 	result["include_items_without_sales"] = bool(cint(filters.get("include_items_without_sales", 1)))
@@ -244,7 +275,7 @@ def calculate_item_row(item, context):
 	if base_cost <= 0:
 		row.update({
 			"selected_base_cost": None,
-			"expense_amount": None,
+			"expense_per_unit": row.get("expense_per_unit"),
 			"fully_loaded_cost": None,
 			"suggested_action": "",
 			"warnings": compose_warnings(warnings + ["Missing cost"])
@@ -261,10 +292,10 @@ def calculate_item_row(item, context):
 			row["tier_{0}_discount_percent".format(index)] = None
 		return row
 
-	expense_amount = base_cost * context["expense_burden"] / Decimal("100")
-	loaded_cost = base_cost + expense_amount
+	expense_per_unit = row.get("expense_per_unit")
+	loaded_cost = base_cost + to_decimal(expense_per_unit)
 	row["selected_base_cost"] = quantize_money(base_cost)
-	row["expense_amount"] = quantize_money(expense_amount)
+	row["expense_per_unit"] = quantize_money(expense_per_unit) if expense_per_unit is not None else None
 	row["fully_loaded_cost"] = quantize_money(loaded_cost)
 
 	regular = calculate_price(
@@ -528,6 +559,52 @@ def get_sales_data(filters, item_codes):
 	return normalize_sales_rows(rows, latest_rows)
 
 
+def get_indirect_expense_context(filters):
+	account = frappe.db.get_value(
+		"Account", INDIRECT_EXPENSE_ACCOUNT, ["lft", "rgt"], as_dict=True
+	)
+	if not account:
+		return {
+			"expense_total": Decimal("0.000"), "net_sales": Decimal("0.000"),
+			"expense_ratio": Decimal("0.000000"),
+			"warnings": ["Indirect expense account not found: {0}".format(INDIRECT_EXPENSE_ACCOUNT)]
+		}
+	values = {
+		"company": filters["company"], "from_date": filters["from_date"],
+		"to_date": filters["to_date"], "lft": account.lft, "rgt": account.rgt
+	}
+	expense_rows = frappe.db.sql("""
+		select coalesce(sum(gle.debit - gle.credit), 0) as expense_total
+		from `tabGL Entry` gle
+		inner join `tabAccount` account on account.name = gle.account
+		where gle.docstatus = 1 and gle.company = %(company)s
+			and gle.posting_date between %(from_date)s and %(to_date)s
+			and account.company = %(company)s
+			and account.lft between %(lft)s and %(rgt)s
+			and gle.voucher_type != 'Period Closing Voucher'
+	""", values, as_dict=True)
+	sales_rows = frappe.db.sql("""
+		select coalesce(sum(base_net_total), 0) as net_sales
+		from `tabSales Invoice`
+		where docstatus = 1 and company = %(company)s
+			and posting_date between %(from_date)s and %(to_date)s
+	""", values, as_dict=True)
+	expense_total = to_decimal(expense_rows[0].get("expense_total") if expense_rows else 0)
+	net_sales = to_decimal(sales_rows[0].get("net_sales") if sales_rows else 0)
+	warnings = []
+	expense_ratio = Decimal("0")
+	if net_sales > 0:
+		expense_ratio = expense_total / net_sales
+	elif expense_total > 0:
+		warnings.append("Indirect expenses cannot be allocated because company net sales are zero")
+	return {
+		"expense_total": quantize_money(expense_total),
+		"net_sales": quantize_money(net_sales),
+		"expense_ratio": expense_ratio.quantize(RATIO_QUANTUM, rounding=ROUND_HALF_UP),
+		"warnings": warnings
+	}
+
+
 def normalize_sales_rows(rows, latest_rows=None):
 	result = {}
 	for row in rows or []:
@@ -617,6 +694,7 @@ def execute(filters=None):
 	purchase_data = get_purchase_data(filters, item_codes)
 	sales_data = get_sales_data(filters, item_codes)
 	price_data = get_item_prices(filters, item_codes)
+	expense_context = get_indirect_expense_context(filters)
 
 	data = []
 	for item in items:
@@ -638,9 +716,19 @@ def execute(filters=None):
 		})
 		if sales:
 			row.update(sales)
+		allocation = calculate_expense_allocation(
+			row.get("sales_qty"), row.get("sales_value"),
+			row.get("current_normal_price"), expense_context["expense_ratio"]
+		)
+		row.update({
+			"allocated_expense": allocation["allocated_expense"],
+			"expense_per_unit": allocation["expense_per_unit"],
+			"expense_source": allocation["expense_source"]
+		})
 		warnings = []
 		for source in (stock, purchase, sales or {}, prices):
 			warnings.extend(source.get("warnings") or [])
+		warnings.extend(allocation["warnings"])
 		if not sales:
 			warnings.append("No recent sales")
 		row["warnings"] = warnings
@@ -649,9 +737,16 @@ def execute(filters=None):
 		_add_analysis_warnings(row)
 		data.append(_serialize_row(row))
 
-	message = None
-	if filters["gap_messages"]:
-		message = "<br>".join(filters["gap_messages"])
+	messages = list(filters["gap_messages"])
+	if expense_context["expense_total"] > 0:
+		messages.append(
+			"Indirect expense allocation: {0} / {1} net sales = {2}%".format(
+				expense_context["expense_total"], expense_context["net_sales"],
+				(expense_context["expense_ratio"] * Decimal("100")).quantize(PERCENT_QUANTUM)
+			)
+		)
+	messages.extend(expense_context["warnings"])
+	message = "<br>".join(messages) if messages else None
 	return get_columns(filters), data, message, None
 
 
@@ -700,6 +795,8 @@ def get_columns(filters):
 		_column("Available Qty", "available_qty", "Float", 100),
 		_column("Selected Base Cost", "selected_base_cost", "Currency", 120),
 		_column("Cost Source", "cost_source_detail", "Data", 150),
+		_column("Expense / Unit", "expense_per_unit", "Currency", 110),
+		_column("Expense Basis", "expense_source", "Data", 145),
 		_column("Fully Loaded Cost", "fully_loaded_cost", "Currency", 120),
 		_column("Sales Qty", "sales_qty", "Float", 90),
 		_column("Last Sold Rate", "last_sold_rate", "Currency", 105),

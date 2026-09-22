@@ -70,12 +70,36 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		row = report.calculate_item_row({
 			"item_code": "A",
 			"selected_base_cost": Decimal("100"),
+			"expense_per_unit": Decimal("5"),
 			"current_normal_price": Decimal("120"),
 			"warnings": []
 		}, normalized)
-		self.assertEqual(row["expense_amount"], Decimal("5.000"))
+		self.assertEqual(row["expense_per_unit"], Decimal("5.000"))
 		self.assertEqual(row["fully_loaded_cost"], Decimal("105.000"))
 		self.assertEqual(row["suggested_action"], "Increase Price")
+
+	def test_real_expense_is_allocated_by_sales_value_per_unit(self):
+		allocation = report.calculate_expense_allocation(
+			Decimal("100"), Decimal("1000"), Decimal("15"), Decimal("0.10")
+		)
+		self.assertEqual(allocation["allocated_expense"], Decimal("100.000"))
+		self.assertEqual(allocation["expense_per_unit"], Decimal("1.000"))
+		self.assertEqual(allocation["expense_source"], "Actual period sales")
+
+	def test_unsold_item_uses_regular_item_price_for_expense(self):
+		allocation = report.calculate_expense_allocation(
+			Decimal("0"), Decimal("0"), Decimal("100"), Decimal("0.10")
+		)
+		self.assertIsNone(allocation["allocated_expense"])
+		self.assertEqual(allocation["expense_per_unit"], Decimal("10.000"))
+		self.assertEqual(allocation["expense_source"], "Regular Item Price fallback")
+
+	def test_unsold_item_without_regular_price_has_no_invented_expense(self):
+		allocation = report.calculate_expense_allocation(
+			Decimal("0"), Decimal("0"), None, Decimal("0.10")
+		)
+		self.assertIsNone(allocation["expense_per_unit"])
+		self.assertIn("No basis for indirect expense allocation", allocation["warnings"])
 
 	def test_price_action_keeps_change_below_increment(self):
 		self.assertEqual(
@@ -94,12 +118,10 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 	def test_empty_and_string_filters_are_normalized(self):
 		filters = self._valid_filters()
 		filters.update({
-			"expense_burden": "",
 			"include_items_without_sales": "0",
 			"tier_4_maximum": ""
 		})
 		result = report.validate_and_normalize_filters(filters)
-		self.assertEqual(result["expense_burden"], Decimal("0"))
 		self.assertFalse(result["include_items_without_sales"])
 		self.assertIsNone(result["tiers"][3]["maximum"])
 		self.assertEqual(result["from_date"], date(2026, 1, 1))
@@ -172,7 +194,6 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			"to_date": "2026-12-31",
 			"regular_price_list": "Standard Selling",
 			"cost_source": "Current Valuation Rate",
-			"expense_burden": 5,
 			"vat_percent": 10,
 			"regular_markup": 43,
 			"b2b_markup": 33,
@@ -284,6 +305,17 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 			with self.assertRaises(frappe.ValidationError):
 					report.validate_master_filters(filters)
 
+	def test_indirect_expense_context_uses_account_tree_and_company_net_sales(self):
+		filters = {"company": "WS", "from_date": date(2026, 1, 1), "to_date": date(2026, 12, 31)}
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.get_value.return_value = frappe._dict({"lft": 10, "rgt": 20})
+			frappe_mock.db.sql.side_effect = [[frappe._dict({"expense_total": 200})], [frappe._dict({"net_sales": 2000})]]
+			context = report.get_indirect_expense_context(filters)
+		expense_query = frappe_mock.db.sql.call_args_list[0][0][0]
+		self.assertIn("account.lft between %(lft)s and %(rgt)s", expense_query)
+		self.assertIn("Period Closing Voucher", expense_query)
+		self.assertEqual(context["expense_ratio"], Decimal("0.100000"))
+
 	def test_item_price_query_matches_v12_schema_and_stock_uom(self):
 		filters = {
 			"regular_price_list": "Regular", "b2b_price_list": None,
@@ -370,7 +402,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 		):
 			self.assertNotIn(unwanted, fieldnames)
 		for required in (
-			"selected_base_cost", "fully_loaded_cost", "weighted_average_sold_rate",
+			"selected_base_cost", "expense_per_unit", "fully_loaded_cost", "weighted_average_sold_rate",
 			"recommended_regular_net", "recommended_regular_gross", "tier_4_gross"
 		):
 			self.assertIn(required, fieldnames)
@@ -379,7 +411,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 		return {
 			"company": "WS", "from_date": "2026-01-01", "to_date": "2026-12-31",
 			"regular_price_list": "Regular", "b2b_price_list": "B2B",
-			"cost_source": "Current Valuation Rate", "expense_burden": 0,
+			"cost_source": "Current Valuation Rate",
 			"vat_percent": 10,
 			"regular_markup": 43, "b2b_markup": 33,
 			"show_pricing_rule_strategy": 1,
@@ -408,6 +440,10 @@ class TestPricingStrategyReport(unittest.TestCase):
 			"stock": stack.enter_context(patch.object(report, "get_stock_data", return_value=stock)),
 			"purchase": stack.enter_context(patch.object(report, "get_purchase_data", return_value={})),
 			"sales": stack.enter_context(patch.object(report, "get_sales_data", return_value=sales)),
+			"expense": stack.enter_context(patch.object(report, "get_indirect_expense_context", return_value={
+				"expense_total": Decimal("0"), "net_sales": Decimal("1000"),
+				"expense_ratio": Decimal("0"), "warnings": []
+			})),
 			"prices": stack.enter_context(patch.object(report, "get_item_prices", return_value={
 				"A": {"current_normal_price": Decimal("60"), "current_b2b_price": Decimal("55"), "warnings": []}
 			}))
@@ -439,7 +475,7 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
 			"regular_price_list", "b2b_price_list", "show_pricing_rule_strategy",
 			"include_items_without_sales", "cost_source",
-			"expense_burden", "vat_percent",
+			"vat_percent",
 			"regular_markup", "b2b_markup"
 		]
 		for index in range(1, 5):
@@ -457,9 +493,10 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		filter_order = re.findall(r'"fieldname": "([^"]+)"', javascript)
 		self.assertEqual(filter_order[-1], "include_items_without_sales")
 		self.assertEqual(filter_order[9:14], [
-			"cost_source", "expense_burden", "vat_percent",
-			"regular_markup", "b2b_markup"
+			"cost_source", "vat_percent", "regular_markup",
+			"b2b_markup", "show_pricing_rule_strategy"
 		])
+		self.assertNotIn('"fieldname": "expense_burden"', javascript)
 		self.assertNotIn('"fieldname": "rounding_increment"', javascript)
 		self.assertNotIn('"fieldname": "rounding_method"', javascript)
 		self.assertIn("toggle_pricing_rule_strategy_filters", javascript)
