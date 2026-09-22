@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 import json
 import os
+import re
 from unittest.mock import patch
 
 import frappe
@@ -430,6 +431,14 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertIn('"disable_prepared_report": 1', json.dumps(metadata))
 		self.assertNotIn('"fieldname": "tier_1_minimum"', javascript)
 		self.assertNotIn('"fieldname": "tier_1_maximum"', javascript)
+		filter_order = re.findall(r'"fieldname": "([^"]+)"', javascript)
+		self.assertEqual(filter_order[-1], "include_items_without_sales")
+		self.assertEqual(filter_order[9:14], [
+			"cost_source", "expense_burden", "vat_percent",
+			"rounding_method", "rounding_increment"
+		])
+		self.assertNotIn("margin:0 !important;padding:0 !important", javascript)
+		self.assertIn("padding-top:0 !important;padding-bottom:0 !important", javascript)
 
 
 if __name__ == "__main__":

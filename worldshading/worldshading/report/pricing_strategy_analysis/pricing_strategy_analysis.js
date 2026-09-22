@@ -26,7 +26,13 @@ function apply_pricing_strategy_filter_labels(report) {
 		$("<style id='pricing-strategy-filter-label-style'>" +
 			".pricing-strategy-filter-form{padding-top:4px;}" +
 			".pricing-strategy-filter-form .pricing-strategy-filter-control{" +
-				"box-sizing:border-box;height:50px;min-height:50px;margin:0 !important;padding:0 !important;}" +
+				"box-sizing:border-box;height:50px;min-height:50px;" +
+				"margin-top:0 !important;margin-bottom:0 !important;" +
+				"padding-top:0 !important;padding-bottom:0 !important;}" +
+			".pricing-strategy-filter-form .pricing-strategy-filter-control>.form-group{" +
+				"margin-top:0 !important;margin-bottom:0 !important;}" +
+			".pricing-strategy-filter-form .pricing-strategy-filter-control .checkbox{" +
+				"margin-top:1px;margin-bottom:0;}" +
 			".pricing-strategy-filter-form .pricing-strategy-filter-label{" +
 				"display:block;height:13px;margin:0;overflow:hidden;color:#7c8793;font-size:10px;" +
 				"font-weight:600;line-height:13px;text-overflow:ellipsis;white-space:nowrap;}" +
@@ -73,22 +79,18 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 			"get_query": function () { return {"filters": {"selling": 1, "enabled": 1}}; }
 		},
 		{
-			"fieldname": "include_items_without_sales", "label": __("Include Items Without Sales"),
-			"fieldtype": "Check", "default": 1
-		},
-		{
-			"fieldname": "cost_source", "label": __("Cost Source"), "fieldtype": "Select", "reqd": 1,
+			"fieldname": "cost_source", "label": __("Cost Basis"), "fieldtype": "Select", "reqd": 1,
 			"options": "Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate",
 			"default": "Current Valuation Rate"
 		},
-		{"fieldname": "expense_burden", "label": __("Expense Burden %"), "fieldtype": "Percent", "default": 0},
+		{"fieldname": "expense_burden", "label": __("Additional Expense %"), "fieldtype": "Percent", "default": 0},
 		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "default": 10},
 		{
 			"fieldname": "rounding_method", "label": __("Rounding Method"), "fieldtype": "Select",
 			"options": "Nearest\nUp\nDown", "default": "Nearest", "reqd": 1
 		},
 		{"fieldname": "rounding_increment", "label": __("Rounding Increment"), "fieldtype": "Float", "default": 1, "reqd": 1},
-		{"fieldname": "regular_markup", "label": __("Regular Markup %"), "fieldtype": "Percent", "default": 43},
+		{"fieldname": "regular_markup", "label": __("Normal Price Markup %"), "fieldtype": "Percent", "default": 43},
 		{"fieldname": "b2b_markup", "label": __("B2B Markup %"), "fieldtype": "Percent", "default": 33},
 		{"fieldname": "tier_1_qty_range", "label": __("Tier 1 Qty Range"), "fieldtype": "Data", "default": "5:9"},
 		{"fieldname": "tier_1_markup", "label": __("Tier 1 Markup %"), "fieldtype": "Percent", "default": 31},
@@ -97,6 +99,10 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 		{"fieldname": "tier_3_qty_range", "label": __("Tier 3 Qty Range"), "fieldtype": "Data", "default": "20:39"},
 		{"fieldname": "tier_3_markup", "label": __("Tier 3 Markup %"), "fieldtype": "Percent", "default": 27},
 		{"fieldname": "tier_4_qty_range", "label": __("Tier 4 Qty Range"), "fieldtype": "Data", "default": "40+"},
-		{"fieldname": "tier_4_markup", "label": __("Tier 4 Markup %"), "fieldtype": "Percent", "default": 25}
+		{"fieldname": "tier_4_markup", "label": __("Tier 4 Markup %"), "fieldtype": "Percent", "default": 25},
+		{
+			"fieldname": "include_items_without_sales", "label": __("Include Items Without Sales"),
+			"fieldtype": "Check", "default": 1
+		}
 	]
 };
