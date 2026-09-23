@@ -128,9 +128,10 @@
 			var item_width = wrapper.find(".dt-row-header ." + item_column)[0];
 			item_width = item_width ? item_width.getBoundingClientRect().width : 130;
 			wrapper[0].style.setProperty("--iwsr-ws-item-width", item_width + "px");
+			rules.push(".iwsr-ws-table .dt-cell--col-0{position:sticky;left:0;z-index:4;background:#fff;width:50px;min-width:50px;max-width:50px;flex:0 0 50px;}");
 			rules.push(".iwsr-ws-table ." + item_column + "{position:sticky;left:50px;z-index:4;background:#fff;}");
 			rules.push(".iwsr-ws-table ." + name_column + "{position:sticky;left:calc(50px + var(--iwsr-ws-item-width));z-index:4;background:#fff;box-shadow:2px 0 2px rgba(0,0,0,.08);}");
-			rules.push(".iwsr-ws-table .dt-row-header ." + item_column + ",.iwsr-ws-table .dt-row-header ." + name_column + ",.iwsr-ws-table .dt-row-filter ." + item_column + ",.iwsr-ws-table .dt-row-filter ." + name_column + "{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}");
+			rules.push(".iwsr-ws-table .dt-row-header .dt-cell--col-0,.iwsr-ws-table .dt-row-header ." + item_column + ",.iwsr-ws-table .dt-row-header ." + name_column + ",.iwsr-ws-table .dt-row-filter .dt-cell--col-0,.iwsr-ws-table .dt-row-filter ." + item_column + ",.iwsr-ws-table .dt-row-filter ." + name_column + "{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}");
 			rules.push(".iwsr-ws-table .iwsr-ws-sticky-header-cell{z-index:30!important;background:#f7fafc!important;isolation:isolate;}");
 			rules.push(".iwsr-ws-table .iwsr-ws-sticky-header-cell .dt-cell__content{position:relative;z-index:1;background:#f7fafc;}");
 			rules.push(".iwsr-ws-table .iwsr-ws-sticky-footer-cell{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}");
