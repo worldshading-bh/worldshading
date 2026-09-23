@@ -98,10 +98,14 @@ Templates and disabled items are excluded.
 Cost Source options are:
 
 1. `Current Valuation Rate`
-2. `Latest Purchase Rate`
-3. `Weighted Average Purchase Rate`
+2. `Latest Purchase Rate` from submitted Purchase Invoices
+3. `Weighted Average Purchase Rate` from submitted Purchase Invoices
 
 The purchase date range is the same From Date and To Date used for sales analysis.
+Purchase cost history comes from submitted Purchase Invoice Items in company currency
+and Stock UOM. The latest rate uses the most recent positive Purchase Invoice Item up
+to To Date; the weighted average uses net invoice value divided by net stock quantity
+within the selected period.
 Indirect expense is derived automatically; it is not a user-entered filter.
 
 ### 5.3 Pricing and rounding filters
@@ -202,7 +206,7 @@ Detail.
 
 ### 7.2 Purchase history
 
-Purchase history comes from submitted Purchase Receipts and Purchase Receipt Items.
+Purchase history comes from submitted Purchase Invoices and Purchase Invoice Items.
 Rates are normalized to company currency and Stock UOM:
 
 ```text
@@ -213,7 +217,7 @@ Returns reduce both base net amount and stock quantity according to their signed
 values. Cancelled documents are excluded. Rows with zero stock quantity do not
 participate.
 
-`Latest Purchase Rate` is the normalized rate of the latest qualifying Purchase Receipt
+`Latest Purchase Rate` is the normalized rate of the latest qualifying Purchase Invoice
 row on or before To Date. The date range lower bound does not restrict this lookup;
 otherwise an item with no purchase inside the analysis window would incorrectly have no
 latest cost.
@@ -226,9 +230,8 @@ sum(signed base_net_amount) / sum(signed stock_qty)
 ```
 
 If returns make the net quantity zero or negative, weighted purchase cost is unavailable
-and the row receives a warning. Purchase Invoice is not mixed into this calculation,
-because invoices and receipts can represent the same inventory and would double-count
-purchases.
+and the row receives a warning. No alternate purchase-document source is mixed into
+this calculation, preventing the same purchase from being counted twice.
 
 ### 7.3 Historical sales
 

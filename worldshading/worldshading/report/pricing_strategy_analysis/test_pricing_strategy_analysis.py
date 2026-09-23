@@ -219,7 +219,9 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 	def test_sales_data_delegates_to_shared_packed_sales_aggregate(self):
 		filters = {
 			"company": "WS", "from_date": date(2026, 1, 1),
-			"to_date": date(2026, 12, 31), "warehouse": "Main - WS"
+			"to_date": date(2026, 12, 31), "warehouse": "Main - WS",
+			"tiers": [{"minimum": Decimal("5"), "maximum": Decimal("9"), "markup": Decimal("31")}],
+			"gap_messages": []
 		}
 		expected = {
 			"A": {"sales_qty": Decimal("4"), "sales_value": Decimal("80.000"),
@@ -239,7 +241,12 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 		with patch.object(report, "get_item_sales_aggregates", side_effect=shared_reader):
 			result = report.get_sales_data(filters, ["A"])
 		self.assertIs(result, expected)
-		self.assertEqual(captured["filters"], filters)
+		self.assertEqual(captured["filters"], {
+			"company": "WS", "from_date": date(2026, 1, 1),
+			"to_date": date(2026, 12, 31), "warehouse": "Main - WS",
+			"include_returns": 1, "sales_basis": "All"
+		})
+		self.assertNotIn("tiers", captured["filters"])
 		self.assertEqual(captured["item_codes"], ["A"])
 
 	def test_sales_zero_net_quantity_has_no_average(self):
@@ -310,6 +317,10 @@ class TestPricingStrategyDataSources(unittest.TestCase):
 		latest_query, latest_values = sql.call_args_list[1][0][0:2]
 		self.assertIn("%(from_date)s", average_query)
 		self.assertNotIn("%(from_date)s", latest_query)
+		self.assertIn("`tabPurchase Invoice Item`", average_query)
+		self.assertIn("`tabPurchase Invoice`", average_query)
+		self.assertIn("`tabPurchase Invoice Item`", latest_query)
+		self.assertNotIn("`tabPurchase Receipt Item`", average_query)
 		self.assertEqual(average_values["item_codes"], ("A", "B"))
 		self.assertEqual(latest_values["company"], "WS")
 

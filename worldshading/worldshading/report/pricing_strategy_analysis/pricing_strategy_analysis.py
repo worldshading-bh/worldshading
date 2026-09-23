@@ -483,24 +483,24 @@ def get_purchase_data(filters, item_codes):
 		"to_date": filters["to_date"], "item_codes": tuple(item_codes)
 	}
 	average_rows = frappe.db.sql("""
-		select pri.item_code, sum(pri.stock_qty) as purchase_qty,
-			sum(pri.base_net_amount) as purchase_value
-		from `tabPurchase Receipt Item` pri
-		inner join `tabPurchase Receipt` pr on pr.name = pri.parent
-		where pr.docstatus = 1 and pr.company = %(company)s
-			and pr.posting_date between %(from_date)s and %(to_date)s
-			and pri.item_code in %(item_codes)s
-		group by pri.item_code
+		select pii.item_code, sum(pii.stock_qty) as purchase_qty,
+			sum(pii.base_net_amount) as purchase_value
+		from `tabPurchase Invoice Item` pii
+		inner join `tabPurchase Invoice` pi on pi.name = pii.parent
+		where pi.docstatus = 1 and pi.company = %(company)s
+			and pi.posting_date between %(from_date)s and %(to_date)s
+			and pii.item_code in %(item_codes)s
+		group by pii.item_code
 	""", values, as_dict=True)
 	latest_rows = frappe.db.sql("""
-		select pri.item_code,
-			case when pri.stock_qty = 0 then null else pri.base_net_amount / pri.stock_qty end as latest_purchase_rate
-		from `tabPurchase Receipt Item` pri
-		inner join `tabPurchase Receipt` pr on pr.name = pri.parent
-		where pr.docstatus = 1 and pr.company = %(company)s
-			and pr.posting_date <= %(to_date)s
-			and pri.item_code in %(item_codes)s and pri.stock_qty > 0
-		order by pri.item_code, pr.posting_date desc, pr.posting_time desc, pr.creation desc, pri.idx desc
+		select pii.item_code,
+			case when pii.stock_qty = 0 then null else pii.base_net_amount / pii.stock_qty end as latest_purchase_rate
+		from `tabPurchase Invoice Item` pii
+		inner join `tabPurchase Invoice` pi on pi.name = pii.parent
+		where pi.docstatus = 1 and pi.company = %(company)s
+			and pi.posting_date <= %(to_date)s
+			and pii.item_code in %(item_codes)s and pii.stock_qty > 0
+		order by pii.item_code, pi.posting_date desc, pi.posting_time desc, pi.creation desc, pii.idx desc
 	""", values, as_dict=True)
 	return normalize_purchase_rows(average_rows, latest_rows)
 
@@ -530,7 +530,15 @@ def normalize_purchase_rows(average_rows, latest_rows):
 def get_sales_data(filters, item_codes):
 	if not item_codes:
 		return {}
-	return get_item_sales_aggregates(filters, item_codes)
+	sales_filters = {
+		"company": filters.get("company"),
+		"from_date": filters.get("from_date"),
+		"to_date": filters.get("to_date"),
+		"warehouse": filters.get("warehouse"),
+		"include_returns": 1,
+		"sales_basis": "All"
+	}
+	return get_item_sales_aggregates(sales_filters, item_codes)
 
 
 def get_indirect_expense_context(filters):
