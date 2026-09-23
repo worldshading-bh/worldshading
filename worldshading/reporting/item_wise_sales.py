@@ -281,6 +281,10 @@ def validate_filters(filters):
 		frappe.throw("From Date cannot be after To Date")
 	filters["include_returns"] = cint(filters.get("include_returns", 1))
 	filters["sales_basis"] = filters.get("sales_basis") or "All"
+	filters["sales_basis"] = {
+		"Direct Items": "Direct",
+		"Packed Items": "Packed"
+	}.get(filters["sales_basis"], filters["sales_basis"])
 	if filters["sales_basis"] not in ("All", "Direct", "Packed"):
 		frappe.throw("Unsupported Sales Basis: {0}".format(filters["sales_basis"]))
 	if filters.get("item_name"):

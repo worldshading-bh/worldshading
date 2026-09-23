@@ -270,7 +270,7 @@
 			{fieldname: "customer", label: __("Customer"), fieldtype: "Link", options: "Customer"},
 			{fieldname: "warehouse", label: __("Warehouse"), fieldtype: "Link", options: "Warehouse", get_query: function () { return {filters: {company: frappe.query_report.get_filter_value("company"), is_group: 0}}; }},
 			{fieldname: "project", label: __("Project"), fieldtype: "Link", options: "Project"},
-			{fieldname: "sales_basis", label: __("Sales Basis"), fieldtype: "Select", options: "All\nDirect\nPacked", "default": "All"},
+			{fieldname: "sales_basis", label: __("Sales Basis"), fieldtype: "Select", options: "All\nDirect Items\nPacked Items", "default": "All"},
 			{fieldname: "include_returns", label: __("Include Returns"), fieldtype: "Check", "default": 1},
 			{fieldname: "show_detailed_report", label: __("Show Detailed Report"), fieldtype: "Check", "default": 0}
 		],

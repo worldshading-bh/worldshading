@@ -180,6 +180,7 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertIn("datatable.bodyRenderer.renderFooter()", script)
 		self.assertIn("iwsr_ws_last_scroll_left", script)
 		self.assertIn("iwsr_ws_refresh_sticky_columns", script)
+		self.assertIn('options: "All\\nDirect Items\\nPacked Items"', script)
 
 	def test_prepared_filter_reader_accepts_owned_completed_report(self):
 		prepared = type("Prepared", (object,), {

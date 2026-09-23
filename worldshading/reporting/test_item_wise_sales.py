@@ -129,6 +129,16 @@ class TestPackedRevenueAllocation(unittest.TestCase):
 
 
 class TestSalesReader(unittest.TestCase):
+	def test_sales_basis_filter_accepts_user_facing_item_labels(self):
+		self.assertEqual(
+			report.validate_filters(self.filters(sales_basis="Direct Items"))["sales_basis"],
+			"Direct"
+		)
+		self.assertEqual(
+			report.validate_filters(self.filters(sales_basis="Packed Items"))["sales_basis"],
+			"Packed"
+		)
+
 	def filters(self, **overrides):
 		values = {
 			"company": "WS", "from_date": "2026-01-01", "to_date": "2026-12-31",
