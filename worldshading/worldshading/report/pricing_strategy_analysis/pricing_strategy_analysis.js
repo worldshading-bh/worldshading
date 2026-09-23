@@ -57,10 +57,59 @@ function toggle_pricing_rule_strategy_filters(report) {
 	});
 }
 
+function apply_pricing_strategy_column_colors(datatable) {
+	var wrapper = datatable && datatable.wrapper;
+	if (!wrapper) {
+		return;
+	}
+
+	$(wrapper).addClass("pricing-strategy-result-columns");
+	var price_field_colors = {
+		"recommended_regular_net": "#e8f5e9",
+		"recommended_b2b_net": "#e8f5e9",
+		"recommended_regular_gross": "#eaf4ff",
+		"recommended_b2b_gross": "#eaf4ff",
+		"fully_loaded_cost": "#fff7e6",
+		"current_normal_price": "#fff7e6",
+		"current_b2b_price": "#fff7e6",
+		"suggested_action": "#fff7e6",
+		"warnings": "#fff0f0"
+	};
+	var report_columns = (frappe.query_report && frappe.query_report.columns) || [];
+	var column_rules = [];
+
+	$(wrapper).find(".dt-row-header .dt-cell").each(function (index) {
+		var report_column = report_columns[index - 1] || {};
+		var fieldname = report_column.fieldname || "";
+		var background_color = price_field_colors[fieldname];
+		if (/^tier_\d+_net$/.test(fieldname)) {
+			background_color = "#e8f5e9";
+		} else if (/^tier_\d+_gross$/.test(fieldname)) {
+			background_color = "#eaf4ff";
+		}
+		var column_class = (this.className.match(/dt-cell--col-\d+/) || [])[0];
+		if (background_color && column_class) {
+			column_rules.push(
+				".pricing-strategy-result-columns ." + column_class +
+				"{background:" + background_color + " !important;}"
+			);
+		}
+	});
+
+	var style = $("#pricing-strategy-result-column-style");
+	if (!style.length) {
+		style = $("<style id='pricing-strategy-result-column-style'></style>").appendTo("head");
+	}
+	style.text(column_rules.join(""));
+}
+
 frappe.query_reports["Pricing Strategy Analysis"] = {
 	"onload": function (report) {
 		apply_pricing_strategy_filter_labels(report);
 		toggle_pricing_rule_strategy_filters(report);
+	},
+	"after_datatable_render": function (datatable) {
+		apply_pricing_strategy_column_colors(datatable);
 	},
 	"filters": [
 		{

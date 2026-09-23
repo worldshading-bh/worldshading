@@ -545,6 +545,13 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertIn('"on_change": function ()', javascript)
 		self.assertNotIn("margin:0 !important;padding:0 !important", javascript)
 		self.assertIn("padding-top:0 !important;padding-bottom:0 !important", javascript)
+		self.assertIn("apply_pricing_strategy_column_colors", javascript)
+		self.assertIn('"after_datatable_render": function (datatable)', javascript)
+		self.assertIn('recommended_regular_net', javascript)
+		self.assertIn('recommended_b2b_net', javascript)
+		self.assertIn('/^tier_\\d+_net$/', javascript)
+		self.assertIn('/^tier_\\d+_gross$/', javascript)
+		self.assertIn('pricing-strategy-result-column-style', javascript)
 
 
 if __name__ == "__main__":
