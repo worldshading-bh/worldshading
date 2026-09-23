@@ -60,6 +60,14 @@ class TestPackedRevenueAllocation(unittest.TestCase):
 		self.assertEqual([row["net_amount"] for row in rows], [Decimal("-48.000"), Decimal("-32.000")])
 		self.assertEqual([row["stock_qty"] for row in rows], [Decimal("-1"), Decimal("-1")])
 
+	def test_return_normalizes_positive_packed_quantity_to_parent_sign(self):
+		rows = allocate_parent_pool(
+			[self.parent("-20", qty="-1")], [self.packed("A", "20", qty="2")]
+		)
+		self.assertEqual(rows[0]["stock_qty"], Decimal("-2"))
+		self.assertEqual(rows[0]["net_amount"], Decimal("-20.000"))
+		self.assertEqual(rows[0]["net_rate"], Decimal("10.000"))
+
 	def test_duplicate_parent_rows_warn_and_reconcile_as_one_pool(self):
 		rows = allocate_parent_pool(
 			[self.parent("70", name="SII-1"), self.parent("30", name="SII-2")],
@@ -248,6 +256,40 @@ class TestSalesReader(unittest.TestCase):
 				customer=None, warehouse=None, project=None
 			))
 		self.assertTrue(all("ambiguous_parent_rows" in row["warnings"] for row in rows))
+
+	def test_item_group_filter_does_not_emit_unrelated_packed_sibling(self):
+		packed_rows = [
+			{"invoice": "SINV-1", "item_code": "A", "item_group": "Selected", "parent_item": "BUNDLE",
+			 "qty": 1, "amount": 10, "rate": 10, "posting_date": "2026-09-01",
+			 "parent_base_net_amount": 20, "parent_stock_qty": 1, "parent_row_count": 1},
+			{"invoice": "SINV-1", "item_code": "B", "item_group": "Other", "parent_item": "BUNDLE",
+			 "qty": 1, "amount": 10, "rate": 10, "posting_date": "2026-09-01",
+			 "parent_base_net_amount": 20, "parent_stock_qty": 1, "parent_row_count": 1}
+		]
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = [[], packed_rows]
+			rows = get_transaction_rows(self.filters(
+				item_code=None, item_name=None, item_group="Selected", brand=None,
+				customer=None, warehouse=None, project=None
+			))
+		self.assertEqual([row["item_code"] for row in rows], ["A"])
+
+	def test_warehouse_filter_keeps_requested_contribution_separate(self):
+		direct_rows = [
+			{"invoice": "SINV-1", "name": "SII-1", "item_code": "A", "stock_qty": 1,
+			 "base_net_amount": 10, "posting_date": "2026-09-01", "warehouse": "Main - WS"},
+			{"invoice": "SINV-1", "name": "SII-2", "item_code": "A", "stock_qty": 2,
+			 "base_net_amount": 20, "posting_date": "2026-09-01", "warehouse": "Other - WS"}
+		]
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = [direct_rows, []]
+			rows = get_transaction_rows(self.filters(
+				item_code=None, item_name=None, item_group=None, brand=None,
+				customer=None, warehouse="Main - WS", project=None
+			))
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["stock_qty"], Decimal("1"))
+		self.assertEqual(rows[0]["net_amount"], Decimal("10.000"))
 
 	def test_aggregate_warns_when_returns_exceed_sales(self):
 		rows = [{

@@ -28,7 +28,7 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 			"net_rate": Decimal("40"), "net_amount": Decimal("80"),
 			"direct_net_amount": Decimal("0"), "packed_net_amount": Decimal("80"),
 			"sales_basis": "Packed", "parent_item": "BUNDLE",
-			"warnings": []
+			"currency": "USD", "warnings": []
 		}
 		row.update(overrides)
 		return row
@@ -38,7 +38,8 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertEqual(fieldnames, [
 			"posting_date", "invoice", "item_code", "item_name", "item_group", "brand",
 			"sales_basis", "stock_uom", "stock_qty", "net_rate", "net_amount",
-			"tax", "total", "current_stock_qty", "default_supplier", "supplier_name"
+			"tax", "total", "current_stock_qty", "default_supplier", "supplier_name",
+			"reconciliation_warning"
 		])
 		self.assertNotIn("customer", fieldnames)
 
@@ -62,11 +63,12 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 			captured.update(filters)
 			return [self.transaction()]
 
-		with patch.object(report, "get_transaction_rows", side_effect=read_rows), \
+		with patch.object(report, "get_transaction_contributions", side_effect=read_rows), \
 				patch.object(report, "get_item_context", return_value={
 					"A": {"current_stock_qty": Decimal("12"), "default_supplier": "SUP-1",
 						  "supplier_name": "Supplier One", "item_name": "Roll A",
-						  "item_group": "Rolls", "brand": "Brand A", "stock_uom": "Nos"}
+						  "item_group": "Rolls", "brand": "Brand A", "stock_uom": "Nos",
+						  "company_currency": "BHD"}
 				}), \
 				patch.object(report, "get_tax_context", return_value={
 					("SINV-1", "BUNDLE"): {"amount": Decimal("8"), "accounts": "VAT 10%"}
@@ -79,11 +81,26 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertEqual(rows[0]["total"], Decimal("88.000"))
 		self.assertEqual(rows[0]["current_stock_qty"], Decimal("12"))
 		self.assertEqual(rows[0]["default_supplier"], "SUP-1")
+		self.assertEqual(rows[0]["currency"], "BHD")
+		self.assertEqual(rows[0]["invoice_currency"], "USD")
 		self.assertIsNone(message)
 		self.assertIsNone(chart)
 
+	def test_tax_is_shared_once_between_packed_and_parent_residual(self):
+		rows = [
+			self.transaction(net_amount=Decimal("80"), packed_net_amount=Decimal("80")),
+			self.transaction(item_code="BUNDLE", parent_item=None, sales_basis="Direct",
+				net_amount=Decimal("20"), direct_net_amount=Decimal("20"),
+				packed_net_amount=Decimal("0"), direct_qty=Decimal("1"), packed_qty=Decimal("0"))
+		]
+		report.apply_tax_values(rows, {
+			("SINV-1", "BUNDLE"): {"amount": Decimal("10"), "accounts": "VAT"}
+		})
+		self.assertEqual([row["tax"] for row in rows], [Decimal("8.000"), Decimal("2.000")])
+		self.assertEqual(sum(row["tax"] for row in rows), Decimal("10.000"))
+
 	def test_execute_summarizes_reconciliation_warnings(self):
-		with patch.object(report, "get_transaction_rows", return_value=[
+		with patch.object(report, "get_transaction_contributions", return_value=[
 			self.transaction(warnings=["ambiguous_parent_rows", "zero_qty_nonzero_value"])
 		]), patch.object(report, "get_item_context", return_value={}), \
 				patch.object(report, "get_tax_context", return_value={}), \
@@ -116,6 +133,7 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertEqual(metadata["disable_prepared_report"], 0)
 		self.assertEqual(metadata["ref_doctype"], "Sales Invoice")
 		self.assertEqual(metadata["module"], "Worldshading")
+		self.assertEqual(metadata["add_total_row"], 0)
 
 	def test_prepared_filter_reader_accepts_owned_completed_report(self):
 		prepared = type("Prepared", (object,), {

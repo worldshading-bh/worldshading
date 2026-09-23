@@ -83,7 +83,7 @@
 		var button = report.page.inner_toolbar.find(
 			'button[data-label="' + encodeURIComponent(__("Download Report")) + '"]'
 		);
-		button.off("click.iwsr_ws").on("click.iwsr_ws", function () {
+		button.off("click").on("click.iwsr_ws", function () {
 			window.open(frappe.urllib.get_full_url(
 				"/api/method/frappe.core.doctype.prepared_report.prepared_report.download_attachment?dn=" +
 				encodeURIComponent(prepared.name)

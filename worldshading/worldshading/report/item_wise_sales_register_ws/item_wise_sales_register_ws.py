@@ -9,7 +9,8 @@ from frappe.utils import cint
 
 from worldshading.reporting.item_wise_sales import (
 	append_warning,
-	get_transaction_rows,
+	filter_transaction_rows,
+	get_transaction_contributions,
 	quantize_money,
 	to_decimal,
 )
@@ -18,6 +19,8 @@ from worldshading.reporting.item_wise_sales import (
 WARNING_LABELS = {
 	"ambiguous_parent_rows": _("Ambiguous parent rows"),
 	"missing_parent_item": _("Missing parent Sales Invoice Item"),
+	"missing_parent_link": _("Packed Item has no parent row link; parent Item fallback used"),
+	"invalid_parent_link_fallback": _("Packed Item parent row link is invalid; parent Item fallback used"),
 	"packed_amount_from_rate": _("Packed amount calculated from rate"),
 	"packed_value_from_quantity": _("Packed value allocated by quantity"),
 	"zero_qty_nonzero_value": _("Zero quantity with non-zero value"),
@@ -26,22 +29,26 @@ WARNING_LABELS = {
 
 def execute(filters=None):
 	filters = dict(filters or {})
-	rows = get_transaction_rows(filters)
+	contributions = get_transaction_contributions(filters)
+	tax_context = get_tax_context(contributions)
+	apply_tax_values(contributions, tax_context)
+	rows = filter_transaction_rows(contributions, filters)
 	item_codes = sorted(set(row.get("item_code") for row in rows if row.get("item_code")))
 	item_context = get_item_context(
 		item_codes, filters.get("company"), filters.get("warehouse")
 	)
-	tax_context = get_tax_context(rows)
 	detail_context = get_detail_context(rows) if cint(filters.get("show_detailed_report")) else {}
-	apply_tax_values(rows, tax_context)
 
 	for row in rows:
+		invoice_currency = row.get("currency")
 		row.update(item_context.get(row.get("item_code"), {}))
+		row["invoice_currency"] = invoice_currency
+		row["currency"] = row.get("company_currency") or invoice_currency
+		row["reconciliation_warning"] = "; ".join(row.get("warnings") or [])
 		if cint(filters.get("show_detailed_report")):
 			row.update(detail_context.get(row.get("invoice"), {}))
 			row["invoice_count"] = 1
 			row["last_sold_date"] = row.get("posting_date")
-			row["reconciliation_warning"] = "; ".join(row.get("warnings") or [])
 
 	message = get_warning_message(rows)
 	return get_columns(filters), rows, message, None
@@ -75,6 +82,7 @@ def get_columns(filters):
 		_column("Current Stock Qty", "current_stock_qty", "Float", 120),
 		_column("Default Supplier", "default_supplier", "Link", 130, "Supplier"),
 		_column("Supplier Name", "supplier_name", "Data", 160),
+		_column("Warnings", "reconciliation_warning", "Data", 180),
 	]
 	if not cint((filters or {}).get("show_detailed_report")):
 		return columns
@@ -92,6 +100,7 @@ def get_columns(filters):
 		_column("Cost Center", "cost_center", "Link", 130, "Cost Center"),
 		_column("Mode of Payment", "mode_of_payment", "Data", 130),
 		_column("Currency", "currency", "Link", 85, "Currency"),
+		_column("Invoice Currency", "invoice_currency", "Link", 100, "Currency"),
 		_column("Invoice Qty", "qty", "Float", 95),
 		_column("Invoice UOM", "uom", "Link", 95, "UOM"),
 		_column("Conversion Factor", "conversion_factor", "Float", 110),
@@ -108,7 +117,6 @@ def get_columns(filters):
 		_column("Packed Net Value", "packed_net_amount", "Currency", 125, "currency"),
 		_column("Invoice Count", "invoice_count", "Int", 95),
 		_column("Last Sold Date", "last_sold_date", "Date", 105),
-		_column("Reconciliation Warning", "reconciliation_warning", "Data", 220),
 	])
 	return columns
 
@@ -120,7 +128,7 @@ def get_item_context(item_codes, company, warehouse=None):
 	rows = frappe.db.sql("""
 		select
 			item.name as item_code, item.item_name, item.item_group,
-			item.brand, item.stock_uom,
+			item.brand, item.stock_uom, max(company.default_currency) as company_currency,
 			max(item_default.default_supplier) as default_supplier,
 			max(supplier.supplier_name) as supplier_name,
 			coalesce(max(stock.actual_qty), 0) as current_stock_qty
@@ -130,6 +138,7 @@ def get_item_context(item_codes, company, warehouse=None):
 			and item_default.company = %(company)s
 		left join `tabSupplier` supplier
 			on supplier.name = item_default.default_supplier
+		inner join `tabCompany` company on company.name = %(company)s
 		left join (
 			select bin.item_code, sum(bin.actual_qty) as actual_qty
 			from `tabBin` bin
@@ -151,7 +160,8 @@ def get_tax_context(rows):
 	if not invoices:
 		return {}
 	tax_rows = frappe.db.sql("""
-		select parent as invoice, account_head, description, item_wise_tax_detail
+		select parent as invoice, account_head, description, item_wise_tax_detail,
+			charge_type, base_tax_amount_after_discount_amount
 		from `tabSales Taxes and Charges`
 		where parenttype = 'Sales Invoice' and docstatus = 1
 			and parent in %(invoices)s
@@ -171,48 +181,54 @@ def get_tax_context(rows):
 			account = tax_row.account_head or tax_row.description
 			if account and account not in entry["accounts"]:
 				entry["accounts"].append(account)
+		if not details and tax_row.charge_type == "Actual":
+			key = (tax_row.invoice, "__actual__")
+			entry = result.setdefault(key, {"amount": Decimal("0"), "accounts": []})
+			entry["amount"] += to_decimal(tax_row.base_tax_amount_after_discount_amount)
+			account = tax_row.account_head or tax_row.description
+			if account and account not in entry["accounts"]:
+				entry["accounts"].append(account)
 	for entry in result.values():
 		entry["accounts"] = ", ".join(entry["accounts"])
 	return result
 
 
 def apply_tax_values(rows, tax_context):
-	direct_totals = {}
-	packed_totals = {}
 	for row in rows:
-		direct_key = (row.get("invoice"), row.get("item_code"))
-		packed_key = (row.get("invoice"), row.get("parent_item"))
-		direct_totals[direct_key] = direct_totals.get(direct_key, Decimal("0")) + abs(
-			to_decimal(row.get("direct_net_amount"))
-		)
-		if row.get("parent_item"):
-			packed_totals[packed_key] = packed_totals.get(packed_key, Decimal("0")) + abs(
-				to_decimal(row.get("packed_net_amount"))
-			)
+		row["tax"] = Decimal("0.000")
+		row["tax_accounts"] = ""
+	for key, context in tax_context.items():
+		invoice, source_item = key
+		weighted_rows = []
+		for row in rows:
+			if row.get("invoice") != invoice:
+				continue
+			if source_item == "__actual__":
+				weight = abs(to_decimal(row.get("net_amount")))
+			else:
+				weight = Decimal("0")
+				if row.get("item_code") == source_item:
+					weight += abs(to_decimal(row.get("direct_net_amount")))
+				if row.get("parent_item") == source_item:
+					weight += abs(to_decimal(row.get("packed_net_amount")))
+			if weight:
+				weighted_rows.append((row, weight))
+		total_weight = sum((value for unused_row, value in weighted_rows), Decimal("0"))
+		allocated = Decimal("0")
+		for index, (row, weight) in enumerate(weighted_rows):
+			if index == len(weighted_rows) - 1:
+				row_tax = quantize_money(to_decimal(context.get("amount")) - allocated)
+			else:
+				row_tax = quantize_money(to_decimal(context.get("amount")) * weight / total_weight)
+			allocated += row_tax
+			row["tax"] += row_tax
+			accounts = [value for value in row.get("tax_accounts", "").split(", ") if value]
+			if context.get("accounts") and context["accounts"] not in accounts:
+				accounts.append(context["accounts"])
+			row["tax_accounts"] = ", ".join(accounts)
 	for row in rows:
-		tax = Decimal("0")
-		accounts = []
-		direct_key = (row.get("invoice"), row.get("item_code"))
-		direct_context = tax_context.get(direct_key, {})
-		direct_total = direct_totals.get(direct_key, Decimal("0"))
-		if direct_total:
-			tax += to_decimal(direct_context.get("amount")) * abs(
-				to_decimal(row.get("direct_net_amount"))
-			) / direct_total
-		if direct_context.get("accounts"):
-			accounts.append(direct_context["accounts"])
-		packed_key = (row.get("invoice"), row.get("parent_item"))
-		packed_context = tax_context.get(packed_key, {})
-		packed_total = packed_totals.get(packed_key, Decimal("0"))
-		if packed_total:
-			tax += to_decimal(packed_context.get("amount")) * abs(
-				to_decimal(row.get("packed_net_amount"))
-			) / packed_total
-		if packed_context.get("accounts") and packed_context.get("accounts") not in accounts:
-			accounts.append(packed_context["accounts"])
-		row["tax"] = quantize_money(tax)
+		row["tax"] = quantize_money(row.get("tax"))
 		row["total"] = quantize_money(to_decimal(row.get("net_amount")) + row["tax"])
-		row["tax_accounts"] = ", ".join(accounts)
 
 
 def get_detail_context(rows):
