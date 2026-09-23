@@ -176,6 +176,10 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertIn("translateX(\" + scroll_left + \"px)", script)
 		self.assertIn("scroll.iwsr_ws_sticky_columns", script)
 		self.assertIn(".iwsr-ws-table .dt-cell--col-0{position:sticky;left:0", script)
+		self.assertIn(".dt-scrollable__no-data", script)
+		self.assertIn("datatable.bodyRenderer.renderFooter()", script)
+		self.assertIn("iwsr_ws_last_scroll_left", script)
+		self.assertIn("iwsr_ws_refresh_sticky_columns", script)
 
 	def test_prepared_filter_reader_accepts_owned_completed_report(self):
 		prepared = type("Prepared", (object,), {

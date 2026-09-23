@@ -88,6 +88,8 @@
 		var wrapper = $(datatable.wrapper);
 		wrapper.addClass("iwsr-ws-table");
 		var selected_index = datatable.iwsr_ws_selected_index;
+		var empty_layout_frame = null;
+		var refresh_empty_filter_layout = null;
 		wrapper.off("click.iwsr_ws_row").on("click.iwsr_ws_row", ".dt-row .dt-cell", function () {
 			var row = $(this).closest(".dt-row");
 			if (row.hasClass("dt-row-header") || row.hasClass("dt-row-filter") || row.closest(".dt-footer").length) {
@@ -97,6 +99,7 @@
 			datatable.iwsr_ws_selected_index = selected_index;
 			wrapper.find(".iwsr-ws-selected-row").removeClass("iwsr-ws-selected-row");
 			row.addClass("iwsr-ws-selected-row");
+			if (refresh_empty_filter_layout) { refresh_empty_filter_layout(); }
 		});
 
 		if (datatable.iwsr_ws_observer) { datatable.iwsr_ws_observer.disconnect(); }
@@ -104,6 +107,12 @@
 			if (selected_index !== undefined && selected_index !== null) {
 				wrapper.find('.dt-row[data-row-index="' + selected_index + '"]')
 					.addClass("iwsr-ws-selected-row");
+			}
+			if (empty_layout_frame === null) {
+				empty_layout_frame = window.requestAnimationFrame(function () {
+					empty_layout_frame = null;
+					if (refresh_empty_filter_layout) { refresh_empty_filter_layout(); }
+				});
 			}
 		});
 		datatable.iwsr_ws_observer.observe(datatable.bodyScrollable, {childList: true, subtree: true});
@@ -125,9 +134,12 @@
 			}
 		});
 		if (item_column && name_column) {
-			var item_width = wrapper.find(".dt-row-header ." + item_column)[0];
-			item_width = item_width ? item_width.getBoundingClientRect().width : 130;
-			wrapper[0].style.setProperty("--iwsr-ws-item-width", item_width + "px");
+			var update_sticky_offsets = function () {
+				var item_width = wrapper.find(".dt-row-header ." + item_column)[0];
+				item_width = item_width ? item_width.getBoundingClientRect().width : 130;
+				wrapper[0].style.setProperty("--iwsr-ws-item-width", item_width + "px");
+			};
+			update_sticky_offsets();
 			rules.push(".iwsr-ws-table .dt-cell--col-0{position:sticky;left:0;z-index:4;background:#fff;width:50px;min-width:50px;max-width:50px;flex:0 0 50px;}");
 			rules.push(".iwsr-ws-table ." + item_column + "{position:sticky;left:50px;z-index:4;background:#fff;}");
 			rules.push(".iwsr-ws-table ." + name_column + "{position:sticky;left:calc(50px + var(--iwsr-ws-item-width));z-index:4;background:#fff;box-shadow:2px 0 2px rgba(0,0,0,.08);}");
@@ -145,12 +157,90 @@
 					.addClass("iwsr-ws-sticky-footer-cell")
 					.css("transform", "translateX(" + scroll_left + "px)");
 			};
+			refresh_empty_filter_layout = function () {
+				var no_data = $(datatable.bodyScrollable).find(".dt-scrollable__no-data");
+				if (!no_data.length) { return; }
+				var header_row = $(datatable.header).find(".dt-row-header")[0];
+				if (header_row) {
+					var header_width = Math.max(
+						header_row.scrollWidth || 0,
+						header_row.getBoundingClientRect().width || 0
+					);
+					if (header_width) {
+						no_data.css({"width": header_width + "px", "min-width": header_width + "px"});
+					}
+				}
+				if (datatable.bodyRenderer && datatable.bodyRenderer.visibleRows &&
+						datatable.bodyRenderer.visibleRows.length === 0) {
+					datatable.bodyRenderer.renderFooter();
+				}
+				var maximum_scroll = Math.max(
+					0, datatable.bodyScrollable.scrollWidth - datatable.bodyScrollable.clientWidth
+				);
+				datatable.bodyScrollable.scrollLeft = Math.min(
+					datatable.iwsr_ws_last_scroll_left || 0, maximum_scroll
+				);
+				update_sticky_header();
+			};
+			if (datatable.iwsr_ws_last_scroll_left === undefined) {
+				datatable.iwsr_ws_last_scroll_left = datatable.bodyScrollable.scrollLeft;
+			}
 			$(datatable.bodyScrollable)
 				.off("scroll.iwsr_ws_sticky_columns")
 				.on("scroll.iwsr_ws_sticky_columns", function () {
+					var no_data = $(datatable.bodyScrollable).find(".dt-scrollable__no-data");
+					if (!no_data.length ||
+							datatable.bodyScrollable.scrollWidth > datatable.bodyScrollable.clientWidth) {
+						datatable.iwsr_ws_last_scroll_left = datatable.bodyScrollable.scrollLeft;
+					}
 					window.requestAnimationFrame(update_sticky_header);
 				});
 			update_sticky_header();
+			refresh_empty_filter_layout();
+
+			var resizing_column = false;
+			$(datatable.header)
+				.off("mousedown.iwsr_ws_sticky_resize")
+				.on("mousedown.iwsr_ws_sticky_resize", ".dt-cell__resize-handle", function () {
+					resizing_column = true;
+				});
+			$(document.body)
+				.off("mouseup.iwsr_ws_sticky_resize")
+				.on("mouseup.iwsr_ws_sticky_resize", function () {
+					if (!resizing_column) { return; }
+					resizing_column = false;
+					window.requestAnimationFrame(function () {
+						update_sticky_offsets();
+						refresh_empty_filter_layout();
+						update_sticky_header();
+					});
+				});
+			$(datatable.header)
+				.off("dblclick.iwsr_ws_sticky_resize")
+				.on("dblclick.iwsr_ws_sticky_resize", ".dt-cell__resize-handle", function () {
+					setTimeout(function () {
+						update_sticky_offsets();
+						refresh_empty_filter_layout();
+						update_sticky_header();
+					}, 0);
+				});
+			datatable.iwsr_ws_refresh_sticky_columns = function () {
+				window.requestAnimationFrame(function () {
+					update_sticky_offsets();
+					refresh_empty_filter_layout();
+					update_sticky_header();
+				});
+			};
+			if (!datatable.iwsr_ws_sticky_events_bound) {
+				datatable.iwsr_ws_sticky_events_bound = true;
+				["onSortColumn", "onSwitchColumn", "onRemoveColumn"].forEach(function (event_name) {
+					datatable.on(event_name, function () {
+						if (datatable.iwsr_ws_refresh_sticky_columns) {
+							datatable.iwsr_ws_refresh_sticky_columns();
+						}
+					});
+				});
+			}
 			if (datatable.columnmanager && datatable.columnmanager.sortable) {
 				datatable.columnmanager.sortable.option("disabled", true);
 			}
