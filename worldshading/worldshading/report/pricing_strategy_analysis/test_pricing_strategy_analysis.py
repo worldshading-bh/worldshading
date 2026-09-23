@@ -216,6 +216,32 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 
 class TestPricingStrategyDataSources(unittest.TestCase):
 
+	def test_sales_data_delegates_to_shared_packed_sales_aggregate(self):
+		filters = {
+			"company": "WS", "from_date": date(2026, 1, 1),
+			"to_date": date(2026, 12, 31), "warehouse": "Main - WS"
+		}
+		expected = {
+			"A": {"sales_qty": Decimal("4"), "sales_value": Decimal("80.000"),
+				  "weighted_average_sold_rate": Decimal("20.000"),
+				  "invoice_count": 2, "last_sale_date": date(2026, 9, 1),
+				  "lowest_sold_rate": Decimal("18.000"),
+				  "highest_sold_rate": Decimal("22.000"),
+				  "last_sold_rate": Decimal("21.000"), "warnings": []}
+		}
+		captured = {}
+
+		def shared_reader(received_filters, item_codes=None):
+			captured["filters"] = received_filters
+			captured["item_codes"] = item_codes
+			return expected
+
+		with patch.object(report, "get_item_sales_aggregates", side_effect=shared_reader):
+			result = report.get_sales_data(filters, ["A"])
+		self.assertIs(result, expected)
+		self.assertEqual(captured["filters"], filters)
+		self.assertEqual(captured["item_codes"], ["A"])
+
 	def test_sales_zero_net_quantity_has_no_average(self):
 		rows = [{
 			"item_code": "A", "sales_qty": 0, "sales_value": 20,

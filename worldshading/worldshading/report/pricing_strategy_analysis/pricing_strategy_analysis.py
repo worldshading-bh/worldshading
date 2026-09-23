@@ -5,6 +5,8 @@ from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 import frappe
 from frappe.utils import cint, getdate
 
+from worldshading.reporting.item_wise_sales import get_item_sales_aggregates
+
 
 MONEY_QUANTUM = Decimal("0.001")
 PERCENT_QUANTUM = Decimal("0.001")
@@ -528,35 +530,7 @@ def normalize_purchase_rows(average_rows, latest_rows):
 def get_sales_data(filters, item_codes):
 	if not item_codes:
 		return {}
-	values = {
-		"company": filters["company"], "from_date": filters["from_date"],
-		"to_date": filters["to_date"], "item_codes": tuple(item_codes)
-	}
-	rows = frappe.db.sql("""
-		select sii.item_code, sum(sii.stock_qty) as sales_qty,
-			sum(sii.base_net_amount) as sales_value,
-			count(distinct si.name) as invoice_count,
-			max(si.posting_date) as last_sale_date,
-			min(case when sii.stock_qty > 0 then sii.base_net_amount / sii.stock_qty end) as lowest_sold_rate,
-			max(case when sii.stock_qty > 0 then sii.base_net_amount / sii.stock_qty end) as highest_sold_rate
-		from `tabSales Invoice Item` sii
-		inner join `tabSales Invoice` si on si.name = sii.parent
-		where si.docstatus = 1 and si.company = %(company)s
-			and si.posting_date between %(from_date)s and %(to_date)s
-			and sii.item_code in %(item_codes)s
-		group by sii.item_code
-	""", values, as_dict=True)
-	latest_rows = frappe.db.sql("""
-		select sii.item_code,
-			case when sii.stock_qty = 0 then null else sii.base_net_amount / sii.stock_qty end as last_sold_rate
-		from `tabSales Invoice Item` sii
-		inner join `tabSales Invoice` si on si.name = sii.parent
-		where si.docstatus = 1 and si.company = %(company)s
-			and si.posting_date between %(from_date)s and %(to_date)s
-			and sii.item_code in %(item_codes)s and sii.stock_qty > 0
-		order by sii.item_code, si.posting_date desc, si.posting_time desc, si.creation desc, sii.idx desc
-	""", values, as_dict=True)
-	return normalize_sales_rows(rows, latest_rows)
+	return get_item_sales_aggregates(filters, item_codes)
 
 
 def get_indirect_expense_context(filters):
