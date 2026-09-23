@@ -2,6 +2,9 @@ from __future__ import unicode_literals
 
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+import frappe
+from frappe.utils import cint, getdate
+
 
 def to_decimal(value):
 	if value in (None, ""):
@@ -49,6 +52,9 @@ def allocate_parent_pool(parent_rows, packed_rows, currency_precision=3):
 	packed_rows = list(packed_rows or [])
 	quantum = money_quantum(currency_precision)
 	warnings = []
+	for parent_row in parent_rows:
+		for warning in parent_row.get("warnings") or []:
+			append_warning(warnings, warning)
 	if len(parent_rows) > 1:
 		append_warning(warnings, "ambiguous_parent_rows")
 
@@ -236,3 +242,275 @@ def normalize_transaction_rows(direct_rows, packed_rows, currency_precision=3):
 			output.append(_direct_output(row, currency_precision))
 
 	return _merge_rows(output, currency_precision)
+
+
+def _get_filter(filters, fieldname, default=None):
+	if hasattr(filters, "get"):
+		return filters.get(fieldname, default)
+	return default
+
+
+def validate_filters(filters):
+	filters = dict(filters or {})
+	for fieldname in ("company", "from_date", "to_date"):
+		if not filters.get(fieldname):
+			frappe.throw("{0} is required".format(fieldname.replace("_", " ").title()))
+	filters["from_date"] = getdate(filters["from_date"])
+	filters["to_date"] = getdate(filters["to_date"])
+	if filters["from_date"] > filters["to_date"]:
+		frappe.throw("From Date cannot be after To Date")
+	filters["include_returns"] = cint(filters.get("include_returns", 1))
+	filters["sales_basis"] = filters.get("sales_basis") or "All"
+	if filters["sales_basis"] not in ("All", "Direct", "Packed"):
+		frappe.throw("Unsupported Sales Basis: {0}".format(filters["sales_basis"]))
+	if filters.get("item_name"):
+		filters["item_name"] = "%{0}%".format(filters["item_name"])
+	return filters
+
+
+def _invoice_conditions(filters):
+	conditions = [
+		"si.docstatus = 1",
+		"si.company = %(company)s",
+		"si.posting_date between %(from_date)s and %(to_date)s"
+	]
+	if filters.get("customer"):
+		conditions.append("si.customer = %(customer)s")
+	if filters.get("project"):
+		conditions.append("si.project = %(project)s")
+	if not filters.get("include_returns"):
+		conditions.append("ifnull(si.is_return, 0) = 0")
+	return conditions
+
+
+def _item_conditions(filters, row_alias, item_alias):
+	conditions = []
+	if filters.get("item_code"):
+		conditions.append("{0}.item_code = %(item_code)s".format(row_alias))
+	if filters.get("item_name"):
+		conditions.append("{0}.item_name like %(item_name)s".format(item_alias))
+	if filters.get("item_group"):
+		conditions.append("{0}.item_group = %(item_group)s".format(item_alias))
+	if filters.get("brand"):
+		conditions.append("{0}.brand = %(brand)s".format(item_alias))
+	if filters.get("warehouse"):
+		conditions.append("{0}.warehouse = %(warehouse)s".format(row_alias))
+	return conditions
+
+
+def _sql_conditions(conditions):
+	return " and ".join(conditions or ["1 = 1"])
+
+
+def _get_direct_rows(filters):
+	conditions = _invoice_conditions(filters)
+	conditions.extend(_item_conditions(filters, "sii", "item"))
+	return frappe.db.sql("""
+		select
+			si.name as invoice, si.posting_date, si.posting_time,
+			si.customer, si.customer_name, si.customer_group, si.territory,
+			si.project, si.company, si.currency, si.conversion_rate, si.is_return,
+			sii.name, sii.idx, sii.item_code, sii.item_name, sii.description,
+			item.item_group, item.brand, item.stock_uom,
+			sii.qty, sii.uom, sii.conversion_factor, sii.stock_qty,
+			sii.rate, sii.amount, sii.net_rate, sii.net_amount,
+			sii.base_net_rate, sii.base_net_amount, sii.price_list_rate,
+			sii.discount_percentage, sii.discount_amount, sii.warehouse,
+			sii.sales_order, sii.delivery_note, sii.income_account, sii.cost_center
+		from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		inner join `tabItem` item on item.name = sii.item_code
+		where {conditions}
+		order by si.posting_date desc, si.posting_time desc, si.name, sii.idx
+	""".format(conditions=_sql_conditions(conditions)), filters, as_dict=True)
+
+
+def _get_packed_rows(filters):
+	selection_conditions = _invoice_conditions(filters)
+	selection_conditions.extend(_item_conditions(filters, "pi", "item"))
+	return frappe.db.sql("""
+		select
+			si.name as invoice, si.posting_date, si.posting_time,
+			si.customer, si.customer_name, si.customer_group, si.territory,
+			si.project, si.company, si.currency, si.conversion_rate, si.is_return,
+			packed.name, packed.idx, packed.parent_item,
+			packed.parent_detail_docname, packed.item_code,
+			packed.item_name, packed.description, packed.qty, packed.uom,
+			packed.rate, packed.amount, packed.warehouse,
+			packed_item.item_group, packed_item.brand, packed_item.stock_uom,
+			parent_item.parent_base_net_amount,
+			parent_item.parent_stock_qty,
+			parent_item.parent_qty,
+			parent_item.parent_row_count,
+			parent_item.parent_item_name,
+			parent_item.parent_stock_uom,
+			parent_item.parent_warehouse,
+			parent_item.parent_sales_order,
+			parent_item.parent_delivery_note,
+			parent_item.parent_income_account,
+			parent_item.parent_cost_center
+		from (
+			select distinct pi.parent, pi.parent_item
+			from `tabPacked Item` pi
+			inner join `tabSales Invoice` si on si.name = pi.parent
+			inner join `tabItem` item on item.name = pi.item_code
+			where pi.parenttype = 'Sales Invoice'
+				and pi.docstatus = 1
+				and {selection_conditions}
+		) selected_pool
+		inner join `tabPacked Item` packed
+			on packed.parent = selected_pool.parent
+			and packed.parent_item = selected_pool.parent_item
+			and packed.parenttype = 'Sales Invoice'
+			and packed.docstatus = 1
+		inner join `tabSales Invoice` si on si.name = packed.parent
+		inner join `tabItem` packed_item on packed_item.name = packed.item_code
+		left join (
+			select
+				parent, item_code,
+				sum(base_net_amount) as parent_base_net_amount,
+				sum(stock_qty) as parent_stock_qty,
+				sum(qty) as parent_qty,
+				count(*) as parent_row_count,
+				max(item_name) as parent_item_name,
+				max(stock_uom) as parent_stock_uom,
+				max(warehouse) as parent_warehouse,
+				max(sales_order) as parent_sales_order,
+				max(delivery_note) as parent_delivery_note,
+				max(income_account) as parent_income_account,
+				max(cost_center) as parent_cost_center
+			from `tabSales Invoice Item`
+			where docstatus = 1
+			group by parent, item_code
+		) parent_item
+			on parent_item.parent = packed.parent
+			and parent_item.item_code = packed.parent_item
+		order by si.posting_date desc, si.posting_time desc, si.name, packed.idx
+	""".format(selection_conditions=_sql_conditions(selection_conditions)), filters, as_dict=True)
+
+
+def _parent_rows_from_packed(packed_rows):
+	result = []
+	seen = set()
+	for packed in packed_rows:
+		key = (packed.get("invoice"), packed.get("parent_item"))
+		if key in seen or packed.get("parent_base_net_amount") is None:
+			continue
+		seen.add(key)
+		result.append({
+			"invoice": packed.get("invoice"),
+			"posting_date": packed.get("posting_date"),
+			"posting_time": packed.get("posting_time"),
+			"item_code": packed.get("parent_item"),
+			"item_name": packed.get("parent_item_name"),
+			"stock_uom": packed.get("parent_stock_uom"),
+			"stock_qty": packed.get("parent_stock_qty"),
+			"qty": packed.get("parent_qty"),
+			"base_net_amount": packed.get("parent_base_net_amount"),
+			"warehouse": packed.get("parent_warehouse"),
+			"sales_order": packed.get("parent_sales_order"),
+			"delivery_note": packed.get("parent_delivery_note"),
+			"income_account": packed.get("parent_income_account"),
+			"cost_center": packed.get("parent_cost_center"),
+			"parent_row_count": packed.get("parent_row_count"),
+			"warnings": ["ambiguous_parent_rows"]
+				if to_decimal(packed.get("parent_row_count")) > 1 else [],
+			"customer": packed.get("customer"),
+			"customer_name": packed.get("customer_name"),
+			"customer_group": packed.get("customer_group"),
+			"territory": packed.get("territory"),
+			"project": packed.get("project"),
+			"company": packed.get("company"),
+			"currency": packed.get("currency"),
+			"conversion_rate": packed.get("conversion_rate"),
+			"is_return": packed.get("is_return")
+		})
+	return result
+
+
+def _matches_output_filters(row, filters):
+	if filters.get("item_code") and row.get("item_code") != filters.get("item_code"):
+		return False
+	if filters.get("warehouse") and row.get("warehouse") != filters.get("warehouse"):
+		return False
+	basis = filters.get("sales_basis") or "All"
+	if basis == "Direct" and not to_decimal(row.get("direct_qty")):
+		return False
+	if basis == "Packed" and not to_decimal(row.get("packed_qty")):
+		return False
+	return True
+
+
+def get_transaction_rows(filters):
+	filters = validate_filters(filters)
+	direct_rows = _get_direct_rows(filters)
+	packed_rows = _get_packed_rows(filters)
+	allocation_parents = _parent_rows_from_packed(packed_rows)
+	all_direct_rows = list(direct_rows)
+	direct_keys = set(
+		(row.get("invoice"), row.get("item_code")) for row in direct_rows
+	)
+	for row in allocation_parents:
+		if (row.get("invoice"), row.get("item_code")) not in direct_keys:
+			all_direct_rows.append(row)
+	rows = normalize_transaction_rows(all_direct_rows, packed_rows)
+	return [row for row in rows if _matches_output_filters(row, filters)]
+
+
+def get_item_sales_aggregates(filters, item_codes=None):
+	rows = get_transaction_rows(filters)
+	allowed_items = set(item_codes or [])
+	result = {}
+	invoice_sets = {}
+	latest_keys = {}
+	for row in rows:
+		item_code = row.get("item_code")
+		if allowed_items and item_code not in allowed_items:
+			continue
+		entry = result.setdefault(item_code, {
+			"sales_qty": Decimal("0"),
+			"sales_value": Decimal("0"),
+			"weighted_average_sold_rate": None,
+			"invoice_count": 0,
+			"last_sale_date": None,
+			"last_sold_rate": None,
+			"lowest_sold_rate": None,
+			"highest_sold_rate": None,
+			"warnings": []
+		})
+		qty = to_decimal(row.get("stock_qty"))
+		value = to_decimal(row.get("net_amount"))
+		entry["sales_qty"] += qty
+		entry["sales_value"] += value
+		invoice_sets.setdefault(item_code, set()).add(row.get("invoice"))
+		posting_date = row.get("posting_date")
+		entry["last_sale_date"] = max(
+			[value for value in (entry.get("last_sale_date"), posting_date) if value]
+		) if (entry.get("last_sale_date") or posting_date) else None
+		for warning in row.get("warnings") or []:
+			append_warning(entry["warnings"], warning)
+		if qty > 0:
+			rate = quantize_money(value / qty)
+			entry["lowest_sold_rate"] = (
+				rate if entry["lowest_sold_rate"] is None
+				else min(entry["lowest_sold_rate"], rate)
+			)
+			entry["highest_sold_rate"] = (
+				rate if entry["highest_sold_rate"] is None
+				else max(entry["highest_sold_rate"], rate)
+			)
+			latest_key = (str(posting_date or ""), str(row.get("posting_time") or ""), str(row.get("invoice") or ""))
+			if latest_key >= latest_keys.get(item_code, ("", "", "")):
+				latest_keys[item_code] = latest_key
+				entry["last_sold_rate"] = rate
+
+	for item_code, entry in result.items():
+		entry["sales_value"] = quantize_money(entry["sales_value"])
+		entry["invoice_count"] = len(invoice_sets.get(item_code, set()))
+		if entry["sales_qty"] > 0:
+			entry["weighted_average_sold_rate"] = quantize_money(
+				entry["sales_value"] / entry["sales_qty"]
+			)
+		else:
+			append_warning(entry["warnings"], "Sales returns equal or exceed sales")
+	return result
