@@ -127,8 +127,32 @@
 		if (item_column && name_column) {
 			var item_width = wrapper.find(".dt-row-header ." + item_column)[0];
 			item_width = item_width ? item_width.getBoundingClientRect().width : 130;
+			wrapper[0].style.setProperty("--iwsr-ws-item-width", item_width + "px");
 			rules.push(".iwsr-ws-table ." + item_column + "{position:sticky;left:50px;z-index:4;background:#fff;}");
-			rules.push(".iwsr-ws-table ." + name_column + "{position:sticky;left:" + (50 + item_width) + "px;z-index:4;background:#fff;box-shadow:2px 0 2px rgba(0,0,0,.08);}");
+			rules.push(".iwsr-ws-table ." + name_column + "{position:sticky;left:calc(50px + var(--iwsr-ws-item-width));z-index:4;background:#fff;box-shadow:2px 0 2px rgba(0,0,0,.08);}");
+			rules.push(".iwsr-ws-table .dt-row-header ." + item_column + ",.iwsr-ws-table .dt-row-header ." + name_column + ",.iwsr-ws-table .dt-row-filter ." + item_column + ",.iwsr-ws-table .dt-row-filter ." + name_column + "{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}");
+			rules.push(".iwsr-ws-table .iwsr-ws-sticky-header-cell{z-index:30!important;background:#f7fafc!important;isolation:isolate;}");
+			rules.push(".iwsr-ws-table .iwsr-ws-sticky-header-cell .dt-cell__content{position:relative;z-index:1;background:#f7fafc;}");
+			rules.push(".iwsr-ws-table .iwsr-ws-sticky-footer-cell{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}");
+
+			var update_sticky_header = function () {
+				var scroll_left = datatable.bodyScrollable.scrollLeft;
+				wrapper.find(".dt-header .dt-cell--col-0,.dt-header ." + item_column + ",.dt-header ." + name_column)
+					.addClass("iwsr-ws-sticky-header-cell")
+					.css("transform", "translateX(" + scroll_left + "px)");
+				wrapper.find(".dt-footer .dt-cell--col-0,.dt-footer ." + item_column + ",.dt-footer ." + name_column)
+					.addClass("iwsr-ws-sticky-footer-cell")
+					.css("transform", "translateX(" + scroll_left + "px)");
+			};
+			$(datatable.bodyScrollable)
+				.off("scroll.iwsr_ws_sticky_columns")
+				.on("scroll.iwsr_ws_sticky_columns", function () {
+					window.requestAnimationFrame(update_sticky_header);
+				});
+			update_sticky_header();
+			if (datatable.columnmanager && datatable.columnmanager.sortable) {
+				datatable.columnmanager.sortable.option("disabled", true);
+			}
 		}
 		$("#iwsr-ws-dynamic-style").remove();
 		$("<style id='iwsr-ws-dynamic-style'>" + rules.join("") + "</style>").appendTo("head");

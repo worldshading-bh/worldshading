@@ -172,6 +172,9 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertIn("background:#fff3cd !important", script)
 		self.assertNotIn("iwsr-ws-filter-control{height", script)
 		self.assertNotIn("margin:0!important", script)
+		self.assertIn("iwsr-ws-sticky-header-cell", script)
+		self.assertIn("translateX(\" + scroll_left + \"px)", script)
+		self.assertIn("scroll.iwsr_ws_sticky_columns", script)
 
 	def test_prepared_filter_reader_accepts_owned_completed_report(self):
 		prepared = type("Prepared", (object,), {
