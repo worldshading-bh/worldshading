@@ -50,8 +50,7 @@ def execute(filters=None):
 			row["invoice_count"] = 1
 			row["last_sold_date"] = row.get("posting_date")
 
-	message = get_warning_message(rows)
-	return get_columns(filters), rows, message, None
+	return get_columns(filters), rows, None, None
 
 
 def _column(label, fieldname, fieldtype="Data", width=110, options=None):
@@ -66,10 +65,10 @@ def _column(label, fieldname, fieldtype="Data", width=110, options=None):
 
 def get_columns(filters):
 	columns = [
-		_column("Posting Date", "posting_date", "Date", 95),
-		_column("Sales Invoice", "invoice", "Link", 130, "Sales Invoice"),
 		_column("Item Code", "item_code", "Link", 130, "Item"),
 		_column("Item Name", "item_name", "Data", 180),
+		_column("Posting Date", "posting_date", "Date", 95),
+		_column("Sales Invoice", "invoice", "Link", 130, "Sales Invoice"),
 		_column("Item Group", "item_group", "Link", 120, "Item Group"),
 		_column("Brand", "brand", "Link", 100, "Brand"),
 		_column("Sales Basis", "sales_basis", "Data", 105),
@@ -82,7 +81,6 @@ def get_columns(filters):
 		_column("Current Stock Qty", "current_stock_qty", "Float", 120),
 		_column("Default Supplier", "default_supplier", "Link", 130, "Supplier"),
 		_column("Supplier Name", "supplier_name", "Data", 160),
-		_column("Warnings", "reconciliation_warning", "Data", 180),
 	]
 	if not cint((filters or {}).get("show_detailed_report")):
 		return columns

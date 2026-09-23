@@ -4,14 +4,6 @@
 (function () {
 	"use strict";
 
-	var REPORT_KEY = "item-wise-sales-register-ws-row-color";
-	var DEFAULT_ROW_COLOR = "#fff3cd";
-
-	function get_row_color() {
-		var value = window.localStorage.getItem(REPORT_KEY) || DEFAULT_ROW_COLOR;
-		return /^#[0-9a-f]{6}$/i.test(value) ? value : DEFAULT_ROW_COLOR;
-	}
-
 	function apply_filter_labels(report) {
 		var page_form = report.page.main.find(".page-form");
 		page_form.addClass("iwsr-ws-filter-form");
@@ -142,29 +134,13 @@
 		$("<style id='iwsr-ws-dynamic-style'>" + rules.join("") + "</style>").appendTo("head");
 	}
 
-	function add_color_picker(report) {
-		report.page.add_inner_button(__("Row Highlight Color"), function () {
-			var picker = $("<input type='color' style='position:fixed;left:-100px;top:-100px;'>")
-				.val(get_row_color()).appendTo("body");
-			picker.on("change", function () {
-				window.localStorage.setItem(REPORT_KEY, this.value);
-				$("#iwsr-ws-row-color-style").remove();
-				$("<style id='iwsr-ws-row-color-style'>.iwsr-ws-table .iwsr-ws-selected-row .dt-cell{background:" +
-					this.value + " !important;}</style>").appendTo("head");
-			}).on("blur", function () { picker.remove(); }).trigger("click");
-		});
-	}
-
 	function install_static_style() {
 		if ($("#iwsr-ws-static-style").length) { return; }
 		$("<style id='iwsr-ws-static-style'>" +
-			".iwsr-ws-filter-form{padding-top:4px;}" +
-			".iwsr-ws-filter-control{height:50px;min-height:50px;margin:0!important;}" +
 			".iwsr-ws-filter-label{display:block;height:12px;margin:0;color:#9ba6b1;font-size:10px;font-weight:600;line-height:12px;}" +
 			".iwsr-ws-filter-summary{display:flex;flex-wrap:wrap;gap:4px 18px;padding:7px 15px;border-bottom:1px solid #d1d8dd;background:#f8f9fa;font-size:12px;}" +
+			".iwsr-ws-table .iwsr-ws-selected-row .dt-cell{background:#fff3cd !important;}" +
 			"</style>").appendTo("head");
-		$("<style id='iwsr-ws-row-color-style'>.iwsr-ws-table .iwsr-ws-selected-row .dt-cell{background:" +
-			get_row_color() + " !important;}</style>").appendTo("head");
 	}
 
 	frappe.query_reports["Item-wise Sales Register WS"] = {
@@ -187,7 +163,6 @@
 			install_static_style();
 			apply_filter_labels(report);
 			update_filter_summary(report);
-			add_color_picker(report);
 			return restore_prepared_filters(report);
 		},
 		after_datatable_render: function (datatable) {

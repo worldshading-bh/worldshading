@@ -36,12 +36,12 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 	def test_compact_columns_are_ordered_and_detail_columns_are_hidden(self):
 		fieldnames = [column["fieldname"] for column in report.get_columns(self.filters())]
 		self.assertEqual(fieldnames, [
-			"posting_date", "invoice", "item_code", "item_name", "item_group", "brand",
+			"item_code", "item_name", "posting_date", "invoice", "item_group", "brand",
 			"sales_basis", "stock_uom", "stock_qty", "net_rate", "net_amount",
 			"tax", "total", "current_stock_qty", "default_supplier", "supplier_name",
-			"reconciliation_warning"
 		])
 		self.assertNotIn("customer", fieldnames)
+		self.assertNotIn("reconciliation_warning", fieldnames)
 
 	def test_detailed_columns_include_reconciliation_and_document_fields(self):
 		fieldnames = [column["fieldname"] for column in report.get_columns(self.filters(1))]
@@ -52,7 +52,7 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 			"qty", "uom", "conversion_factor", "discount_percentage",
 			"discount_amount", "tax_accounts", "sales_person", "employee",
 			"direct_qty", "packed_qty", "direct_net_amount", "packed_net_amount",
-			"invoice_count", "last_sold_date", "reconciliation_warning"
+			"invoice_count", "last_sold_date"
 		):
 			self.assertIn(fieldname, fieldnames)
 
@@ -128,15 +128,14 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertLess(CountingRow.reads, 1000)
 		self.assertEqual(sum(row["tax"] for row in rows), Decimal("200.000"))
 
-	def test_execute_summarizes_reconciliation_warnings(self):
+	def test_execute_keeps_reconciliation_warnings_internal(self):
 		with patch.object(report, "get_transaction_contributions", return_value=[
 			self.transaction(warnings=["ambiguous_parent_rows", "zero_qty_nonzero_value"])
 		]), patch.object(report, "get_item_context", return_value={}), \
 				patch.object(report, "get_tax_context", return_value={}), \
 				patch.object(report, "get_detail_context", return_value={}):
 			unused_columns, rows, message, unused_chart = report.execute(self.filters(1))
-		self.assertIn("2 reconciliation warning types", message)
-		self.assertIn("Ambiguous parent rows", message)
+		self.assertIsNone(message)
 		self.assertIn("ambiguous_parent_rows", rows[0]["reconciliation_warning"])
 
 	def test_item_context_query_limits_stock_and_supplier_to_company(self):
@@ -162,7 +161,17 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertEqual(metadata["disable_prepared_report"], 0)
 		self.assertEqual(metadata["ref_doctype"], "Sales Invoice")
 		self.assertEqual(metadata["module"], "Worldshading")
-		self.assertEqual(metadata["add_total_row"], 0)
+		self.assertEqual(metadata["add_total_row"], 1)
+
+	def test_javascript_uses_core_filter_spacing_and_fixed_purchase_plan_highlight(self):
+		path = os.path.join(os.path.dirname(__file__), "item_wise_sales_register_ws.js")
+		with open(path) as source:
+			script = source.read()
+		self.assertNotIn("Row Highlight Color", script)
+		self.assertNotIn("localStorage", script)
+		self.assertIn("background:#fff3cd !important", script)
+		self.assertNotIn("iwsr-ws-filter-control{height", script)
+		self.assertNotIn("margin:0!important", script)
 
 	def test_prepared_filter_reader_accepts_owned_completed_report(self):
 		prepared = type("Prepared", (object,), {
