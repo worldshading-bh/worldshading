@@ -99,6 +99,35 @@ class TestItemWiseSalesRegisterWS(unittest.TestCase):
 		self.assertEqual([row["tax"] for row in rows], [Decimal("8.000"), Decimal("2.000")])
 		self.assertEqual(sum(row["tax"] for row in rows), Decimal("10.000"))
 
+	def test_tax_allocation_indexes_rows_instead_of_rescanning_every_invoice(self):
+		class CountingRow(dict):
+			reads = 0
+
+			def get(self, key, default=None):
+				if key == "invoice":
+					CountingRow.reads += 1
+				return dict.get(self, key, default)
+
+		rows = []
+		tax_context = {}
+		for index in range(200):
+			invoice = "SINV-{0}".format(index)
+			item_code = "ITEM-{0}".format(index)
+			rows.append(CountingRow(self.transaction(
+				invoice=invoice, item_code=item_code, parent_item=None,
+				sales_basis="Direct", net_amount=Decimal("10"),
+				direct_net_amount=Decimal("10"), packed_net_amount=Decimal("0"),
+				direct_qty=Decimal("1"), packed_qty=Decimal("0")
+			)))
+			tax_context[(invoice, item_code)] = {
+				"amount": Decimal("1"), "accounts": "VAT"
+			}
+
+		report.apply_tax_values(rows, tax_context)
+
+		self.assertLess(CountingRow.reads, 1000)
+		self.assertEqual(sum(row["tax"] for row in rows), Decimal("200.000"))
+
 	def test_execute_summarizes_reconciliation_warnings(self):
 		with patch.object(report, "get_transaction_contributions", return_value=[
 			self.transaction(warnings=["ambiguous_parent_rows", "zero_qty_nonzero_value"])

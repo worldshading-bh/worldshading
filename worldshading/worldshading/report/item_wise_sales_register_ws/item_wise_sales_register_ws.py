@@ -194,25 +194,31 @@ def get_tax_context(rows):
 
 
 def apply_tax_values(rows, tax_context):
+	weighted_rows_by_source = {}
 	for row in rows:
 		row["tax"] = Decimal("0.000")
 		row["tax_accounts"] = ""
+		invoice = row.get("invoice")
+		actual_weight = abs(to_decimal(row.get("net_amount")))
+		if actual_weight:
+			weighted_rows_by_source.setdefault(
+				(invoice, "__actual__"), []
+			).append((row, actual_weight))
+		source_weights = {}
+		direct_weight = abs(to_decimal(row.get("direct_net_amount")))
+		if direct_weight:
+			item_code = row.get("item_code")
+			source_weights[item_code] = source_weights.get(item_code, Decimal("0")) + direct_weight
+		packed_weight = abs(to_decimal(row.get("packed_net_amount")))
+		if packed_weight:
+			parent_item = row.get("parent_item")
+			source_weights[parent_item] = source_weights.get(parent_item, Decimal("0")) + packed_weight
+		for source_item, weight in source_weights.items():
+			weighted_rows_by_source.setdefault(
+				(invoice, source_item), []
+			).append((row, weight))
 	for key, context in tax_context.items():
-		invoice, source_item = key
-		weighted_rows = []
-		for row in rows:
-			if row.get("invoice") != invoice:
-				continue
-			if source_item == "__actual__":
-				weight = abs(to_decimal(row.get("net_amount")))
-			else:
-				weight = Decimal("0")
-				if row.get("item_code") == source_item:
-					weight += abs(to_decimal(row.get("direct_net_amount")))
-				if row.get("parent_item") == source_item:
-					weight += abs(to_decimal(row.get("packed_net_amount")))
-			if weight:
-				weighted_rows.append((row, weight))
+		weighted_rows = weighted_rows_by_source.get(key, [])
 		total_weight = sum((value for unused_row, value in weighted_rows), Decimal("0"))
 		allocated = Decimal("0")
 		for index, (row, weight) in enumerate(weighted_rows):
