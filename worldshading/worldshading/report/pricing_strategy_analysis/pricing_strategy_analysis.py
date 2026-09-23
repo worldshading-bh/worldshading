@@ -176,7 +176,12 @@ def validate_and_normalize_filters(filters):
 	for fieldname in ("vat_percent", "regular_markup", "b2b_markup"):
 		if result[fieldname] < 0:
 			frappe.throw("{0} cannot be negative".format(fieldname.replace("_", " ").title()))
-	result["include_items_without_sales"] = bool(cint(filters.get("include_items_without_sales", 1)))
+	if "exclude_items_without_sales" in filters:
+		result["exclude_items_without_sales"] = bool(cint(filters.get("exclude_items_without_sales")))
+	elif "include_items_without_sales" in filters:
+		result["exclude_items_without_sales"] = not bool(cint(filters.get("include_items_without_sales")))
+	else:
+		result["exclude_items_without_sales"] = False
 	result["show_pricing_rule_strategy"] = bool(cint(filters.get("show_pricing_rule_strategy", 0)))
 	if result["show_pricing_rule_strategy"]:
 		result["tiers"] = _normalize_tiers(filters)
@@ -682,7 +687,7 @@ def execute(filters=None):
 	for item in items:
 		item_code = item.get("item_code")
 		sales = sales_data.get(item_code)
-		if not filters["include_items_without_sales"] and not sales:
+		if filters["exclude_items_without_sales"] and not sales:
 			continue
 		stock = stock_data.get(item_code, {})
 		purchase = purchase_data.get(item_code, {})
@@ -776,20 +781,19 @@ def get_columns(filters):
 		_column("Stock UOM", "stock_uom", "Link", 90, "UOM"),
 		_column("Available Qty", "available_qty", "Float", 100),
 		_column("Selected Base Cost", "selected_base_cost", "Currency", 120),
-		_column("Cost Source", "cost_source_detail", "Data", 150),
 		_column("Expense / Unit", "expense_per_unit", "Currency", 110),
 		_column("Expense Basis", "expense_source", "Data", 145),
 		_column("Fully Loaded Cost", "fully_loaded_cost", "Currency", 120),
 		_column("Sales Qty", "sales_qty", "Float", 90),
 		_column("Last Sold Rate", "last_sold_rate", "Currency", 105),
 		_column("Average Sold Rate", "weighted_average_sold_rate", "Currency", 115),
-		_column("Current Normal Price", "current_normal_price", "Currency", 125),
+		_column("Current Regular Price", "current_normal_price", "Currency", 125),
 		_column("Current B2B Price", "current_b2b_price", "Currency", 115)
 	]
 	columns.extend(_compact_price_columns("Regular", "recommended_regular"))
 	columns.extend([
-		_column("Change from Current", "change_from_current_normal", "Currency", 120),
-		_column("Change from Current %", "change_from_current_normal_percent", "Percent", 130)
+		_column("Change from Current Regular", "change_from_current_normal", "Currency", 145),
+		_column("Change from Current Regular %", "change_from_current_normal_percent", "Percent", 155)
 	])
 	columns.extend(_compact_price_columns("B2B", "recommended_b2b"))
 	columns.append(_column("B2B Discount from Regular %", "b2b_discount_percent", "Percent", 155))

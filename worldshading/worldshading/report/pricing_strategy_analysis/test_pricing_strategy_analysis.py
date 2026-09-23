@@ -118,11 +118,11 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 	def test_empty_and_string_filters_are_normalized(self):
 		filters = self._valid_filters()
 		filters.update({
-			"include_items_without_sales": "0",
+			"exclude_items_without_sales": "1",
 			"tier_4_maximum": ""
 		})
 		result = report.validate_and_normalize_filters(filters)
-		self.assertFalse(result["include_items_without_sales"])
+		self.assertTrue(result["exclude_items_without_sales"])
 		self.assertIsNone(result["tiers"][3]["maximum"])
 		self.assertEqual(result["from_date"], date(2026, 1, 1))
 
@@ -210,7 +210,7 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			"tier_4_minimum": 40,
 			"tier_4_maximum": "",
 			"tier_4_markup": 25,
-			"include_items_without_sales": 1
+			"exclude_items_without_sales": 0
 		}
 
 
@@ -395,7 +395,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 
 	def test_execute_excludes_items_without_sales_when_requested(self):
 		filters = self._filters()
-		filters["include_items_without_sales"] = 0
+		filters["exclude_items_without_sales"] = 1
 		with self._mock_readers(sales={}):
 			columns, data, message, chart = report.execute(filters)
 		self.assertEqual(data, [])
@@ -432,7 +432,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 		fieldnames = [column["fieldname"] for column in report.get_columns(filters)]
 		for unwanted in (
 			"valuation_rate", "latest_purchase_rate", "weighted_average_purchase_rate",
-			"expense_amount", "sales_value", "invoice_count", "last_sale_date",
+			"cost_source_detail", "expense_amount", "sales_value", "invoice_count", "last_sale_date",
 			"lowest_sold_rate", "highest_sold_rate", "recommended_regular_profit",
 			"recommended_regular_actual_markup_percent", "recommended_b2b_profit",
 			"tier_1_profit", "tier_2_profit", "tier_3_profit", "tier_4_profit"
@@ -456,7 +456,7 @@ class TestPricingStrategyReport(unittest.TestCase):
 			"tier_2_minimum": 10, "tier_2_maximum": 19, "tier_2_markup": 29,
 			"tier_3_minimum": 20, "tier_3_maximum": 39, "tier_3_markup": 27,
 			"tier_4_minimum": 40, "tier_4_maximum": "", "tier_4_markup": 25,
-			"include_items_without_sales": 1
+			"exclude_items_without_sales": 0
 		}
 
 	def _mock_readers(self, stock=None, sales=None):
@@ -511,7 +511,7 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		required_fields = [
 			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
 			"regular_price_list", "b2b_price_list", "show_pricing_rule_strategy",
-			"include_items_without_sales", "cost_source",
+			"exclude_items_without_sales", "cost_source",
 			"vat_percent",
 			"regular_markup", "b2b_markup"
 		]
@@ -528,11 +528,16 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertNotIn('"fieldname": "tier_1_minimum"', javascript)
 		self.assertNotIn('"fieldname": "tier_1_maximum"', javascript)
 		filter_order = re.findall(r'"fieldname": "([^"]+)"', javascript)
-		self.assertEqual(filter_order[-1], "include_items_without_sales")
-		self.assertEqual(filter_order[9:14], [
-			"cost_source", "vat_percent", "regular_markup",
-			"b2b_markup", "show_pricing_rule_strategy"
+		self.assertEqual(filter_order[-1], "exclude_items_without_sales")
+		self.assertEqual(filter_order[7:12], [
+			"regular_price_list", "regular_markup", "b2b_price_list",
+			"b2b_markup", "cost_source"
 		])
+		self.assertIn('"label": __("Regular Price Markup %")', javascript)
+		self.assertIn('"label": __("B2B Price Markup %")', javascript)
+		self.assertIn('"label": __("Exclude Items Without Sales")', javascript)
+		self.assertIn('"fieldtype": "Check", "default": 0', javascript)
+		self.assertNotIn("Normal Price Markup %", javascript)
 		self.assertNotIn('"fieldname": "expense_burden"', javascript)
 		self.assertNotIn('"fieldname": "rounding_increment"', javascript)
 		self.assertNotIn('"fieldname": "rounding_method"', javascript)

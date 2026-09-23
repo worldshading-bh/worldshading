@@ -90,19 +90,19 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 			"default": frappe.defaults.get_default("selling_price_list"),
 			"get_query": function () { return {"filters": {"selling": 1, "enabled": 1}}; }
 		},
+		{"fieldname": "regular_markup", "label": __("Regular Price Markup %"), "fieldtype": "Percent", "default": 43},
 		{
 			"fieldname": "b2b_price_list", "label": __("B2B Price List"),
 			"fieldtype": "Link", "options": "Price List",
 			"get_query": function () { return {"filters": {"selling": 1, "enabled": 1}}; }
 		},
+		{"fieldname": "b2b_markup", "label": __("B2B Price Markup %"), "fieldtype": "Percent", "default": 33},
 		{
 			"fieldname": "cost_source", "label": __("Cost Basis"), "fieldtype": "Select", "reqd": 1,
 			"options": "Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate",
 			"default": "Current Valuation Rate"
 		},
 		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "default": 10},
-		{"fieldname": "regular_markup", "label": __("Normal Price Markup %"), "fieldtype": "Percent", "default": 43},
-		{"fieldname": "b2b_markup", "label": __("B2B Markup %"), "fieldtype": "Percent", "default": 33},
 		{
 			"fieldname": "show_pricing_rule_strategy", "label": __("Show Pricing Rule Strategy"),
 			"fieldtype": "Check", "default": 0,
@@ -120,8 +120,8 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 		{"fieldname": "tier_4_qty_range", "label": __("Tier 4 Qty Range"), "fieldtype": "Data", "default": "40+"},
 		{"fieldname": "tier_4_markup", "label": __("Tier 4 Markup %"), "fieldtype": "Percent", "default": 25},
 		{
-			"fieldname": "include_items_without_sales", "label": __("Include Items Without Sales"),
-			"fieldtype": "Check", "default": 1
+			"fieldname": "exclude_items_without_sales", "label": __("Exclude Items Without Sales"),
+			"fieldtype": "Check", "default": 0
 		}
 	]
 };

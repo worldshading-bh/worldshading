@@ -84,7 +84,7 @@ data.
 | Warehouse | Link / Warehouse | No | Company warehouse; blank aggregates all company warehouses |
 | Regular Price List | Link / Price List | Yes | Selling Settings default price list when available |
 | B2B Price List | Link / Price List | No | Optional protected selling price list |
-| Include Items Without Sales | Check | No | Enabled by default |
+| Exclude Items Without Sales | Check | No | Disabled by default; checking it removes items with no period sales |
 
 Only enabled stock items are included. Item variants are treated as separate items.
 Templates and disabled items are excluded.
@@ -114,7 +114,7 @@ Indirect expense is derived automatically; it is not a user-entered filter.
 |---|---|---:|---:|
 | VAT % | Percent | Yes | 10 |
 | Regular Markup % | Percent | Yes | 43 |
-| B2B Markup % | Percent | Yes | 33 |
+| B2B Price Markup % | Percent | Yes | 33 |
 | Show Pricing Rule Strategy | Check | No | Disabled |
 | Tier 1 Qty Range | Data | Yes | `5:9` |
 | Tier 1 Markup % | Percent | Yes | 31 |
@@ -332,7 +332,6 @@ The report returns the following groups in this order.
 - Stock UOM
 - Available Qty
 - Selected Base Cost
-- Cost Source Detail
 - Expense / Unit
 - Expense Basis
 - Fully Loaded Cost
@@ -342,7 +341,7 @@ The report returns the following groups in this order.
 - Sales Qty
 - Last Sold Rate
 - Weighted Average Sold Rate
-- Current Normal Price
+- Current Regular Price
 - Current B2B Price
 
 ### Regular and B2B recommendations
@@ -350,8 +349,8 @@ The report returns the following groups in this order.
 - Recommended Regular Net
 - Recommended Regular Including VAT
 - Regular Gross Margin %
-- Change from Current Normal
-- Change from Current Normal %
+- Change from Current Regular
+- Change from Current Regular %
 - Recommended B2B Net
 - Recommended B2B Including VAT
 - B2B Discount from Regular %
