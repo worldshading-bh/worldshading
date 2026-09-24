@@ -352,7 +352,10 @@ class TestPricingStrategyItemPricePreview(unittest.TestCase):
 
 	def _items(self):
 		return {
-			code: frappe._dict({"name": code, "item_name": "Item " + code, "stock_uom": "Nos"})
+			code: frappe._dict({
+				"name": code, "item_name": "Item " + code,
+				"item_group": "Exact Group " + code, "stock_uom": "Nos"
+			})
 			for code in ("A", "B", "C")
 		}
 
@@ -502,7 +505,10 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 
 	def _items(self):
 		return {
-			code: frappe._dict({"name": code, "item_name": "Item " + code, "stock_uom": "Nos"})
+			code: frappe._dict({
+				"name": code, "item_name": "Item " + code,
+				"item_group": "Exact Group " + code, "stock_uom": "Nos"
+			})
 			for code in ("A", "B", "C")
 		}
 
@@ -556,6 +562,7 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 		self.assertEqual(result["unchanged"], 1)
 		self.assertEqual(result["item_prices"], ["IP-NEW", "IP-OLD"])
 		self.assertEqual(new_doc.item_code, "A")
+		self.assertEqual(new_doc.item_group, "Exact Group A")
 		self.assertEqual(new_doc.price_list_rate, Decimal("12.000"))
 		new_doc.insert.assert_called_once_with()
 		old_doc.check_permission.assert_called_with("write")

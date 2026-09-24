@@ -89,7 +89,7 @@ def _get_prepared_pricing_rows(prepared_report_name):
 def _get_update_items(item_codes):
 	rows = frappe.get_list(
 		"Item", filters={"name": ["in", item_codes], "disabled": 0},
-		fields=["name", "item_name", "stock_uom"], limit_page_length=0
+		fields=["name", "item_name", "item_group", "stock_uom"], limit_page_length=0
 	)
 	items = {row.name: row for row in rows}
 	missing = [item_code for item_code in item_codes if item_code not in items]
@@ -367,8 +367,10 @@ def execute_item_price_update(preview_token=None):
 			item_price.save()
 			updated += 1
 		else:
+			item = items[entry["item_code"]]
 			item_price = frappe.new_doc("Item Price")
 			item_price.item_code = entry["item_code"]
+			item_price.item_group = item.item_group
 			item_price.price_list = entry["price_list"]
 			item_price.price_list_rate = new_rate
 			item_price.selling = 1
