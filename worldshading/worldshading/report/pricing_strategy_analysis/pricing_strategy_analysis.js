@@ -154,7 +154,7 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "default": 10},
 		{
 			"fieldname": "exclude_expense_from_pricing",
-			"label": __("Exclude Expense from Price Calculation"),
+			"label": __("Exclude Expense"),
 			"fieldtype": "Check", "default": 0
 		},
 		{

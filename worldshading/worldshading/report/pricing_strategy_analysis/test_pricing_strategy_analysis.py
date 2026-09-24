@@ -553,6 +553,8 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertIn('"label": __("Regular Price Markup %")', javascript)
 		self.assertIn('"label": __("B2B Price Markup %")', javascript)
 		self.assertIn('"label": __("Exclude Items Without Sales")', javascript)
+		self.assertIn('"label": __("Exclude Expense")', javascript)
+		self.assertNotIn("Exclude Expense from Price Calculation", javascript)
 		self.assertIn('"fieldtype": "Check", "default": 0', javascript)
 		self.assertNotIn("Normal Price Markup %", javascript)
 		self.assertNotIn('"fieldname": "expense_burden"', javascript)
