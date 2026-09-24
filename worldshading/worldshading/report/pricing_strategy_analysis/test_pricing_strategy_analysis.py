@@ -931,6 +931,8 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertIn('report.page.add_inner_button(__("Update Item Price")', javascript)
 		self.assertIn('report.page.add_inner_button(__("Update Pricing Rule")', javascript)
 		self.assertIn("get_pricing_update_item_codes", javascript)
+		self.assertIn("report.raw_data.add_total_row", javascript)
+		self.assertIn("report_rows.slice(0, -1)", javascript)
 		self.assertIn("show_item_price_update_dialog", javascript)
 		self.assertIn("show_pricing_rule_update_notice", javascript)
 		self.assertIn("preview_item_price_update", javascript)

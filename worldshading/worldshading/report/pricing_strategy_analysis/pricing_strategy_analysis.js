@@ -142,7 +142,11 @@ function get_expense_per_unit_tooltip(data) {
 function get_pricing_update_item_codes(report) {
 	var item_codes = [];
 	var seen = {};
-	(report.data || []).forEach(function (row) {
+	var report_rows = report.data || [];
+	if (report.raw_data && report.raw_data.add_total_row && report_rows.length) {
+		report_rows = report_rows.slice(0, -1);
+	}
+	report_rows.forEach(function (row) {
 		var item_code = row && row.item_code ? String(row.item_code).trim() : "";
 		if (!item_code || seen[item_code]) {
 			return;
