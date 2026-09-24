@@ -1,4 +1,4 @@
-/* global frappe, __ */
+/* global frappe, __, flt, format_currency */
 
 function apply_pricing_strategy_filter_labels(report) {
 	var page_form = report.page.main.find(".page-form");
@@ -103,6 +103,42 @@ function apply_pricing_strategy_column_colors(datatable) {
 	style.text(column_rules.join(""));
 }
 
+function get_expense_per_unit_tooltip(data) {
+	if (!data || data.expense_per_unit === null || data.expense_per_unit === undefined) {
+		return "";
+	}
+	var source = data.expense_source || __("Unavailable");
+	var lines = [__("Expense allocation basis") + ": " + __(source)];
+	var allocated_expense = flt(data.allocated_expense);
+	var sales_value = flt(data.sales_value);
+	var sales_qty = flt(data.sales_qty);
+	var expense_per_unit = flt(data.expense_per_unit);
+
+	if (source === "Actual period sales" && sales_value > 0 && sales_qty > 0) {
+		var sales_ratio = allocated_expense / sales_value * 100;
+		lines.push(__("Sales Value") + ": " + format_currency(sales_value));
+		lines.push(__("Company Expense Ratio") + ": " + sales_ratio.toFixed(3) + "%");
+		lines.push(__("Allocated Expense") + ": " + format_currency(allocated_expense));
+		lines.push(__("Sales Quantity") + ": " + sales_qty);
+		lines.push(
+			__("Expense / Unit") + ": " + format_currency(allocated_expense) +
+			" / " + sales_qty + " = " + format_currency(expense_per_unit)
+		);
+	} else if (source === "Regular Item Price fallback" && flt(data.current_normal_price) > 0) {
+		var regular_price = flt(data.current_normal_price);
+		var fallback_ratio = expense_per_unit / regular_price * 100;
+		lines.push(__("Regular Item Price") + ": " + format_currency(regular_price));
+		lines.push(__("Company Expense Ratio") + ": " + fallback_ratio.toFixed(3) + "%");
+		lines.push(
+			__("Expense / Unit") + ": " + format_currency(regular_price) +
+			" x " + fallback_ratio.toFixed(3) + "% = " + format_currency(expense_per_unit)
+		);
+	} else {
+		lines.push(__("Expense / Unit") + ": " + format_currency(expense_per_unit));
+	}
+	return lines.join("\n");
+}
+
 frappe.query_reports["Pricing Strategy Analysis"] = {
 	"onload": function (report) {
 		apply_pricing_strategy_filter_labels(report);
@@ -110,6 +146,17 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 	},
 	"after_datatable_render": function (datatable) {
 		apply_pricing_strategy_column_colors(datatable);
+	},
+	"formatter": function (value, row, column, data, default_formatter) {
+		var formatted_value = default_formatter(value, row, column, data);
+		if (column.fieldname === "expense_per_unit") {
+			var tooltip = get_expense_per_unit_tooltip(data);
+			if (tooltip) {
+				return '<span title="' + frappe.utils.escape_html(tooltip) + '">' +
+					formatted_value + '</span>';
+			}
+		}
+		return formatted_value;
 	},
 	"filters": [
 		{

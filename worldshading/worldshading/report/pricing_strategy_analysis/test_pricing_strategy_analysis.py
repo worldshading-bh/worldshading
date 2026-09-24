@@ -571,6 +571,12 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertIn('/^tier_\\d+_net$/', javascript)
 		self.assertIn('/^tier_\\d+_gross$/', javascript)
 		self.assertIn('pricing-strategy-result-column-style', javascript)
+		self.assertIn("get_expense_per_unit_tooltip", javascript)
+		self.assertIn('column.fieldname === "expense_per_unit"', javascript)
+		self.assertIn('data.allocated_expense', javascript)
+		self.assertIn('data.sales_value', javascript)
+		self.assertIn('data.sales_qty', javascript)
+		self.assertNotIn("frappe.call", javascript)
 
 
 if __name__ == "__main__":
