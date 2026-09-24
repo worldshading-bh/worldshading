@@ -182,6 +182,9 @@ def validate_and_normalize_filters(filters):
 		result["exclude_items_without_sales"] = not bool(cint(filters.get("include_items_without_sales")))
 	else:
 		result["exclude_items_without_sales"] = False
+	result["exclude_expense_from_pricing"] = bool(
+		cint(filters.get("exclude_expense_from_pricing", 0))
+	)
 	result["show_pricing_rule_strategy"] = bool(cint(filters.get("show_pricing_rule_strategy", 0)))
 	if result["show_pricing_rule_strategy"]:
 		result["tiers"] = _normalize_tiers(filters)
@@ -304,12 +307,16 @@ def calculate_item_row(item, context):
 	row["selected_base_cost"] = quantize_money(base_cost)
 	row["expense_per_unit"] = quantize_money(expense_per_unit) if expense_per_unit is not None else None
 	row["fully_loaded_cost"] = quantize_money(loaded_cost)
+	pricing_cost = loaded_cost
+	if context.get("exclude_expense_from_pricing"):
+		pricing_cost = base_cost
+		warnings.append("Expense excluded from price calculation")
 
 	regular = calculate_price(
-		loaded_cost, context["regular_markup"], context["vat_percent"]
+		pricing_cost, context["regular_markup"], context["vat_percent"]
 	)
 	b2b = calculate_price(
-		loaded_cost, context["b2b_markup"], context["vat_percent"]
+		pricing_cost, context["b2b_markup"], context["vat_percent"]
 	)
 	_apply_price_result(row, "recommended_regular", regular)
 	_apply_price_result(row, "recommended_b2b", b2b)
@@ -317,7 +324,7 @@ def calculate_item_row(item, context):
 
 	for index, tier in enumerate(context["tiers"], 1):
 		tier_result = calculate_price(
-			loaded_cost, tier["markup"], context["vat_percent"]
+			pricing_cost, tier["markup"], context["vat_percent"]
 		)
 		_apply_price_result(row, "tier_{0}".format(index), tier_result)
 		row["tier_{0}_discount_percent".format(index)] = _percentage_difference(

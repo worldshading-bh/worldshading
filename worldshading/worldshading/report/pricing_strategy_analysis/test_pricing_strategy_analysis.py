@@ -78,6 +78,22 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		self.assertEqual(row["fully_loaded_cost"], Decimal("105.000"))
 		self.assertEqual(row["suggested_action"], "Increase Price")
 
+	def test_expense_can_be_excluded_from_recommended_price_calculation(self):
+		filters = self._valid_filters()
+		filters["exclude_expense_from_pricing"] = 1
+		normalized = report.validate_and_normalize_filters(filters)
+		row = report.calculate_item_row({
+			"item_code": "A",
+			"selected_base_cost": Decimal("100"),
+			"expense_per_unit": Decimal("5"),
+			"current_normal_price": Decimal("120"),
+			"warnings": []
+		}, normalized)
+		self.assertEqual(row["expense_per_unit"], Decimal("5.000"))
+		self.assertEqual(row["fully_loaded_cost"], Decimal("105.000"))
+		self.assertEqual(row["recommended_regular_net"], Decimal("143.636"))
+		self.assertIn("Expense excluded from price calculation", row["warnings"])
+
 	def test_real_expense_is_allocated_by_sales_value_per_unit(self):
 		allocation = report.calculate_expense_allocation(
 			Decimal("100"), Decimal("1000"), Decimal("15"), Decimal("0.10")
@@ -131,6 +147,7 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		filters.pop("show_pricing_rule_strategy")
 		result = report.validate_and_normalize_filters(filters)
 		self.assertFalse(result["show_pricing_rule_strategy"])
+		self.assertFalse(result["exclude_expense_from_pricing"])
 		self.assertEqual(result["tiers"], [])
 		self.assertEqual(result["gap_messages"], [])
 
@@ -511,7 +528,7 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		required_fields = [
 			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
 			"regular_price_list", "b2b_price_list", "show_pricing_rule_strategy",
-			"exclude_items_without_sales", "cost_source",
+			"exclude_items_without_sales", "exclude_expense_from_pricing", "cost_source",
 			"vat_percent",
 			"regular_markup", "b2b_markup"
 		]
