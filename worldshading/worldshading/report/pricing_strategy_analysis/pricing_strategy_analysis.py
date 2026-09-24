@@ -1291,14 +1291,14 @@ def get_columns(filters):
 		_column("Average Sold Rate", "weighted_average_sold_rate", "Currency", 115),
 		_column("Current Regular Price", "current_normal_price", "Currency", 125)
 	]
-	if filters.get("enable_b2b_pricing"):
-		columns.append(_column("Current B2B Price", "current_b2b_price", "Currency", 115))
 	columns.extend(_compact_price_columns("Regular", "recommended_regular"))
 	columns.extend([
 		_column("Change from Current Regular", "change_from_current_normal", "Currency", 145),
-		_column("Change from Current Regular %", "change_from_current_normal_percent", "Percent", 155)
+		_column("Change from Current Regular %", "change_from_current_normal_percent", "Percent", 155),
+		_column("Suggested Action", "suggested_action", "Data", 110)
 	])
 	if filters.get("enable_b2b_pricing"):
+		columns.append(_column("Current B2B Price", "current_b2b_price", "Currency", 115))
 		columns.extend(_compact_price_columns("B2B", "recommended_b2b"))
 		columns.append(_column("B2B Discount from Regular %", "b2b_discount_percent", "Percent", 155))
 	for index, tier in enumerate(filters["tiers"], 1):
@@ -1310,10 +1310,7 @@ def get_columns(filters):
 			_column(label + " Discount %", prefix + "_discount_percent", "Percent", 120),
 			_column(label + " Gross Margin %", prefix + "_gross_margin_percent", "Percent", 135)
 		])
-	columns.extend([
-		_column("Suggested Action", "suggested_action", "Data", 110),
-		_column("Warnings", "warnings", "Data", 280)
-	])
+	columns.append(_column("Warnings", "warnings", "Data", 280))
 	return columns
 
 

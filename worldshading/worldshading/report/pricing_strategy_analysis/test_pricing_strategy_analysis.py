@@ -277,6 +277,27 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		self.assertEqual(len(normalized["tiers"]), 2)
 		self.assertEqual(normalized["tiers"][1]["markup"], Decimal("25"))
 
+	def test_price_columns_are_grouped_by_regular_b2b_and_tier(self):
+		filters = self._valid_filters()
+		filters["b2b_price_list"] = "B2B"
+		normalized = report.validate_and_normalize_filters(filters)
+		fieldnames = [column["fieldname"] for column in report.get_columns(normalized)]
+		regular_fields = [
+			"current_normal_price", "recommended_regular_net", "recommended_regular_gross",
+			"recommended_regular_gross_margin_percent", "change_from_current_normal",
+			"change_from_current_normal_percent", "suggested_action"
+		]
+		b2b_fields = [
+			"current_b2b_price", "recommended_b2b_net", "recommended_b2b_gross",
+			"recommended_b2b_gross_margin_percent", "b2b_discount_percent"
+		]
+		regular_start = fieldnames.index("current_normal_price")
+		b2b_start = fieldnames.index("current_b2b_price")
+		self.assertEqual(fieldnames[regular_start:regular_start + len(regular_fields)], regular_fields)
+		self.assertEqual(fieldnames[b2b_start:b2b_start + len(b2b_fields)], b2b_fields)
+		self.assertGreater(fieldnames.index("tier_1_net"), b2b_start)
+		self.assertGreater(fieldnames.index("tier_2_net"), fieldnames.index("tier_1_gross_margin_percent"))
+
 
 class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
 
@@ -1021,8 +1042,10 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertIn('"after_datatable_render": function (datatable)', javascript)
 		self.assertIn('recommended_regular_net', javascript)
 		self.assertIn('recommended_b2b_net', javascript)
-		self.assertIn('/^tier_\\d+_net$/', javascript)
-		self.assertIn('/^tier_\\d+_gross$/', javascript)
+		self.assertIn('/^tier_(\\d+)_/', javascript)
+		self.assertIn('var regular_fields = [', javascript)
+		self.assertIn('var b2b_fields = [', javascript)
+		self.assertIn('var tier_colors = [', javascript)
 		self.assertIn('pricing-strategy-result-column-style', javascript)
 		self.assertIn("get_expense_per_unit_tooltip", javascript)
 		self.assertIn('column.fieldname === "expense_per_unit"', javascript)
