@@ -4,7 +4,6 @@ from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 import json
 
 import frappe
-from frappe.desk.form.load import get_attachments
 from frappe.utils import cint, getdate, gzip_decompress
 
 from worldshading.reporting.item_wise_sales import get_item_sales_aggregates
@@ -69,17 +68,15 @@ def _get_prepared_pricing_report(prepared_report_name):
 
 def _get_prepared_pricing_rows(prepared_report_name):
 	prepared_report = _get_prepared_pricing_report(prepared_report_name)
-	attachments = get_attachments("Prepared Report", prepared_report.name) or []
-	attachment = None
-	for candidate in attachments:
-		candidate = frappe._dict(candidate)
-		if candidate.file_name and candidate.file_name.endswith(".json.gz"):
-			attachment = candidate
-			break
-	if not attachment or not cint(attachment.is_private):
+	attachment_name = frappe.db.get_value(
+		"File",
+		{"attached_to_doctype": "Prepared Report", "attached_to_name": prepared_report.name},
+		"name"
+	)
+	if not attachment_name:
 		frappe.throw("The Prepared Report result attachment is missing or invalid")
 	try:
-		file_doc = frappe.get_doc("File", attachment.name)
+		file_doc = frappe.get_doc("File", attachment_name)
 		content = gzip_decompress(file_doc.get_content())
 		rows = json.loads(frappe.safe_decode(content))
 	except (TypeError, ValueError, IOError):

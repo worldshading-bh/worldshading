@@ -297,7 +297,7 @@ class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
 				with self.assertRaises(frappe.ValidationError):
 					report._get_prepared_pricing_report("PREP-1")
 
-	def test_prepared_rows_are_loaded_from_private_json_gzip_attachment(self):
+	def test_prepared_rows_are_loaded_from_core_prepared_report_attachment(self):
 		prepared = frappe._dict({
 			"name": "PREP-1", "report_name": "Pricing Strategy Analysis",
 			"status": "Completed", "owner": "test@example.com",
@@ -306,30 +306,18 @@ class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
 		rows = [{"item_code": "A", "recommended_regular_net": 12}, ["Total"]]
 		content = frappe.utils.gzip_compress(frappe.safe_encode(json.dumps(rows)))
 		file_doc = frappe._dict({"get_content": lambda: content})
-		attachment = frappe._dict({
-			"name": "FILE-1", "file_name": "result.json.gz", "is_private": 1
-		})
 		with patch.object(report, "_get_prepared_pricing_report", return_value=prepared):
-			with patch.object(report, "get_attachments", return_value=[attachment]):
+			with patch.object(report.frappe.db, "get_value", return_value="FILE-1"):
 				with patch.object(report.frappe, "get_doc", return_value=file_doc):
 					self.assertEqual(
 						report._get_prepared_pricing_rows("PREP-1"),
 						[{"item_code": "A", "recommended_regular_net": 12}]
 					)
 
-	def test_prepared_rows_reject_missing_or_unsafe_attachment(self):
+	def test_prepared_rows_reject_missing_attachment(self):
 		prepared = frappe._dict({"name": "PREP-1"})
 		with patch.object(report, "_get_prepared_pricing_report", return_value=prepared):
-			with patch.object(report, "get_attachments", return_value=[]):
-				with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
-					with self.assertRaises(frappe.ValidationError):
-						report._get_prepared_pricing_rows("PREP-1")
-
-		attachment = frappe._dict({
-			"name": "FILE-1", "file_name": "result.json.gz", "is_private": 0
-		})
-		with patch.object(report, "_get_prepared_pricing_report", return_value=prepared):
-			with patch.object(report, "get_attachments", return_value=[attachment]):
+			with patch.object(report.frappe.db, "get_value", return_value=None):
 				with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
 					with self.assertRaises(frappe.ValidationError):
 						report._get_prepared_pricing_rows("PREP-1")
