@@ -180,6 +180,31 @@ def _direct_output(row, currency_precision):
 	return result
 
 
+def _packed_output(row, currency_precision):
+	quantum = money_quantum(currency_precision)
+	result = _base_output(row)
+	qty = to_decimal(row.get("qty"))
+	amount = row.get("amount")
+	if amount in (None, ""):
+		amount = to_decimal(row.get("rate")) * qty
+		append_warning(result["warnings"], "packed_amount_from_rate")
+	conversion_rate = to_decimal(row.get("conversion_rate")) or Decimal("1")
+	base_amount = quantize_money(to_decimal(amount) * conversion_rate, currency_precision)
+	result.update({
+		"stock_qty": qty,
+		"direct_qty": Decimal("0"),
+		"packed_qty": qty,
+		"direct_net_amount": Decimal("0").quantize(quantum),
+		"packed_net_amount": base_amount,
+		"net_amount": base_amount,
+		"net_rate": quantize_money(base_amount / qty, currency_precision) if qty else None,
+		"sales_basis": "Packed"
+	})
+	if not qty and base_amount:
+		append_warning(result["warnings"], "zero_qty_nonzero_value")
+	return result
+
+
 def _merge_rows(rows, currency_precision):
 	merged = {}
 	order = []
@@ -225,41 +250,8 @@ def _merge_rows(rows, currency_precision):
 
 
 def normalize_transaction_rows(direct_rows, packed_rows, currency_precision=3, merge=True):
-	direct_rows = list(direct_rows or [])
-	packed_rows = list(packed_rows or [])
-	parents_by_pool = {}
-	parents_by_name = {}
-	packed_by_pool = {}
-	for row in direct_rows:
-		invoice = row.get("invoice") or row.get("parent")
-		parents_by_pool.setdefault((invoice, row.get("item_code")), []).append(row)
-		if row.get("name"):
-			parents_by_name[(invoice, row.get("name"))] = row
-	for row in packed_rows:
-		invoice = row.get("invoice") or row.get("parent")
-		link = row.get("parent_detail_docname") if row.get("parent_link_valid") else None
-		packed_by_pool.setdefault((invoice, link or row.get("parent_item")), []).append(row)
-
-	output = []
-	consumed_parent_pools = set()
-	for pool_key in sorted(packed_by_pool, key=lambda value: (str(value[0]), str(value[1]))):
-		first_packed = packed_by_pool[pool_key][0]
-		if first_packed.get("parent_link_valid"):
-			parent = parents_by_name.get(pool_key)
-			parents = [parent] if parent else []
-		else:
-			parents = parents_by_pool.get((pool_key[0], first_packed.get("parent_item")), [])
-		if parents:
-			for parent in parents:
-				consumed_parent_pools.add((pool_key[0], parent.get("item_code"), parent.get("name")))
-		output.extend(allocate_parent_pool(
-			parents, packed_by_pool[pool_key], currency_precision
-		))
-	for pool_key in sorted(parents_by_pool, key=lambda value: (str(value[0]), str(value[1]))):
-		for row in parents_by_pool[pool_key]:
-			if (pool_key[0], row.get("item_code"), row.get("name")) in consumed_parent_pools:
-				continue
-			output.append(_direct_output(row, currency_precision))
+	output = [_direct_output(row, currency_precision) for row in (direct_rows or [])]
+	output.extend(_packed_output(row, currency_precision) for row in (packed_rows or []))
 
 	return _merge_rows(output, currency_precision) if merge else output
 
@@ -352,8 +344,8 @@ def _get_direct_rows(filters):
 
 
 def _get_packed_rows(filters):
-	selection_conditions = _invoice_conditions(filters)
-	selection_conditions.extend(_item_conditions(filters, "pi", "item"))
+	conditions = _invoice_conditions(filters)
+	conditions.extend(_item_conditions(filters, "packed", "packed_item"))
 	return frappe.db.sql("""
 		select
 			si.name as invoice, si.posting_date, si.posting_time,
@@ -363,51 +355,15 @@ def _get_packed_rows(filters):
 			packed.parent_detail_docname, packed.item_code,
 			packed.item_name, packed.description, packed.qty, packed.uom,
 			packed.rate, packed.amount, packed.warehouse,
-			packed_item.item_group, packed_item.brand, packed_item.stock_uom,
-			sum(parent_line.base_net_amount) as parent_base_net_amount,
-			sum(parent_line.stock_qty) as parent_stock_qty,
-			sum(parent_line.qty) as parent_qty,
-			count(parent_line.name) as parent_row_count,
-			max(parent_line.item_name) as parent_item_name,
-			max(parent_line.stock_uom) as parent_stock_uom,
-			max(parent_line.warehouse) as parent_warehouse,
-			max(parent_line.sales_order) as parent_sales_order,
-			max(parent_line.delivery_note) as parent_delivery_note,
-			max(parent_line.income_account) as parent_income_account,
-			max(parent_line.cost_center) as parent_cost_center,
-			max(case when parent_line.name = packed.parent_detail_docname then 1 else 0 end) as parent_link_valid
-		from (
-			select distinct pi.parent, pi.parent_item
-			from `tabPacked Item` pi
-			inner join `tabSales Invoice` si on si.name = pi.parent
-			inner join `tabItem` item on item.name = pi.item_code
-			where pi.parenttype = 'Sales Invoice'
-				and pi.docstatus = 1
-				and {selection_conditions}
-		) selected_pool
-		inner join `tabPacked Item` packed
-			on packed.parent = selected_pool.parent
-			and packed.parent_item = selected_pool.parent_item
-			and packed.parenttype = 'Sales Invoice'
-			and packed.docstatus = 1
+			packed_item.item_group, packed_item.brand, packed_item.stock_uom
+		from `tabPacked Item` packed
 		inner join `tabSales Invoice` si on si.name = packed.parent
 		inner join `tabItem` packed_item on packed_item.name = packed.item_code
-		left join `tabSales Invoice Item` parent_line
-			on parent_line.parent = packed.parent
-			and parent_line.docstatus = 1
-			and (
-				parent_line.name = packed.parent_detail_docname
-				or (((packed.parent_detail_docname is null or packed.parent_detail_docname = '')
-					or not exists (
-						select 1 from `tabSales Invoice Item` linked_parent
-						where linked_parent.name = packed.parent_detail_docname
-							and linked_parent.parent = packed.parent
-					))
-					and parent_line.item_code = packed.parent_item)
-			)
-		group by packed.name
+		where packed.parenttype = 'Sales Invoice'
+			and packed.docstatus = 1
+			and {conditions}
 		order by si.posting_date desc, si.posting_time desc, si.name, packed.idx
-	""".format(selection_conditions=_sql_conditions(selection_conditions)), filters, as_dict=True)
+	""".format(conditions=_sql_conditions(conditions)), filters, as_dict=True)
 
 
 def _parent_rows_from_packed(packed_rows):
@@ -485,21 +441,7 @@ def get_transaction_contributions(filters):
 	filters = validate_filters(filters)
 	direct_rows = _get_direct_rows(filters)
 	packed_rows = _get_packed_rows(filters)
-	allocation_parents = _parent_rows_from_packed(packed_rows)
-	fallback_pool_keys = set(
-		(row.get("invoice"), row.get("item_code")) for row in allocation_parents
-		if not row.get("name")
-	)
-	linked_parent_keys = set(
-		(row.get("invoice"), row.get("name")) for row in allocation_parents if row.get("name")
-	)
-	all_direct_rows = [
-		row for row in direct_rows
-		if (row.get("invoice"), row.get("item_code")) not in fallback_pool_keys
-		and (row.get("invoice"), row.get("name")) not in linked_parent_keys
-	]
-	all_direct_rows.extend(allocation_parents)
-	return normalize_transaction_rows(all_direct_rows, packed_rows, merge=False)
+	return normalize_transaction_rows(direct_rows, packed_rows, merge=False)
 
 
 def filter_transaction_rows(rows, filters):
