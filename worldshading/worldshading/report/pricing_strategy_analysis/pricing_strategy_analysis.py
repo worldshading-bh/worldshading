@@ -1,9 +1,11 @@
 from __future__ import unicode_literals
 
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
+import json
 
 import frappe
-from frappe.utils import cint, getdate
+from frappe.desk.form.load import get_attachments
+from frappe.utils import cint, getdate, gzip_decompress
 
 from worldshading.reporting.item_wise_sales import get_item_sales_aggregates
 
@@ -12,12 +14,79 @@ MONEY_QUANTUM = Decimal("0.001")
 PERCENT_QUANTUM = Decimal("0.001")
 RATIO_QUANTUM = Decimal("0.000001")
 INDIRECT_EXPENSE_ACCOUNT = "Indirect Expenses - WS"
+ITEM_PRICE_UPDATE_LIMIT = 50
 
 COST_SOURCES = (
 	"Current Valuation Rate",
 	"Latest Purchase Rate",
 	"Weighted Average Purchase Rate"
 )
+
+
+def _normalize_update_item_codes(item_codes):
+	item_codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
+	result = []
+	seen = set()
+	for value in item_codes or []:
+		item_code = value.get("item_code") if isinstance(value, dict) else value
+		item_code = str(item_code or "").strip()
+		if not item_code or item_code in seen:
+			continue
+		seen.add(item_code)
+		result.append(item_code)
+		if len(result) == ITEM_PRICE_UPDATE_LIMIT:
+			break
+	return result
+
+
+def _get_prepared_pricing_report(prepared_report_name):
+	if not prepared_report_name:
+		frappe.throw("Completed Pricing Strategy Analysis Prepared Report is required")
+	prepared_report = frappe.db.get_value(
+		"Prepared Report", prepared_report_name,
+		["name", "report_name", "status", "owner", "filters"], as_dict=1
+	)
+	prepared_report = frappe._dict(prepared_report or {})
+	if prepared_report.report_name != "Pricing Strategy Analysis" \
+			or prepared_report.status != "Completed":
+		frappe.throw("The Pricing Strategy Analysis Prepared Report is invalid or incomplete")
+	if prepared_report.owner != frappe.session.user \
+			and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			"You do not have permission to use this Prepared Report",
+			frappe.PermissionError
+		)
+	try:
+		filters = frappe.parse_json(prepared_report.filters) \
+			if isinstance(prepared_report.filters, str) else prepared_report.filters
+	except (TypeError, ValueError):
+		frappe.throw("The Prepared Report filters are invalid")
+	if not isinstance(filters, dict):
+		frappe.throw("The Prepared Report filters are invalid")
+	prepared_report.filters = validate_and_normalize_filters(filters)
+	return prepared_report
+
+
+def _get_prepared_pricing_rows(prepared_report_name):
+	prepared_report = _get_prepared_pricing_report(prepared_report_name)
+	attachments = get_attachments("Prepared Report", prepared_report.name) or []
+	attachment = None
+	for candidate in attachments:
+		candidate = frappe._dict(candidate)
+		if candidate.file_name and candidate.file_name.endswith(".json.gz"):
+			attachment = candidate
+			break
+	if not attachment or not cint(attachment.is_private):
+		frappe.throw("The Prepared Report result attachment is missing or invalid")
+	try:
+		file_doc = frappe.get_doc("File", attachment.name)
+		content = gzip_decompress(file_doc.get_content())
+		rows = json.loads(frappe.safe_decode(content))
+	except (TypeError, ValueError, IOError):
+		frappe.throw("The Prepared Report result attachment cannot be read")
+	if not isinstance(rows, list):
+		frappe.throw("The Prepared Report result attachment is invalid")
+	return [row for row in rows if isinstance(row, dict)]
 
 
 def to_decimal(value):

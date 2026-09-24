@@ -7,7 +7,7 @@ from decimal import Decimal
 import json
 import os
 import re
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 
@@ -229,6 +229,109 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			"tier_4_markup": 25,
 			"exclude_items_without_sales": 0
 		}
+
+
+class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
+
+	def setUp(self):
+		frappe.local.db = MagicMock()
+		frappe.local.session = frappe._dict({"user": "test@example.com"})
+
+	def test_update_item_codes_keep_first_50_unique_real_items(self):
+		values = ["ITEM-{0:03d}".format(index) for index in range(55)]
+		values.insert(2, "ITEM-001")
+		values.insert(4, "")
+		result = report._normalize_update_item_codes(values)
+		self.assertEqual(len(result), 50)
+		self.assertEqual(result[:3], ["ITEM-000", "ITEM-001", "ITEM-002"])
+		self.assertEqual(result[-1], "ITEM-049")
+
+	def test_update_item_codes_accept_dictionary_rows_and_json(self):
+		values = json.dumps([
+			{"item_code": " A "}, {"item_code": "B"},
+			{"item_code": "A"}, {"total": "Total"}
+		])
+		self.assertEqual(report._normalize_update_item_codes(values), ["A", "B"])
+
+	def test_prepared_report_must_be_completed_pricing_report(self):
+		prepared = {
+			"name": "PREP-1", "report_name": "Other Report",
+			"status": "Completed", "owner": "test@example.com", "filters": "{}"
+		}
+		with patch.object(report.frappe.db, "get_value", return_value=prepared):
+			with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+				with self.assertRaises(frappe.ValidationError):
+					report._get_prepared_pricing_report("PREP-1")
+
+	def test_prepared_report_requires_name_completed_status_and_access(self):
+		with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+			with self.assertRaises(frappe.ValidationError):
+				report._get_prepared_pricing_report(None)
+
+		prepared = {
+			"name": "PREP-1", "report_name": "Pricing Strategy Analysis",
+			"status": "Queued", "owner": "test@example.com", "filters": "{}"
+		}
+		with patch.object(report.frappe.db, "get_value", return_value=prepared):
+			with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+				with self.assertRaises(frappe.ValidationError):
+					report._get_prepared_pricing_report("PREP-1")
+
+		prepared["status"] = "Completed"
+		prepared["owner"] = "another@example.com"
+		with patch.object(report.frappe.db, "get_value", return_value=prepared):
+			with patch.object(report.frappe, "get_roles", return_value=[]):
+				with patch.object(report.frappe, "throw", side_effect=frappe.PermissionError):
+					with self.assertRaises(frappe.PermissionError):
+						report._get_prepared_pricing_report("PREP-1")
+
+	def test_prepared_report_rejects_malformed_filters(self):
+		prepared = {
+			"name": "PREP-1", "report_name": "Pricing Strategy Analysis",
+			"status": "Completed", "owner": "test@example.com",
+			"filters": "not-json"
+		}
+		with patch.object(report.frappe.db, "get_value", return_value=prepared):
+			with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+				with self.assertRaises(frappe.ValidationError):
+					report._get_prepared_pricing_report("PREP-1")
+
+	def test_prepared_rows_are_loaded_from_private_json_gzip_attachment(self):
+		prepared = frappe._dict({
+			"name": "PREP-1", "report_name": "Pricing Strategy Analysis",
+			"status": "Completed", "owner": "test@example.com",
+			"filters": {"company": "World Shading"}
+		})
+		rows = [{"item_code": "A", "recommended_regular_net": 12}, ["Total"]]
+		content = frappe.utils.gzip_compress(frappe.safe_encode(json.dumps(rows)))
+		file_doc = frappe._dict({"get_content": lambda: content})
+		attachment = frappe._dict({
+			"name": "FILE-1", "file_name": "result.json.gz", "is_private": 1
+		})
+		with patch.object(report, "_get_prepared_pricing_report", return_value=prepared):
+			with patch.object(report, "get_attachments", return_value=[attachment]):
+				with patch.object(report.frappe, "get_doc", return_value=file_doc):
+					self.assertEqual(
+						report._get_prepared_pricing_rows("PREP-1"),
+						[{"item_code": "A", "recommended_regular_net": 12}]
+					)
+
+	def test_prepared_rows_reject_missing_or_unsafe_attachment(self):
+		prepared = frappe._dict({"name": "PREP-1"})
+		with patch.object(report, "_get_prepared_pricing_report", return_value=prepared):
+			with patch.object(report, "get_attachments", return_value=[]):
+				with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+					with self.assertRaises(frappe.ValidationError):
+						report._get_prepared_pricing_rows("PREP-1")
+
+		attachment = frappe._dict({
+			"name": "FILE-1", "file_name": "result.json.gz", "is_private": 0
+		})
+		with patch.object(report, "_get_prepared_pricing_report", return_value=prepared):
+			with patch.object(report, "get_attachments", return_value=[attachment]):
+				with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+					with self.assertRaises(frappe.ValidationError):
+						report._get_prepared_pricing_rows("PREP-1")
 
 
 class TestPricingStrategyDataSources(unittest.TestCase):
