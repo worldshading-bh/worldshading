@@ -1,0 +1,345 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:strategy_name",
+ "creation": "2026-09-24 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "strategy_name",
+  "company",
+  "description",
+  "status_section",
+  "enabled",
+  "is_default",
+  "cost_expense_section",
+  "cost_basis",
+  "expense_treatment",
+  "indirect_expense_account",
+  "column_break_cost",
+  "expense_allocation_method",
+  "vat_percent",
+  "regular_section",
+  "regular_price_list",
+  "column_break_regular",
+  "regular_markup",
+  "b2b_section",
+  "enable_b2b_pricing",
+  "b2b_price_list",
+  "column_break_b2b",
+  "b2b_markup",
+  "quantity_section",
+  "enable_quantity_pricing",
+  "tier_1_qty_range",
+  "tier_1_markup",
+  "column_break_tier_1",
+  "tier_2_qty_range",
+  "tier_2_markup",
+  "tier_3_section",
+  "tier_3_qty_range",
+  "tier_3_markup",
+  "column_break_tier_3",
+  "tier_4_qty_range",
+  "tier_4_markup",
+  "rounding_section",
+  "rounding_method",
+  "rounding_policy_help"
+ ],
+ "fields": [
+  {
+   "fieldname": "strategy_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Strategy Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Availability"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Default",
+   "description": "Only one enabled default strategy is allowed per company."
+  },
+  {
+   "fieldname": "cost_expense_section",
+   "fieldtype": "Section Break",
+   "label": "Cost, Expense and Tax"
+  },
+  {
+   "default": "Current Valuation Rate",
+   "fieldname": "cost_basis",
+   "fieldtype": "Select",
+   "label": "Cost Basis",
+   "options": "Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate",
+   "reqd": 1
+  },
+  {
+   "default": "Include Expense",
+   "fieldname": "expense_treatment",
+   "fieldtype": "Select",
+   "label": "Expense Treatment",
+   "options": "Include Expense\nExclude Expense",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.expense_treatment=='Include Expense'",
+   "fieldname": "indirect_expense_account",
+   "fieldtype": "Link",
+   "label": "Indirect Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Sales Value Ratio",
+   "fieldname": "expense_allocation_method",
+   "fieldtype": "Select",
+   "label": "Expense Allocation Method",
+   "options": "Sales Value Ratio",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "default": "10",
+   "fieldname": "vat_percent",
+   "fieldtype": "Percent",
+   "label": "VAT %",
+   "reqd": 1
+  },
+  {
+   "fieldname": "regular_section",
+   "fieldtype": "Section Break",
+   "label": "Regular Pricing"
+  },
+  {
+   "fieldname": "regular_price_list",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Regular Price List",
+   "options": "Price List",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_regular",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "43",
+   "fieldname": "regular_markup",
+   "fieldtype": "Percent",
+   "label": "Regular Price Markup %",
+   "reqd": 1
+  },
+  {
+   "fieldname": "b2b_section",
+   "fieldtype": "Section Break",
+   "label": "B2B Pricing"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_b2b_pricing",
+   "fieldtype": "Check",
+   "label": "Enable B2B Pricing"
+  },
+  {
+   "depends_on": "enable_b2b_pricing",
+   "fieldname": "b2b_price_list",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "B2B Price List",
+   "options": "Price List"
+  },
+  {
+   "fieldname": "column_break_b2b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "33",
+   "depends_on": "enable_b2b_pricing",
+   "fieldname": "b2b_markup",
+   "fieldtype": "Percent",
+   "label": "B2B Markup %"
+  },
+  {
+   "fieldname": "quantity_section",
+   "fieldtype": "Section Break",
+   "label": "Quantity Pricing Strategy"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_quantity_pricing",
+   "fieldtype": "Check",
+   "label": "Enable Quantity Pricing"
+  },
+  {
+   "default": "5:9",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_1_qty_range",
+   "fieldtype": "Data",
+   "label": "Tier 1 Qty Range"
+  },
+  {
+   "default": "31",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_1_markup",
+   "fieldtype": "Percent",
+   "label": "Tier 1 Markup %"
+  },
+  {
+   "fieldname": "column_break_tier_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "10:19",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_2_qty_range",
+   "fieldtype": "Data",
+   "label": "Tier 2 Qty Range"
+  },
+  {
+   "default": "29",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_2_markup",
+   "fieldtype": "Percent",
+   "label": "Tier 2 Markup %"
+  },
+  {
+   "fieldname": "tier_3_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "20:39",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_3_qty_range",
+   "fieldtype": "Data",
+   "label": "Tier 3 Qty Range"
+  },
+  {
+   "default": "27",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_3_markup",
+   "fieldtype": "Percent",
+   "label": "Tier 3 Markup %"
+  },
+  {
+   "fieldname": "column_break_tier_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "40+",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_4_qty_range",
+   "fieldtype": "Data",
+   "label": "Tier 4 Qty Range"
+  },
+  {
+   "default": "25",
+   "depends_on": "enable_quantity_pricing",
+   "fieldname": "tier_4_markup",
+   "fieldtype": "Percent",
+   "label": "Tier 4 Markup %"
+  },
+  {
+   "fieldname": "rounding_section",
+   "fieldtype": "Section Break",
+   "label": "Commercial Rounding"
+  },
+  {
+   "default": "Always Round Up",
+   "fieldname": "rounding_method",
+   "fieldtype": "Data",
+   "label": "Rounding Method",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rounding_policy_help",
+   "fieldtype": "HTML",
+   "options": "<p><b>Fixed company policy:</b> Below BHD 0.100: BHD 0.005; BHD 0.100–29.999: BHD 0.100; BHD 30–99.999: BHD 0.500; BHD 100–999.999: BHD 1.000; BHD 1,000 and above: BHD 10.000. Prices always round upward.</p>"
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-24 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Pricing Strategy Template",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  },
+  {
+   "read": 1,
+   "role": "Stock Manager"
+  },
+  {
+   "read": 1,
+   "role": "Stock User"
+  },
+  {
+   "read": 1,
+   "role": "Sales User"
+  }
+ ],
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "strategy_name",
+ "track_changes": 1
+}
