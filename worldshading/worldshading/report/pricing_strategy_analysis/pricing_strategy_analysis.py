@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 import json
 
 import frappe
-from frappe.utils import cint, getdate, gzip_decompress
+from frappe.utils import cint, escape_html, getdate, gzip_decompress
 
 from worldshading.reporting.item_wise_sales import get_item_sales_aggregates
 
@@ -363,10 +363,13 @@ def execute_item_price_update(preview_token=None):
 			continue
 		if action == "Update":
 			item_price = update_docs[(entry["item_code"], entry["price_list"])]
+			previous_rate = entry.get("current_rate")
 			item_price.price_list_rate = new_rate
+			item_price.pricing_prepared_report = prepared_report.name
 			item_price.save()
 			updated += 1
 		else:
+			previous_rate = None
 			item = items[entry["item_code"]]
 			item_price = frappe.new_doc("Item Price")
 			item_price.item_code = entry["item_code"]
@@ -376,8 +379,12 @@ def execute_item_price_update(preview_token=None):
 			item_price.selling = 1
 			item_price.currency = entry["currency"]
 			item_price.uom = entry.get("uom") or ""
+			item_price.pricing_prepared_report = prepared_report.name
 			item_price.insert()
 			created += 1
+		_add_item_price_update_comment(
+			item_price, prepared_report.name, entry["price_list"], previous_rate, new_rate
+		)
 		affected_item_prices.append(item_price.name)
 
 	cache.delete_value(cache_key)
@@ -388,6 +395,28 @@ def execute_item_price_update(preview_token=None):
 		"unchanged": unchanged,
 		"item_prices": affected_item_prices
 	}
+
+
+def _add_item_price_update_comment(item_price, prepared_report_name, price_list,
+		previous_rate, new_rate):
+	prepared_report_link = '<a href="#Form/Prepared Report/{0}">{1}</a>'.format(
+		escape_html(prepared_report_name), escape_html(prepared_report_name)
+	)
+	previous_value = "Not set" if previous_rate in (None, "") \
+		else str(quantize_money(previous_rate))
+	content = (
+		"<b>Pricing Strategy Item Price Update</b><br>"
+		"Prepared Report: {0}<br>"
+		"Price List: {1}<br>"
+		"Previous Price: {2}<br>"
+		"New Price: {3}"
+	).format(
+		prepared_report_link,
+		escape_html(price_list),
+		escape_html(previous_value),
+		escape_html(str(quantize_money(new_rate)))
+	)
+	item_price.add_comment("Comment", content)
 
 
 def to_decimal(value):

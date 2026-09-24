@@ -564,10 +564,15 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 		self.assertEqual(new_doc.item_code, "A")
 		self.assertEqual(new_doc._item_group, "Exact Group A")
 		self.assertEqual(new_doc.price_list_rate, Decimal("12.000"))
+		self.assertEqual(new_doc.pricing_prepared_report, "PREP-1")
 		new_doc.insert.assert_called_once_with()
+		self.assertIn("PREP-1", new_doc.add_comment.call_args[0][1])
 		old_doc.check_permission.assert_called_with("write")
 		self.assertEqual(old_doc.price_list_rate, Decimal("20.000"))
+		self.assertEqual(old_doc.pricing_prepared_report, "PREP-1")
 		old_doc.save.assert_called_once_with()
+		self.assertIn("18.000", old_doc.add_comment.call_args[0][1])
+		self.assertIn("20.000", old_doc.add_comment.call_args[0][1])
 		cache.delete_value.assert_called_once()
 
 	def test_execute_rejects_missing_expired_or_other_user_token(self):
