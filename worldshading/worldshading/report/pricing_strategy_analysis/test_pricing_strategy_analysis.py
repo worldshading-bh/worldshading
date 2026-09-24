@@ -230,6 +230,53 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 			"exclude_items_without_sales": 0
 		}
 
+	def test_strategy_master_overrides_controlled_filter_values(self):
+		filters = self._valid_filters()
+		filters["pricing_strategy"] = "Wholesale"
+		settings = {
+			"pricing_strategy": "Wholesale", "company": "World Shading",
+			"cost_source": "Latest Purchase Rate",
+			"exclude_expense_from_pricing": True,
+			"indirect_expense_account": "Indirect Expenses - WS",
+			"expense_allocation_method": "Sales Value Ratio",
+			"vat_percent": Decimal("10"), "regular_price_list": "Regular",
+			"regular_markup": Decimal("40"), "enable_b2b_pricing": False,
+			"b2b_price_list": None, "b2b_markup": Decimal("0"),
+			"show_pricing_rule_strategy": True,
+			"tiers": [{"minimum": Decimal("5"), "maximum": None, "markup": Decimal("25")}]
+		}
+		with patch.object(report, "_get_pricing_strategy_settings", return_value=settings):
+			normalized = report.validate_and_normalize_filters(filters)
+		self.assertEqual(normalized["regular_price_list"], "Regular")
+		self.assertEqual(normalized["regular_markup"], Decimal("40"))
+		self.assertFalse(normalized["enable_b2b_pricing"])
+		self.assertEqual(normalized["tiers"], settings["tiers"])
+
+	def test_prepared_snapshot_uses_saved_tiers_without_reloading_master(self):
+		filters = self._valid_filters()
+		filters["pricing_strategy"] = "Wholesale"
+		filters["pricing_tiers_json"] = json.dumps([
+			{"minimum": 5, "maximum": 9, "markup": 30},
+			{"minimum": 10, "maximum": None, "markup": 25}
+		])
+		filters.pop("tier_1_minimum")
+		filters.pop("tier_1_maximum")
+		filters.pop("tier_1_markup")
+		filters.pop("tier_2_minimum")
+		filters.pop("tier_2_maximum")
+		filters.pop("tier_2_markup")
+		filters.pop("tier_3_minimum")
+		filters.pop("tier_3_maximum")
+		filters.pop("tier_3_markup")
+		filters.pop("tier_4_minimum")
+		filters.pop("tier_4_maximum")
+		filters.pop("tier_4_markup")
+		with patch.object(report, "_get_pricing_strategy_settings") as get_settings:
+			normalized = report.validate_and_normalize_filters(filters, apply_strategy=False)
+		get_settings.assert_not_called()
+		self.assertEqual(len(normalized["tiers"]), 2)
+		self.assertEqual(normalized["tiers"][1]["markup"], Decimal("25"))
+
 
 class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
 
@@ -917,14 +964,12 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 			["Accounts Manager", "System Manager"]
 		)
 		required_fields = [
-			"company", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
+			"company", "pricing_strategy", "from_date", "to_date", "item", "item_group", "brand", "warehouse",
 			"regular_price_list", "b2b_price_list", "show_pricing_rule_strategy",
 			"exclude_items_without_sales", "exclude_expense_from_pricing", "cost_source",
-			"vat_percent",
+			"indirect_expense_account", "pricing_tiers_json", "vat_percent",
 			"regular_markup", "b2b_markup"
 		]
-		for index in range(1, 5):
-			required_fields.extend(["tier_{0}_qty_range".format(index), "tier_{0}_markup".format(index)])
 		for fieldname in required_fields:
 			self.assertIn('"fieldname": "{0}"'.format(fieldname), javascript)
 		self.assertIn(r"Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate", javascript)
@@ -953,7 +998,7 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertNotIn('"fieldname": "tier_1_maximum"', javascript)
 		filter_order = re.findall(r'"fieldname": "([^"]+)"', javascript)
 		self.assertEqual(filter_order[-1], "exclude_items_without_sales")
-		self.assertEqual(filter_order[7:12], [
+		self.assertEqual(filter_order[8:13], [
 			"regular_price_list", "regular_markup", "b2b_price_list",
 			"b2b_markup", "cost_source"
 		])
@@ -967,7 +1012,8 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertNotIn('"fieldname": "expense_burden"', javascript)
 		self.assertNotIn('"fieldname": "rounding_increment"', javascript)
 		self.assertNotIn('"fieldname": "rounding_method"', javascript)
-		self.assertIn("toggle_pricing_rule_strategy_filters", javascript)
+		self.assertIn("load_pricing_strategy_settings", javascript)
+		self.assertIn("get_pricing_strategy_settings", javascript)
 		self.assertIn('"on_change": function ()', javascript)
 		self.assertNotIn("margin:0 !important;padding:0 !important", javascript)
 		self.assertIn("padding-top:0 !important;padding-bottom:0 !important", javascript)

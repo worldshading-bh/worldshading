@@ -62,8 +62,60 @@ def _get_prepared_pricing_report(prepared_report_name):
 		frappe.throw("The Prepared Report filters are invalid")
 	if not isinstance(filters, dict):
 		frappe.throw("The Prepared Report filters are invalid")
-	prepared_report.filters = validate_and_normalize_filters(filters)
+	prepared_report.filters = validate_and_normalize_filters(filters, apply_strategy=False)
 	return prepared_report
+
+
+def _get_pricing_strategy_settings(strategy_name, company=None):
+	if not strategy_name:
+		frappe.throw("Pricing Strategy is required")
+	strategy = frappe.get_doc("Pricing Strategy Template", strategy_name)
+	strategy.check_permission("read")
+	if not cint(strategy.enabled):
+		frappe.throw("Pricing Strategy {0} is disabled".format(strategy_name))
+	if company and strategy.company != company:
+		frappe.throw("Pricing Strategy must belong to the selected Company")
+	tiers = []
+	if cint(strategy.enable_quantity_pricing):
+		for row in strategy.pricing_tiers or []:
+			tiers.append({
+				"minimum": to_decimal(row.minimum_qty),
+				"maximum": None if row.maximum_qty in (None, "", 0) else to_decimal(row.maximum_qty),
+				"markup": to_decimal(row.markup_percent)
+			})
+	return {
+		"pricing_strategy": strategy.name,
+		"company": strategy.company,
+		"cost_source": strategy.cost_basis,
+		"exclude_expense_from_pricing": strategy.expense_treatment == "Exclude Expense",
+		"indirect_expense_account": strategy.indirect_expense_account,
+		"expense_allocation_method": strategy.expense_allocation_method,
+		"vat_percent": to_decimal(strategy.vat_percent),
+		"regular_price_list": strategy.regular_price_list,
+		"regular_markup": to_decimal(strategy.regular_markup),
+		"enable_b2b_pricing": bool(cint(strategy.enable_b2b_pricing)),
+		"b2b_price_list": strategy.b2b_price_list if cint(strategy.enable_b2b_pricing) else None,
+		"b2b_markup": to_decimal(strategy.b2b_markup) if cint(strategy.enable_b2b_pricing) else Decimal("0"),
+		"show_pricing_rule_strategy": bool(cint(strategy.enable_quantity_pricing)),
+		"tiers": tiers
+	}
+
+
+@frappe.whitelist()
+def get_pricing_strategy_settings(pricing_strategy=None, company=None):
+	settings = _get_pricing_strategy_settings(pricing_strategy, company)
+	result = dict(settings)
+	result["pricing_tiers_json"] = frappe.as_json([
+		{
+			"minimum": float(row["minimum"]),
+			"maximum": float(row["maximum"]) if row["maximum"] is not None else None,
+			"markup": float(row["markup"])
+		} for row in settings["tiers"]
+	])
+	result.pop("tiers", None)
+	for fieldname in ("vat_percent", "regular_markup", "b2b_markup"):
+		result[fieldname] = float(result[fieldname])
+	return result
 
 
 def _get_prepared_pricing_rows(prepared_report_name):
@@ -383,7 +435,8 @@ def execute_item_price_update(preview_token=None):
 			item_price.insert()
 			created += 1
 		_add_item_price_update_comment(
-			item_price, prepared_report.name, entry["price_list"], previous_rate, new_rate
+			item_price, prepared_report.name, entry["price_list"], previous_rate, new_rate,
+			prepared_report.filters.get("pricing_strategy")
 		)
 		affected_item_prices.append(item_price.name)
 
@@ -398,7 +451,7 @@ def execute_item_price_update(preview_token=None):
 
 
 def _add_item_price_update_comment(item_price, prepared_report_name, price_list,
-		previous_rate, new_rate):
+		previous_rate, new_rate, pricing_strategy=None):
 	prepared_report_link = '<a href="#Form/Prepared Report/{0}">{1}</a>'.format(
 		escape_html(prepared_report_name), escape_html(prepared_report_name)
 	)
@@ -407,11 +460,13 @@ def _add_item_price_update_comment(item_price, prepared_report_name, price_list,
 	content = (
 		"<b>Pricing Strategy Item Price Update</b><br>"
 		"Prepared Report: {0}<br>"
-		"Price List: {1}<br>"
-		"Previous Price: {2}<br>"
-		"New Price: {3}"
+		"Pricing Strategy: {1}<br>"
+		"Price List: {2}<br>"
+		"Previous Price: {3}<br>"
+		"New Price: {4}"
 	).format(
 		prepared_report_link,
+		escape_html(pricing_strategy or "Legacy manual settings"),
 		escape_html(price_list),
 		escape_html(previous_value),
 		escape_html(str(quantize_money(new_rate)))
@@ -546,8 +601,14 @@ def calculate_expense_allocation(sales_qty, sales_value, current_normal_price, e
 	return result
 
 
-def validate_and_normalize_filters(filters):
+def validate_and_normalize_filters(filters, apply_strategy=True):
 	filters = dict(filters or {})
+	strategy_settings = None
+	if apply_strategy and filters.get("pricing_strategy"):
+		strategy_settings = _get_pricing_strategy_settings(
+			filters.get("pricing_strategy"), filters.get("company")
+		)
+		filters.update(strategy_settings)
 	result = dict(filters)
 
 	for fieldname in ("company", "from_date", "to_date", "regular_price_list"):
@@ -584,14 +645,39 @@ def validate_and_normalize_filters(filters):
 	result["exclude_expense_from_pricing"] = bool(
 		cint(filters.get("exclude_expense_from_pricing", 0))
 	)
+	result["enable_b2b_pricing"] = bool(
+		cint(filters.get("enable_b2b_pricing", 1 if filters.get("b2b_price_list") else 0))
+	)
 	result["show_pricing_rule_strategy"] = bool(cint(filters.get("show_pricing_rule_strategy", 0)))
 	if result["show_pricing_rule_strategy"]:
-		result["tiers"] = _normalize_tiers(filters)
+		if strategy_settings is not None:
+			result["tiers"] = strategy_settings["tiers"]
+		elif filters.get("pricing_tiers_json"):
+			result["tiers"] = _normalize_strategy_tiers(filters.get("pricing_tiers_json"))
+		else:
+			result["tiers"] = _normalize_tiers(filters)
 		result["gap_messages"] = _validate_tiers(result["tiers"])
 	else:
 		result["tiers"] = []
 		result["gap_messages"] = []
 	return result
+
+
+def _normalize_strategy_tiers(value):
+	rows = frappe.parse_json(value) if isinstance(value, str) else value
+	if not isinstance(rows, list):
+		frappe.throw("Pricing Strategy tiers are invalid")
+	tiers = []
+	for index, row in enumerate(rows, 1):
+		if not isinstance(row, dict):
+			frappe.throw("Pricing Strategy tier {0} is invalid".format(index))
+		maximum = row.get("maximum")
+		tiers.append({
+			"minimum": to_decimal(row.get("minimum")),
+			"maximum": None if maximum in (None, "") else to_decimal(maximum),
+			"markup": to_decimal(row.get("markup"))
+		})
+	return tiers
 
 
 def _normalize_tiers(filters):
@@ -690,14 +776,14 @@ def calculate_item_row(item, context):
 			"warnings": compose_warnings(warnings + ["Missing cost"])
 		})
 		for prefix in ["recommended_regular", "recommended_b2b"] + [
-			"tier_{0}".format(index) for index in range(1, 5)
+			"tier_{0}".format(index) for index in range(1, len(context["tiers"]) + 1)
 		]:
 			for suffix in ("net", "gross", "profit", "actual_markup_percent", "gross_margin_percent"):
 				row[prefix + "_" + suffix] = None
 		row["b2b_discount_percent"] = None
 		row["change_from_current_normal"] = None
 		row["change_from_current_normal_percent"] = None
-		for index in range(1, 5):
+		for index in range(1, len(context["tiers"]) + 1):
 			row["tier_{0}_discount_percent".format(index)] = None
 		return row
 
@@ -714,20 +800,29 @@ def calculate_item_row(item, context):
 	regular = calculate_price(
 		pricing_cost, context["regular_markup"], context["vat_percent"]
 	)
-	b2b = calculate_price(
-		pricing_cost, context["b2b_markup"], context["vat_percent"]
-	)
 	_apply_price_result(row, "recommended_regular", regular)
-	_apply_price_result(row, "recommended_b2b", b2b)
-	row["b2b_discount_percent"] = _percentage_difference(regular["net_price"], b2b["net_price"])
+	b2b = None
+	if context.get("enable_b2b_pricing"):
+		b2b = calculate_price(
+			pricing_cost, context["b2b_markup"], context["vat_percent"]
+		)
+		_apply_price_result(row, "recommended_b2b", b2b)
+		row["b2b_discount_percent"] = _percentage_difference(
+			regular["net_price"], b2b["net_price"]
+		)
+	else:
+		for suffix in ("net", "gross", "profit", "actual_markup_percent", "gross_margin_percent"):
+			row["recommended_b2b_" + suffix] = None
+		row["b2b_discount_percent"] = None
 
 	for index, tier in enumerate(context["tiers"], 1):
 		tier_result = calculate_price(
 			pricing_cost, tier["markup"], context["vat_percent"]
 		)
 		_apply_price_result(row, "tier_{0}".format(index), tier_result)
+		discount_base = b2b["net_price"] if b2b else regular["net_price"]
 		row["tier_{0}_discount_percent".format(index)] = _percentage_difference(
-			b2b["net_price"], tier_result["net_price"]
+			discount_base, tier_result["net_price"]
 		)
 
 	current_price = row.get("current_normal_price")
@@ -953,14 +1048,15 @@ def get_sales_data(filters, item_codes):
 
 
 def get_indirect_expense_context(filters):
+	expense_account = filters.get("indirect_expense_account") or INDIRECT_EXPENSE_ACCOUNT
 	account = frappe.db.get_value(
-		"Account", INDIRECT_EXPENSE_ACCOUNT, ["lft", "rgt"], as_dict=True
+		"Account", expense_account, ["lft", "rgt"], as_dict=True
 	)
 	if not account:
 		return {
 			"expense_total": Decimal("0.000"), "net_sales": Decimal("0.000"),
 			"expense_ratio": Decimal("0.000000"),
-			"warnings": ["Indirect expense account not found: {0}".format(INDIRECT_EXPENSE_ACCOUNT)]
+			"warnings": ["Indirect expense account not found: {0}".format(expense_account)]
 		}
 	values = {
 		"company": filters["company"], "from_date": filters["from_date"],
@@ -1193,16 +1289,18 @@ def get_columns(filters):
 		_column("Sales Qty", "sales_qty", "Float", 90),
 		_column("Last Sold Rate", "last_sold_rate", "Currency", 105),
 		_column("Average Sold Rate", "weighted_average_sold_rate", "Currency", 115),
-		_column("Current Regular Price", "current_normal_price", "Currency", 125),
-		_column("Current B2B Price", "current_b2b_price", "Currency", 115)
+		_column("Current Regular Price", "current_normal_price", "Currency", 125)
 	]
+	if filters.get("enable_b2b_pricing"):
+		columns.append(_column("Current B2B Price", "current_b2b_price", "Currency", 115))
 	columns.extend(_compact_price_columns("Regular", "recommended_regular"))
 	columns.extend([
 		_column("Change from Current Regular", "change_from_current_normal", "Currency", 145),
 		_column("Change from Current Regular %", "change_from_current_normal_percent", "Percent", 155)
 	])
-	columns.extend(_compact_price_columns("B2B", "recommended_b2b"))
-	columns.append(_column("B2B Discount from Regular %", "b2b_discount_percent", "Percent", 155))
+	if filters.get("enable_b2b_pricing"):
+		columns.extend(_compact_price_columns("B2B", "recommended_b2b"))
+		columns.append(_column("B2B Discount from Regular %", "b2b_discount_percent", "Percent", 155))
 	for index, tier in enumerate(filters["tiers"], 1):
 		label = _tier_label(tier)
 		prefix = "tier_{0}".format(index)

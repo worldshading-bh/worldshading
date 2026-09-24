@@ -41,18 +41,39 @@ function apply_pricing_strategy_filter_labels(report) {
 	}
 }
 
-var pricing_rule_strategy_fields = [
-	"tier_1_qty_range", "tier_1_markup",
-	"tier_2_qty_range", "tier_2_markup",
-	"tier_3_qty_range", "tier_3_markup",
-	"tier_4_qty_range", "tier_4_markup"
+var pricing_strategy_controlled_fields = [
+	"regular_price_list", "regular_markup", "b2b_price_list", "b2b_markup",
+	"cost_source", "indirect_expense_account", "vat_percent",
+	"exclude_expense_from_pricing", "show_pricing_rule_strategy", "pricing_tiers_json"
 ];
 
-function toggle_pricing_rule_strategy_filters(report) {
-	var show_strategy = Boolean(Number(report.get_filter_value("show_pricing_rule_strategy") || 0));
-	(report.filters || []).forEach(function (filter) {
-		if (pricing_rule_strategy_fields.indexOf(filter.df.fieldname) !== -1) {
-			$(filter.wrapper).toggle(show_strategy);
+function load_pricing_strategy_settings(report) {
+	var strategy_name = report.get_filter_value("pricing_strategy");
+	if (!strategy_name) {
+		return;
+	}
+	if (report.raw_data && report.raw_data.doc && report.raw_data.doc.name) {
+		return;
+	}
+	frappe.call({
+		method: "worldshading.worldshading.report.pricing_strategy_analysis." +
+			"pricing_strategy_analysis.get_pricing_strategy_settings",
+		freeze: true,
+		freeze_message: __("Loading Pricing Strategy..."),
+		args: {
+			pricing_strategy: strategy_name,
+			company: report.get_filter_value("company")
+		},
+		callback: function (response) {
+			var settings = response.message || {};
+			var values = {};
+			pricing_strategy_controlled_fields.forEach(function (fieldname) {
+				if (report.get_filter(fieldname) &&
+					Object.prototype.hasOwnProperty.call(settings, fieldname)) {
+					values[fieldname] = settings[fieldname];
+				}
+			});
+			report.set_filter_value(values);
 		}
 	});
 }
@@ -279,7 +300,6 @@ function show_item_price_update_dialog(report) {
 frappe.query_reports["Pricing Strategy Analysis"] = {
 	"onload": function (report) {
 		apply_pricing_strategy_filter_labels(report);
-		toggle_pricing_rule_strategy_filters(report);
 		report.page.add_inner_button(__("Update Item Price"), function () {
 			show_item_price_update_dialog(report);
 		});
@@ -307,6 +327,18 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 			"options": "Company", "reqd": 1, "default": frappe.defaults.get_user_default("Company")
 		},
 		{
+			"fieldname": "pricing_strategy", "label": __("Pricing Strategy"),
+			"fieldtype": "Link", "options": "Pricing Strategy Template", "reqd": 1,
+			"get_query": function () {
+				return {"filters": {
+					"company": frappe.query_report.get_filter_value("company"), "enabled": 1
+				}};
+			},
+			"on_change": function () {
+				load_pricing_strategy_settings(frappe.query_report);
+			}
+		},
+		{
 			"fieldname": "from_date", "label": __("From Date"), "fieldtype": "Date",
 			"reqd": 1, "default": frappe.datetime.add_months(frappe.datetime.get_today(), -12)
 		},
@@ -325,44 +357,36 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 		},
 		{
 			"fieldname": "regular_price_list", "label": __("Regular Price List"),
-			"fieldtype": "Link", "options": "Price List", "reqd": 1,
-			"default": frappe.defaults.get_default("selling_price_list"),
+			"fieldtype": "Link", "options": "Price List", "reqd": 1, "read_only": 1,
 			"get_query": function () { return {"filters": {"selling": 1, "enabled": 1}}; }
 		},
-		{"fieldname": "regular_markup", "label": __("Regular Price Markup %"), "fieldtype": "Percent", "default": 43},
+		{"fieldname": "regular_markup", "label": __("Regular Price Markup %"), "fieldtype": "Percent", "read_only": 1},
 		{
 			"fieldname": "b2b_price_list", "label": __("B2B Price List"),
-			"fieldtype": "Link", "options": "Price List",
+			"fieldtype": "Link", "options": "Price List", "read_only": 1,
 			"get_query": function () { return {"filters": {"selling": 1, "enabled": 1}}; }
 		},
-		{"fieldname": "b2b_markup", "label": __("B2B Price Markup %"), "fieldtype": "Percent", "default": 33},
+		{"fieldname": "b2b_markup", "label": __("B2B Price Markup %"), "fieldtype": "Percent", "read_only": 1},
 		{
 			"fieldname": "cost_source", "label": __("Cost Basis"), "fieldtype": "Select", "reqd": 1,
 			"options": "Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate",
-			"default": "Current Valuation Rate"
+			"read_only": 1
 		},
-		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "default": 10},
+		{
+			"fieldname": "indirect_expense_account", "label": __("Indirect Expense Account"),
+			"fieldtype": "Link", "options": "Account", "read_only": 1
+		},
+		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "read_only": 1},
 		{
 			"fieldname": "exclude_expense_from_pricing",
 			"label": __("Exclude Expense"),
-			"fieldtype": "Check", "default": 0
+			"fieldtype": "Check", "default": 0, "read_only": 1
 		},
 		{
 			"fieldname": "show_pricing_rule_strategy", "label": __("Show Pricing Rule Strategy"),
-			"fieldtype": "Check", "default": 0,
-			"on_change": function () {
-				toggle_pricing_rule_strategy_filters(frappe.query_report);
-				frappe.query_report.refresh();
-			}
+			"fieldtype": "Check", "default": 0, "read_only": 1
 		},
-		{"fieldname": "tier_1_qty_range", "label": __("Tier 1 Qty Range"), "fieldtype": "Data", "default": "5:9"},
-		{"fieldname": "tier_1_markup", "label": __("Tier 1 Markup %"), "fieldtype": "Percent", "default": 31},
-		{"fieldname": "tier_2_qty_range", "label": __("Tier 2 Qty Range"), "fieldtype": "Data", "default": "10:19"},
-		{"fieldname": "tier_2_markup", "label": __("Tier 2 Markup %"), "fieldtype": "Percent", "default": 29},
-		{"fieldname": "tier_3_qty_range", "label": __("Tier 3 Qty Range"), "fieldtype": "Data", "default": "20:39"},
-		{"fieldname": "tier_3_markup", "label": __("Tier 3 Markup %"), "fieldtype": "Percent", "default": 27},
-		{"fieldname": "tier_4_qty_range", "label": __("Tier 4 Qty Range"), "fieldtype": "Data", "default": "40+"},
-		{"fieldname": "tier_4_markup", "label": __("Tier 4 Markup %"), "fieldtype": "Percent", "default": 25},
+		{"fieldname": "pricing_tiers_json", "label": __("Pricing Tiers"), "fieldtype": "Data", "hidden": 1},
 		{
 			"fieldname": "exclude_items_without_sales", "label": __("Exclude Items Without Sales"),
 			"fieldtype": "Check", "default": 0
