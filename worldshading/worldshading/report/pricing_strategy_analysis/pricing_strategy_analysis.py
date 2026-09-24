@@ -89,6 +89,195 @@ def _get_prepared_pricing_rows(prepared_report_name):
 	return [row for row in rows if isinstance(row, dict)]
 
 
+def _get_update_items(item_codes):
+	rows = frappe.get_list(
+		"Item", filters={"name": ["in", item_codes], "disabled": 0},
+		fields=["name", "item_name", "stock_uom"], limit_page_length=0
+	)
+	items = {row.name: row for row in rows}
+	missing = [item_code for item_code in item_codes if item_code not in items]
+	if missing:
+		frappe.throw(
+			"These Items are unavailable or disabled: {0}".format(", ".join(missing))
+		)
+	return items
+
+
+def _get_update_price_lists(filters):
+	if not frappe.has_permission("Price List", "read") \
+			or not frappe.has_permission("Item Price", "read"):
+		frappe.throw("You do not have permission to preview Item Prices", frappe.PermissionError)
+	regular_price_list = filters.get("regular_price_list")
+	b2b_price_list = filters.get("b2b_price_list")
+	if not regular_price_list:
+		frappe.throw("Regular Price List is required")
+	if b2b_price_list and b2b_price_list == regular_price_list:
+		frappe.throw("Regular and B2B Price Lists must be different")
+	definitions = [
+		(regular_price_list, "Regular", "recommended_regular_net")
+	]
+	if b2b_price_list:
+		definitions.append((b2b_price_list, "B2B", "recommended_b2b_net"))
+	result = []
+	for price_list_name, kind, recommendation_field in definitions:
+		values = frappe.db.get_value(
+			"Price List", price_list_name,
+			["name", "enabled", "selling", "currency", "price_not_uom_dependent"],
+			as_dict=1
+		)
+		values = frappe._dict(values or {})
+		if not values.name or not cint(values.enabled) or not cint(values.selling) \
+				or not values.currency:
+			frappe.throw("Price List {0} is unavailable for selling".format(price_list_name))
+		values.kind = kind
+		values.recommendation_field = recommendation_field
+		result.append(values)
+	return result
+
+
+def _resolve_item_price_target(item, price_list, report_to_date):
+	rows = frappe.get_list(
+		"Item Price",
+		filters={
+			"item_code": item.name, "price_list": price_list.name, "selling": 1
+		},
+		fields=[
+			"name", "price_list_rate", "uom", "valid_from", "valid_upto",
+			"creation", "modified"
+		],
+		limit_page_length=0
+	)
+	report_to_date = getdate(report_to_date)
+	applicable = []
+	for row in rows:
+		row = frappe._dict(row)
+		if row.valid_from and getdate(row.valid_from) > report_to_date:
+			continue
+		if row.valid_upto and getdate(row.valid_upto) < report_to_date:
+			continue
+		if not cint(price_list.price_not_uom_dependent) \
+				and row.uom and row.uom != item.stock_uom:
+			continue
+		applicable.append(row)
+	applicable.sort(key=lambda row: (
+		str(row.valid_from or ""), str(row.creation or ""), str(row.name or "")
+	), reverse=True)
+	create_uom = "" if cint(price_list.price_not_uom_dependent) else item.stock_uom
+	if not applicable:
+		return {
+			"name": None, "rate": None, "modified": None,
+			"uom": create_uom, "duplicate_count": 0
+		}
+	target = applicable[0]
+	return {
+		"name": target.name,
+		"rate": quantize_money(target.price_list_rate),
+		"modified": str(target.modified or ""),
+		"uom": target.uom or create_uom,
+		"duplicate_count": len(applicable)
+	}
+
+
+def _item_price_preview_cache_key(user, token):
+	return "pricing-strategy-item-price-preview:{0}:{1}".format(user, token)
+
+
+@frappe.whitelist()
+def preview_item_price_update(prepared_report_name=None, item_codes=None):
+	prepared_report = _get_prepared_pricing_report(prepared_report_name)
+	raw_item_codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
+	unique_requested = []
+	seen = set()
+	for value in raw_item_codes or []:
+		item_code = value.get("item_code") if isinstance(value, dict) else value
+		item_code = str(item_code or "").strip()
+		if item_code and item_code not in seen:
+			seen.add(item_code)
+			unique_requested.append(item_code)
+	normalized_item_codes = _normalize_update_item_codes(raw_item_codes)
+	if not normalized_item_codes:
+		frappe.throw("There are no report Items available for Item Price update")
+
+	prepared_rows = _get_prepared_pricing_rows(prepared_report_name)
+	rows_by_item = {
+		row.get("item_code"): row for row in prepared_rows if row.get("item_code")
+	}
+	missing_rows = [
+		item_code for item_code in normalized_item_codes if item_code not in rows_by_item
+	]
+	if missing_rows:
+		frappe.throw(
+			"These Items are not present in the saved Prepared Report: {0}".format(
+				", ".join(missing_rows)
+			)
+		)
+
+	items = _get_update_items(normalized_item_codes)
+	price_lists = _get_update_price_lists(prepared_report.filters)
+	entries = []
+	counts = {"create": 0, "update": 0, "unchanged": 0}
+	for item_code in normalized_item_codes:
+		item = items[item_code]
+		saved_row = rows_by_item[item_code]
+		for price_list in price_lists:
+			new_rate = quantize_money(saved_row.get(price_list.recommendation_field))
+			if new_rate <= 0:
+				frappe.throw(
+					"{0} has no valid recommended {1} price".format(item_code, price_list.kind)
+				)
+			target = _resolve_item_price_target(
+				item, price_list, prepared_report.filters["to_date"]
+			)
+			if target["name"] is None:
+				action = "Create"
+			elif target["rate"] == new_rate:
+				action = "Unchanged"
+			else:
+				action = "Update"
+			counts[action.lower()] += 1
+			warning = ""
+			if target["duplicate_count"] > 1:
+				warning = "{0} applicable Item Prices; latest record will be updated".format(
+					target["duplicate_count"]
+				)
+			entries.append({
+				"item_code": item_code,
+				"item_name": saved_row.get("item_name") or item.item_name,
+				"stock_uom": item.stock_uom,
+				"price_list": price_list.name,
+				"price_kind": price_list.kind,
+				"currency": price_list.currency,
+				"current_rate": float(target["rate"]) if target["rate"] is not None else None,
+				"new_rate": float(new_rate),
+				"action": action,
+				"item_price_name": target["name"],
+				"target_modified": target["modified"],
+				"uom": target["uom"],
+				"warning": warning
+			})
+
+	token = frappe.generate_hash(length=32)
+	payload = {
+		"prepared_report": prepared_report.name,
+		"user": frappe.session.user,
+		"entries": entries,
+		"created_at": frappe.utils.now()
+	}
+	frappe.cache().set_value(
+		_item_price_preview_cache_key(frappe.session.user, token),
+		payload, expires_in_sec=600
+	)
+	return {
+		"token": token,
+		"prepared_report": prepared_report.name,
+		"requested_item_count": len(normalized_item_codes),
+		"source_row_count": len(rows_by_item),
+		"limited_to_first_50": len(unique_requested) > ITEM_PRICE_UPDATE_LIMIT,
+		"entries": entries,
+		"counts": counts
+	}
+
+
 def to_decimal(value):
 	if value in (None, ""):
 		return Decimal("0")

@@ -236,6 +236,7 @@ class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
 	def setUp(self):
 		frappe.local.db = MagicMock()
 		frappe.local.session = frappe._dict({"user": "test@example.com"})
+		frappe.local.flags = frappe._dict()
 
 	def test_update_item_codes_keep_first_50_unique_real_items(self):
 		values = ["ITEM-{0:03d}".format(index) for index in range(55)]
@@ -332,6 +333,148 @@ class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
 				with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
 					with self.assertRaises(frappe.ValidationError):
 						report._get_prepared_pricing_rows("PREP-1")
+
+
+class TestPricingStrategyItemPricePreview(unittest.TestCase):
+
+	def setUp(self):
+		frappe.local.db = MagicMock()
+		frappe.local.session = frappe._dict({"user": "test@example.com"})
+		frappe.local.flags = frappe._dict()
+
+	def _prepared(self, b2b_price_list=None):
+		return frappe._dict({
+			"name": "PREP-1",
+			"filters": {
+				"regular_price_list": "Regular",
+				"b2b_price_list": b2b_price_list,
+				"to_date": date(2026, 9, 24)
+			}
+		})
+
+	def _rows(self):
+		return [
+			{"item_code": "A", "item_name": "Item A", "stock_uom": "Nos",
+			 "recommended_regular_net": 12, "recommended_b2b_net": 11},
+			{"item_code": "B", "item_name": "Item B", "stock_uom": "Nos",
+			 "recommended_regular_net": 20, "recommended_b2b_net": 18},
+			{"item_code": "C", "item_name": "Item C", "stock_uom": "Nos",
+			 "recommended_regular_net": 30, "recommended_b2b_net": 27}
+		]
+
+	def _items(self):
+		return {
+			code: frappe._dict({"name": code, "item_name": "Item " + code, "stock_uom": "Nos"})
+			for code in ("A", "B", "C")
+		}
+
+	def _regular_price_list(self):
+		return [frappe._dict({
+			"name": "Regular", "kind": "Regular", "currency": "BHD",
+			"price_not_uom_dependent": 0,
+			"recommendation_field": "recommended_regular_net"
+		})]
+
+	def test_preview_regular_only_classifies_update_create_and_unchanged(self):
+		targets = [
+			{"name": "IP-A", "rate": Decimal("10"), "modified": "2026-09-24 09:00:00",
+			 "uom": "Nos", "duplicate_count": 1},
+			{"name": None, "rate": None, "modified": None, "uom": "Nos", "duplicate_count": 0},
+			{"name": "IP-C", "rate": Decimal("30"), "modified": "2026-09-24 09:00:00",
+			 "uom": "Nos", "duplicate_count": 1}
+		]
+		cache = MagicMock()
+		with patch.object(report, "_get_prepared_pricing_report", return_value=self._prepared()):
+			with patch.object(report, "_get_prepared_pricing_rows", return_value=self._rows()):
+				with patch.object(report, "_get_update_items", return_value=self._items()):
+					with patch.object(report, "_get_update_price_lists", return_value=self._regular_price_list()):
+						with patch.object(report, "_resolve_item_price_target", side_effect=targets):
+							with patch.object(report.frappe, "generate_hash", return_value="TOKEN-1"):
+								with patch.object(report.frappe, "cache", return_value=cache):
+									preview = report.preview_item_price_update("PREP-1", ["A", "B", "C"])
+		self.assertEqual(
+			[row["action"] for row in preview["entries"]],
+			["Update", "Create", "Unchanged"]
+		)
+		self.assertEqual(preview["counts"], {"create": 1, "update": 1, "unchanged": 1})
+		self.assertFalse(any(row["price_list"] == "B2B" for row in preview["entries"]))
+		self.assertEqual(preview["token"], "TOKEN-1")
+		self.assertEqual(cache.set_value.call_args[1]["expires_in_sec"], 600)
+
+	def test_preview_adds_b2b_entries_when_saved_filter_selects_b2b(self):
+		price_lists = self._regular_price_list() + [frappe._dict({
+			"name": "B2B", "kind": "B2B", "currency": "BHD",
+			"price_not_uom_dependent": 0,
+			"recommendation_field": "recommended_b2b_net"
+		})]
+		with patch.object(report, "_get_prepared_pricing_report", return_value=self._prepared("B2B")):
+			with patch.object(report, "_get_prepared_pricing_rows", return_value=self._rows()):
+				with patch.object(report, "_get_update_items", return_value=self._items()):
+					with patch.object(report, "_get_update_price_lists", return_value=price_lists):
+						with patch.object(report, "_resolve_item_price_target", return_value={
+							"name": None, "rate": None, "modified": None,
+							"uom": "Nos", "duplicate_count": 0
+						}):
+							with patch.object(report.frappe, "generate_hash", return_value="TOKEN-2"):
+								with patch.object(report.frappe, "cache", return_value=MagicMock()):
+									preview = report.preview_item_price_update("PREP-1", ["A"])
+		self.assertEqual([row["price_kind"] for row in preview["entries"]], ["Regular", "B2B"])
+		self.assertEqual([row["new_rate"] for row in preview["entries"]], [12.0, 11.0])
+
+	def test_preview_limits_to_50_and_uses_saved_prices_not_client_values(self):
+		rows = []
+		items = {}
+		for index in range(55):
+			code = "ITEM-{0:03d}".format(index)
+			rows.append({
+				"item_code": code, "item_name": code, "stock_uom": "Nos",
+				"recommended_regular_net": index + 1
+			})
+			items[code] = frappe._dict({"name": code, "item_name": code, "stock_uom": "Nos"})
+		client_rows = [{"item_code": row["item_code"], "recommended_regular_net": 999} for row in rows]
+		with patch.object(report, "_get_prepared_pricing_report", return_value=self._prepared()):
+			with patch.object(report, "_get_prepared_pricing_rows", return_value=rows):
+				with patch.object(report, "_get_update_items", return_value=items):
+					with patch.object(report, "_get_update_price_lists", return_value=self._regular_price_list()):
+						with patch.object(report, "_resolve_item_price_target", return_value={
+							"name": None, "rate": None, "modified": None,
+							"uom": "Nos", "duplicate_count": 0
+						}):
+							with patch.object(report.frappe, "generate_hash", return_value="TOKEN-3"):
+								with patch.object(report.frappe, "cache", return_value=MagicMock()):
+									preview = report.preview_item_price_update("PREP-1", client_rows)
+		self.assertEqual(preview["requested_item_count"], 50)
+		self.assertEqual(len(preview["entries"]), 50)
+		self.assertEqual(preview["entries"][0]["new_rate"], 1.0)
+		self.assertEqual(preview["entries"][-1]["item_code"], "ITEM-049")
+
+	def test_preview_rejects_item_absent_from_saved_result(self):
+		with patch.object(report, "_get_prepared_pricing_report", return_value=self._prepared()):
+			with patch.object(report, "_get_prepared_pricing_rows", return_value=self._rows()):
+				with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+					with self.assertRaises(frappe.ValidationError):
+						report.preview_item_price_update("PREP-1", ["MISSING"])
+
+	def test_target_resolution_uses_stock_uom_and_warns_for_duplicates(self):
+		item = frappe._dict({"name": "A", "stock_uom": "Nos"})
+		price_list = frappe._dict({"name": "Regular", "price_not_uom_dependent": 0})
+		rows = [
+			frappe._dict({"name": "OLD", "price_list_rate": 10, "uom": "Nos",
+				"valid_from": date(2025, 1, 1), "valid_upto": None,
+				"creation": "2025-01-01", "modified": "2025-01-01"}),
+			frappe._dict({"name": "NEW", "price_list_rate": 12, "uom": "Nos",
+				"valid_from": date(2026, 1, 1), "valid_upto": None,
+				"creation": "2026-01-01", "modified": "2026-01-01"}),
+			frappe._dict({"name": "OTHER-UOM", "price_list_rate": 8, "uom": "Box",
+				"valid_from": date(2026, 1, 1), "valid_upto": None,
+				"creation": "2026-01-02", "modified": "2026-01-02"})
+		]
+		with patch.object(report.frappe, "get_list", return_value=rows):
+			target = report._resolve_item_price_target(item, price_list, date(2026, 9, 24))
+		self.assertEqual(target["name"], "NEW")
+		self.assertEqual(target["rate"], Decimal("12.000"))
+		self.assertEqual(target["duplicate_count"], 2)
+		self.assertEqual(target["uom"], "Nos")
 
 
 class TestPricingStrategyDataSources(unittest.TestCase):
