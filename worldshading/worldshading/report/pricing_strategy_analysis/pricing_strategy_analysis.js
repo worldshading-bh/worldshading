@@ -357,34 +357,34 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 		},
 		{
 			"fieldname": "regular_price_list", "label": __("Regular Price List"),
-			"fieldtype": "Link", "options": "Price List", "reqd": 1, "read_only": 1,
+			"fieldtype": "Link", "options": "Price List", "reqd": 1, "read_only": 1, "hidden": 1,
 			"get_query": function () { return {"filters": {"selling": 1, "enabled": 1}}; }
 		},
-		{"fieldname": "regular_markup", "label": __("Regular Price Markup %"), "fieldtype": "Percent", "read_only": 1},
+		{"fieldname": "regular_markup", "label": __("Regular Price Markup %"), "fieldtype": "Percent", "read_only": 1, "hidden": 1},
 		{
 			"fieldname": "b2b_price_list", "label": __("B2B Price List"),
-			"fieldtype": "Link", "options": "Price List", "read_only": 1,
+			"fieldtype": "Link", "options": "Price List", "read_only": 1, "hidden": 1,
 			"get_query": function () { return {"filters": {"selling": 1, "enabled": 1}}; }
 		},
-		{"fieldname": "b2b_markup", "label": __("B2B Price Markup %"), "fieldtype": "Percent", "read_only": 1},
+		{"fieldname": "b2b_markup", "label": __("B2B Price Markup %"), "fieldtype": "Percent", "read_only": 1, "hidden": 1},
 		{
 			"fieldname": "cost_source", "label": __("Cost Basis"), "fieldtype": "Select", "reqd": 1,
 			"options": "Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate",
-			"read_only": 1
+			"read_only": 1, "hidden": 1
 		},
 		{
 			"fieldname": "indirect_expense_account", "label": __("Indirect Expense Account"),
-			"fieldtype": "Link", "options": "Account", "read_only": 1
+			"fieldtype": "Link", "options": "Account", "read_only": 1, "hidden": 1
 		},
-		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "read_only": 1},
+		{"fieldname": "vat_percent", "label": __("VAT %"), "fieldtype": "Percent", "read_only": 1, "hidden": 1},
 		{
 			"fieldname": "exclude_expense_from_pricing",
 			"label": __("Exclude Expense"),
-			"fieldtype": "Check", "default": 0, "read_only": 1
+			"fieldtype": "Check", "default": 0, "read_only": 1, "hidden": 1
 		},
 		{
 			"fieldname": "show_pricing_rule_strategy", "label": __("Show Pricing Rule Strategy"),
-			"fieldtype": "Check", "default": 0, "read_only": 1
+			"fieldtype": "Check", "default": 0, "read_only": 1, "hidden": 1
 		},
 		{"fieldname": "pricing_tiers_json", "label": __("Pricing Tiers"), "fieldtype": "Data", "hidden": 1},
 		{
