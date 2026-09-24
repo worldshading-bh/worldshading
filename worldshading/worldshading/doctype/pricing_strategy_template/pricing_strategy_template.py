@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-from decimal import Decimal, InvalidOperation
-
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 
 class PricingStrategyTemplate(Document):
@@ -42,11 +40,6 @@ class PricingStrategyTemplate(Document):
 		fields = ["vat_percent", "regular_markup"]
 		if self.enable_b2b_pricing:
 			fields.append("b2b_markup")
-		if self.enable_quantity_pricing:
-			fields.extend([
-				"tier_1_markup", "tier_2_markup",
-				"tier_3_markup", "tier_4_markup"
-			])
 		for fieldname in fields:
 			if flt(self.get(fieldname)) < 0:
 				frappe.throw(_("{0} cannot be negative.").format(
@@ -99,45 +92,23 @@ class PricingStrategyTemplate(Document):
 	def validate_quantity_tiers(self):
 		if not self.enable_quantity_pricing:
 			return
-		tiers = []
-		for index in range(1, 5):
-			range_value = self.get("tier_{0}_qty_range".format(index))
-			minimum, maximum = parse_quantity_range(range_value, index)
-			tiers.append((minimum, maximum))
-
+		if not self.pricing_tiers:
+			frappe.throw(_("Add at least one Pricing Rule tier."))
 		previous_maximum = None
-		for index, values in enumerate(tiers, 1):
-			minimum, maximum = values
-			if previous_maximum is not None and minimum != previous_maximum + Decimal("1"):
+		for index, tier in enumerate(self.pricing_tiers, 1):
+			minimum = cint(tier.minimum_qty)
+			maximum_value = cint(tier.maximum_qty)
+			maximum = maximum_value if maximum_value > 0 else None
+			if minimum <= 0:
+				frappe.throw(_("Row {0}: Minimum Qty must be greater than zero.").format(index))
+			if maximum is not None and maximum < minimum:
+				frappe.throw(_("Row {0}: Maximum Qty cannot be below Minimum Qty.").format(index))
+			if flt(tier.markup_percent) < 0:
+				frappe.throw(_("Row {0}: Markup % cannot be negative.").format(index))
+			if previous_maximum is not None and minimum != previous_maximum + 1:
 				frappe.throw(_(
 					"Tier {0} must start at {1} so quantity ranges have no gaps or overlaps."
-				).format(index, format_decimal(previous_maximum + Decimal("1"))))
-			if maximum is None and index != len(tiers):
+				).format(index, previous_maximum + 1))
+			if maximum is None and index != len(self.pricing_tiers):
 				frappe.throw(_("Only the final quantity tier may be open-ended."))
 			previous_maximum = maximum
-
-
-def parse_quantity_range(value, tier_number):
-	text = str(value or "").strip().replace(" ", "")
-	try:
-		if text.endswith("+") and text[:-1]:
-			minimum = Decimal(text[:-1])
-			maximum = None
-		else:
-			parts = text.split(":")
-			if len(parts) != 2 or not parts[0] or not parts[1]:
-				raise InvalidOperation
-			minimum = Decimal(parts[0])
-			maximum = Decimal(parts[1])
-		if minimum <= 0 or (maximum is not None and maximum < minimum):
-			raise InvalidOperation
-		return minimum, maximum
-	except (InvalidOperation, TypeError, ValueError):
-		frappe.throw(_(
-			"Tier {0} Qty Range must use From:To or From+ format, for example 5:9 or 40+."
-		).format(tier_number))
-
-
-def format_decimal(value):
-	text = format(value, "f")
-	return text.rstrip("0").rstrip(".") if "." in text else text

@@ -1,0 +1,47 @@
+{
+ "creation": "2026-09-24 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "minimum_qty",
+  "maximum_qty",
+  "markup_percent"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "minimum_qty",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Minimum Qty",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "description": "Leave blank only for the final open-ended tier.",
+   "fieldname": "maximum_qty",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Maximum Qty"
+  },
+  {
+   "columns": 3,
+   "fieldname": "markup_percent",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Markup %",
+   "reqd": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-09-24 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Pricing Strategy Tier",
+ "owner": "Administrator",
+ "permissions": [],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

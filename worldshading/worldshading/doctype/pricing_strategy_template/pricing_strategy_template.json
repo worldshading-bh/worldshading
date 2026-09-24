@@ -31,17 +31,7 @@
   "b2b_markup",
   "quantity_section",
   "enable_quantity_pricing",
-  "tier_1_qty_range",
-  "tier_1_markup",
-  "column_break_tier_1",
-  "tier_2_qty_range",
-  "tier_2_markup",
-  "tier_3_section",
-  "tier_3_qty_range",
-  "tier_3_markup",
-  "column_break_tier_3",
-  "tier_4_qty_range",
-  "tier_4_markup",
+  "pricing_tiers",
   "rounding_section",
   "rounding_method",
   "rounding_policy_help"
@@ -205,72 +195,12 @@
    "label": "Enable Quantity Pricing"
   },
   {
-   "default": "5:9",
    "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_1_qty_range",
-   "fieldtype": "Data",
-   "label": "Tier 1 Qty Range"
-  },
-  {
-   "default": "31",
-   "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_1_markup",
-   "fieldtype": "Percent",
-   "label": "Tier 1 Markup %"
-  },
-  {
-   "fieldname": "column_break_tier_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "10:19",
-   "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_2_qty_range",
-   "fieldtype": "Data",
-   "label": "Tier 2 Qty Range"
-  },
-  {
-   "default": "29",
-   "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_2_markup",
-   "fieldtype": "Percent",
-   "label": "Tier 2 Markup %"
-  },
-  {
-   "fieldname": "tier_3_section",
-   "fieldtype": "Section Break"
-  },
-  {
-   "default": "20:39",
-   "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_3_qty_range",
-   "fieldtype": "Data",
-   "label": "Tier 3 Qty Range"
-  },
-  {
-   "default": "27",
-   "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_3_markup",
-   "fieldtype": "Percent",
-   "label": "Tier 3 Markup %"
-  },
-  {
-   "fieldname": "column_break_tier_3",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "40+",
-   "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_4_qty_range",
-   "fieldtype": "Data",
-   "label": "Tier 4 Qty Range"
-  },
-  {
-   "default": "25",
-   "depends_on": "enable_quantity_pricing",
-   "fieldname": "tier_4_markup",
-   "fieldtype": "Percent",
-   "label": "Tier 4 Markup %"
+   "description": "Each row will become one quantity-based Pricing Rule level. Leave Maximum Qty blank only on the final row.",
+   "fieldname": "pricing_tiers",
+   "fieldtype": "Table",
+   "label": "Pricing Rule Tiers",
+   "options": "Pricing Strategy Tier"
   },
   {
    "fieldname": "rounding_section",
