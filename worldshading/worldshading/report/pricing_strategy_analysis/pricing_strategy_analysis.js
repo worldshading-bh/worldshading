@@ -139,10 +139,149 @@ function get_expense_per_unit_tooltip(data) {
 	return lines.join("\n");
 }
 
+function get_pricing_update_item_codes(report) {
+	var item_codes = [];
+	var seen = {};
+	(report.data || []).forEach(function (row) {
+		var item_code = row && row.item_code ? String(row.item_code).trim() : "";
+		if (!item_code || seen[item_code]) {
+			return;
+		}
+		seen[item_code] = true;
+		item_codes.push(item_code);
+	});
+	return {
+		item_codes: item_codes.slice(0, 50),
+		total_count: item_codes.length
+	};
+}
+
+function show_pricing_rule_update_notice() {
+	frappe.msgprint(__(
+		"Pricing Rule update configuration is pending. No Pricing Rules were changed."
+	));
+}
+
+function show_item_price_update_dialog(report) {
+	var prepared_report_name = report.raw_data && report.raw_data.doc &&
+		report.raw_data.doc.name;
+	if (!prepared_report_name) {
+		frappe.msgprint(__(
+			"Open a completed Pricing Strategy Analysis Prepared Report before updating Item Prices."
+		));
+		return;
+	}
+	var selection = get_pricing_update_item_codes(report);
+	if (!selection.item_codes.length) {
+		frappe.msgprint(__("There are no item rows available for Item Price update."));
+		return;
+	}
+
+	frappe.call({
+		method: "worldshading.worldshading.report.pricing_strategy_analysis." +
+			"pricing_strategy_analysis.preview_item_price_update",
+		freeze: true,
+		freeze_message: __("Preparing Item Price update preview..."),
+		args: {
+			prepared_report_name: prepared_report_name,
+			item_codes: JSON.stringify(selection.item_codes)
+		},
+		callback: function (response) {
+			var preview = response.message;
+			if (!preview || !preview.entries || !preview.entries.length) {
+				frappe.msgprint(__("There are no Item Price changes to preview."));
+				return;
+			}
+			var limit_notice = selection.total_count > 50
+				? '<p class="text-warning"><strong>' +
+					__("Only the first 50 Items are included from {0} displayed Items.", [
+						selection.total_count
+					]) + '</strong></p>'
+				: "";
+			var summary = '<p><strong>' + __("Prepared Report") + ':</strong> ' +
+				frappe.utils.escape_html(prepared_report_name) + '</p>' + limit_notice +
+				'<p>' + __("Create: {0}, Update: {1}, Unchanged: {2}", [
+					preview.counts.create, preview.counts.update, preview.counts.unchanged
+				]) + '</p>';
+			var dialog = new frappe.ui.Dialog({
+				title: __("Update Item Price"),
+				fields: [
+					{fieldtype: "HTML", options: summary},
+					{
+						fieldname: "price_updates",
+						fieldtype: "Table",
+						label: __("Item Price Changes"),
+						cannot_add_rows: true,
+						cannot_delete_rows: true,
+						in_place_edit: false,
+						data: preview.entries,
+						get_data: function () { return preview.entries; },
+						fields: [
+							{fieldname: "item_code", fieldtype: "Data", label: __("Item Code"),
+								in_list_view: 1, read_only: 1, columns: 2},
+							{fieldname: "item_name", fieldtype: "Data", label: __("Item Name"),
+								in_list_view: 1, read_only: 1, columns: 2},
+							{fieldname: "price_list", fieldtype: "Data", label: __("Price List"),
+								in_list_view: 1, read_only: 1, columns: 2},
+							{fieldname: "currency", fieldtype: "Data", label: __("Currency"),
+								in_list_view: 1, read_only: 1, columns: 1},
+							{fieldname: "current_rate", fieldtype: "Currency", label: __("Current Price"),
+								in_list_view: 1, read_only: 1, columns: 1},
+							{fieldname: "new_rate", fieldtype: "Currency", label: __("New Price"),
+								in_list_view: 1, read_only: 1, columns: 1},
+							{fieldname: "action", fieldtype: "Data", label: __("Action"),
+								in_list_view: 1, read_only: 1, columns: 1},
+							{fieldname: "warning", fieldtype: "Data", label: __("Warning"),
+								in_list_view: 1, read_only: 1, columns: 2}
+						]
+					}
+				],
+				primary_action_label: __("Continue"),
+				primary_action: function () {
+					frappe.confirm(
+						__("Apply these Item Price changes from Prepared Report {0}?", [
+							prepared_report_name
+						]),
+						function () {
+							dialog.get_primary_btn().prop("disabled", true);
+							frappe.call({
+								method: "worldshading.worldshading.report.pricing_strategy_analysis." +
+									"pricing_strategy_analysis.execute_item_price_update",
+								freeze: true,
+								freeze_message: __("Updating Item Prices..."),
+								args: {preview_token: preview.token},
+								callback: function (update_response) {
+									var result = update_response.message || {};
+									dialog.hide();
+									frappe.msgprint(__(
+										"Item Price update completed. Created: {0}, Updated: {1}, Unchanged: {2}.",
+										[result.created || 0, result.updated || 0, result.unchanged || 0]
+									));
+								},
+								error: function () {
+									dialog.get_primary_btn().prop("disabled", false);
+								}
+							});
+						}
+					);
+				}
+			});
+			dialog.show();
+			dialog.$wrapper.find(".modal-dialog").css({width: "1200px", "max-width": "96vw"});
+		}
+	});
+}
+
 frappe.query_reports["Pricing Strategy Analysis"] = {
 	"onload": function (report) {
 		apply_pricing_strategy_filter_labels(report);
 		toggle_pricing_rule_strategy_filters(report);
+		report.page.add_inner_button(__("Update Item Price"), function () {
+			show_item_price_update_dialog(report);
+		});
+		report.page.add_inner_button(__("Update Pricing Rule"), function () {
+			show_pricing_rule_update_notice();
+		});
 	},
 	"after_datatable_render": function (datatable) {
 		apply_pricing_strategy_column_colors(datatable);

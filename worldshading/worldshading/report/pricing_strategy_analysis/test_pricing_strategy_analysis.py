@@ -928,8 +928,22 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		for fieldname in required_fields:
 			self.assertIn('"fieldname": "{0}"'.format(fieldname), javascript)
 		self.assertIn(r"Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate", javascript)
-		self.assertNotIn("frappe.call", javascript)
-		self.assertNotIn("add_inner_button", javascript)
+		self.assertIn('report.page.add_inner_button(__("Update Item Price")', javascript)
+		self.assertIn('report.page.add_inner_button(__("Update Pricing Rule")', javascript)
+		self.assertIn("get_pricing_update_item_codes", javascript)
+		self.assertIn("show_item_price_update_dialog", javascript)
+		self.assertIn("show_pricing_rule_update_notice", javascript)
+		self.assertIn("preview_item_price_update", javascript)
+		self.assertIn("execute_item_price_update", javascript)
+		self.assertIn("frappe.confirm", javascript)
+		self.assertIn("slice(0, 50)", javascript)
+		self.assertIn("report.raw_data.doc.name", javascript)
+		self.assertIn("cannot_add_rows: true", javascript)
+		self.assertIn("cannot_delete_rows: true", javascript)
+		self.assertIn("Only the first 50 Items", javascript)
+		self.assertIn("freeze: true", javascript)
+		self.assertIn("Pricing Rule update configuration is pending", javascript)
+		self.assertNotIn("create_pricing_rule", javascript)
 		self.assertIn("pricing-strategy-filter-label", javascript)
 		self.assertIn('"prepared_report": 1', json.dumps(metadata))
 		self.assertIn('"disable_prepared_report": 0', json.dumps(metadata))
@@ -967,7 +981,9 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 		self.assertIn('data.allocated_expense', javascript)
 		self.assertIn('data.sales_value', javascript)
 		self.assertIn('data.sales_qty', javascript)
-		self.assertNotIn("frappe.call", javascript)
+		tooltip_source = javascript.split("function get_expense_per_unit_tooltip", 1)[1]
+		tooltip_source = tooltip_source.split("function get_pricing_update_item_codes", 1)[0]
+		self.assertNotIn("frappe.call", tooltip_source)
 
 
 if __name__ == "__main__":
