@@ -278,6 +278,119 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 	}
 
 
+@frappe.whitelist()
+def execute_item_price_update(preview_token=None):
+	preview_token = str(preview_token or "").strip()
+	if not preview_token:
+		frappe.throw("Item Price update preview token is required")
+	cache = frappe.cache()
+	cache_key = _item_price_preview_cache_key(frappe.session.user, preview_token)
+	payload = cache.get_value(cache_key)
+	payload = frappe.parse_json(payload) if isinstance(payload, str) else payload
+	if not isinstance(payload, dict):
+		frappe.throw("The Item Price update preview has expired; preview the changes again")
+	if payload.get("user") != frappe.session.user:
+		frappe.throw("The Item Price update preview belongs to another user", frappe.PermissionError)
+	entries = payload.get("entries")
+	if not isinstance(entries, list) or not entries:
+		frappe.throw("The Item Price update preview is invalid")
+
+	prepared_report = _get_prepared_pricing_report(payload.get("prepared_report"))
+	prepared_rows = _get_prepared_pricing_rows(prepared_report.name)
+	rows_by_item = {
+		row.get("item_code"): row for row in prepared_rows if row.get("item_code")
+	}
+	item_codes = _normalize_update_item_codes([
+		entry.get("item_code") for entry in entries if isinstance(entry, dict)
+	])
+	if not item_codes or len(entries) > ITEM_PRICE_UPDATE_LIMIT * 2:
+		frappe.throw("The Item Price update preview exceeds the allowed limit")
+	items = _get_update_items(item_codes)
+	price_lists = _get_update_price_lists(prepared_report.filters)
+	price_lists_by_name = {price_list.name: price_list for price_list in price_lists}
+
+	if any(entry.get("action") == "Create" for entry in entries) \
+			and not frappe.has_permission("Item Price", "create"):
+		frappe.throw("You do not have permission to create Item Prices", frappe.PermissionError)
+
+	update_docs = {}
+	for entry in entries:
+		if not isinstance(entry, dict):
+			frappe.throw("The Item Price update preview is invalid")
+		item_code = entry.get("item_code")
+		price_list = price_lists_by_name.get(entry.get("price_list"))
+		item = items.get(item_code)
+		saved_row = rows_by_item.get(item_code)
+		if not item or not price_list or not saved_row:
+			frappe.throw("The Item Price update preview no longer matches the Prepared Report")
+		new_rate = quantize_money(entry.get("new_rate"))
+		saved_rate = quantize_money(saved_row.get(price_list.recommendation_field))
+		if new_rate <= 0 or new_rate != saved_rate:
+			frappe.throw("The recommended Item Price changed after preview")
+		if entry.get("currency") != price_list.currency:
+			frappe.throw("The Price List currency changed after preview")
+
+		current_target = _resolve_item_price_target(
+			item, price_list, prepared_report.filters["to_date"]
+		)
+		preview_name = entry.get("item_price_name")
+		preview_rate = entry.get("current_rate")
+		preview_rate = quantize_money(preview_rate) if preview_rate is not None else None
+		if current_target["name"] != preview_name \
+				or current_target["rate"] != preview_rate \
+				or str(current_target["modified"] or "") != str(entry.get("target_modified") or ""):
+			frappe.throw(
+				"Item Price for {0} in {1} changed after preview; preview again".format(
+					item_code, price_list.name
+				)
+			)
+		action = entry.get("action")
+		expected_action = "Create" if current_target["name"] is None \
+			else ("Unchanged" if current_target["rate"] == new_rate else "Update")
+		if action != expected_action:
+			frappe.throw("The Item Price update action changed after preview")
+		if action == "Update":
+			item_price = frappe.get_doc("Item Price", preview_name)
+			item_price.check_permission("write")
+			update_docs[(item_code, price_list.name)] = item_price
+
+	created = 0
+	updated = 0
+	unchanged = 0
+	affected_item_prices = []
+	for entry in entries:
+		action = entry["action"]
+		new_rate = quantize_money(entry["new_rate"])
+		if action == "Unchanged":
+			unchanged += 1
+			continue
+		if action == "Update":
+			item_price = update_docs[(entry["item_code"], entry["price_list"])]
+			item_price.price_list_rate = new_rate
+			item_price.save()
+			updated += 1
+		else:
+			item_price = frappe.new_doc("Item Price")
+			item_price.item_code = entry["item_code"]
+			item_price.price_list = entry["price_list"]
+			item_price.price_list_rate = new_rate
+			item_price.selling = 1
+			item_price.currency = entry["currency"]
+			item_price.uom = entry.get("uom") or ""
+			item_price.insert()
+			created += 1
+		affected_item_prices.append(item_price.name)
+
+	cache.delete_value(cache_key)
+	return {
+		"prepared_report": prepared_report.name,
+		"created": created,
+		"updated": updated,
+		"unchanged": unchanged,
+		"item_prices": affected_item_prices
+	}
+
+
 def to_decimal(value):
 	if value in (None, ""):
 		return Decimal("0")

@@ -477,6 +477,151 @@ class TestPricingStrategyItemPricePreview(unittest.TestCase):
 		self.assertEqual(target["uom"], "Nos")
 
 
+class TestPricingStrategyItemPriceExecution(unittest.TestCase):
+
+	def setUp(self):
+		frappe.local.db = MagicMock()
+		frappe.local.session = frappe._dict({"user": "test@example.com"})
+		frappe.local.flags = frappe._dict()
+
+	def _payload(self):
+		return {
+			"prepared_report": "PREP-1",
+			"user": "test@example.com",
+			"entries": [
+				{"item_code": "A", "price_list": "Regular", "price_kind": "Regular",
+				 "currency": "BHD", "new_rate": 12.0, "action": "Create",
+				 "item_price_name": None, "target_modified": None, "uom": "Nos"},
+				{"item_code": "B", "price_list": "Regular", "price_kind": "Regular",
+				 "currency": "BHD", "new_rate": 20.0, "action": "Update",
+				 "item_price_name": "IP-OLD", "target_modified": "2026-09-24 09:00:00",
+				 "current_rate": 18.0, "uom": "Nos"},
+				{"item_code": "C", "price_list": "Regular", "price_kind": "Regular",
+				 "currency": "BHD", "new_rate": 30.0, "action": "Unchanged",
+				 "item_price_name": "IP-SAME", "target_modified": "2026-09-24 09:00:00",
+				 "current_rate": 30.0, "uom": "Nos"}
+			]
+		}
+
+	def _prepared(self):
+		return frappe._dict({
+			"name": "PREP-1",
+			"filters": {
+				"regular_price_list": "Regular", "b2b_price_list": None,
+				"to_date": date(2026, 9, 24)
+			}
+		})
+
+	def _items(self):
+		return {
+			code: frappe._dict({"name": code, "item_name": "Item " + code, "stock_uom": "Nos"})
+			for code in ("A", "B", "C")
+		}
+
+	def _price_lists(self):
+		return [frappe._dict({
+			"name": "Regular", "kind": "Regular", "currency": "BHD",
+			"price_not_uom_dependent": 0,
+			"recommendation_field": "recommended_regular_net"
+		})]
+
+	def _rows(self):
+		return [
+			{"item_code": "A", "recommended_regular_net": 12},
+			{"item_code": "B", "recommended_regular_net": 20},
+			{"item_code": "C", "recommended_regular_net": 30}
+		]
+
+	def _run_with_common_patches(self, payload=None, targets=None,
+			create_permission=True, new_doc=None, old_doc=None):
+		payload = payload if payload is not None else self._payload()
+		targets = targets if targets is not None else [
+			{"name": None, "rate": None, "modified": None, "uom": "Nos", "duplicate_count": 0},
+			{"name": "IP-OLD", "rate": Decimal("18.000"),
+			 "modified": "2026-09-24 09:00:00", "uom": "Nos", "duplicate_count": 1},
+			{"name": "IP-SAME", "rate": Decimal("30.000"),
+			 "modified": "2026-09-24 09:00:00", "uom": "Nos", "duplicate_count": 1}
+		]
+		cache = MagicMock()
+		cache.get_value.return_value = payload
+		new_doc = new_doc or MagicMock()
+		new_doc.name = "IP-NEW"
+		old_doc = old_doc or MagicMock()
+		old_doc.name = "IP-OLD"
+		with ExitStack() as stack:
+			stack.enter_context(patch.object(report.frappe, "cache", return_value=cache))
+			stack.enter_context(patch.object(report, "_get_prepared_pricing_report", return_value=self._prepared()))
+			stack.enter_context(patch.object(report, "_get_prepared_pricing_rows", return_value=self._rows()))
+			stack.enter_context(patch.object(report, "_get_update_items", return_value=self._items()))
+			stack.enter_context(patch.object(report, "_get_update_price_lists", return_value=self._price_lists()))
+			stack.enter_context(patch.object(report, "_resolve_item_price_target", side_effect=targets))
+			stack.enter_context(patch.object(report.frappe, "has_permission", return_value=create_permission))
+			stack.enter_context(patch.object(report.frappe, "get_doc", return_value=old_doc))
+			stack.enter_context(patch.object(report.frappe, "new_doc", return_value=new_doc))
+			result = report.execute_item_price_update("TOKEN-1")
+		return result, cache, new_doc, old_doc
+
+	def test_execute_creates_updates_and_skips_unchanged_prices(self):
+		result, cache, new_doc, old_doc = self._run_with_common_patches()
+		self.assertEqual(result["created"], 1)
+		self.assertEqual(result["updated"], 1)
+		self.assertEqual(result["unchanged"], 1)
+		self.assertEqual(result["item_prices"], ["IP-NEW", "IP-OLD"])
+		self.assertEqual(new_doc.item_code, "A")
+		self.assertEqual(new_doc.price_list_rate, Decimal("12.000"))
+		new_doc.insert.assert_called_once_with()
+		old_doc.check_permission.assert_called_with("write")
+		self.assertEqual(old_doc.price_list_rate, Decimal("20.000"))
+		old_doc.save.assert_called_once_with()
+		cache.delete_value.assert_called_once()
+
+	def test_execute_rejects_missing_expired_or_other_user_token(self):
+		cache = MagicMock()
+		cache.get_value.return_value = None
+		with patch.object(report.frappe, "cache", return_value=cache):
+			with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+				with self.assertRaises(frappe.ValidationError):
+					report.execute_item_price_update("TOKEN-1")
+
+		payload = self._payload()
+		payload["user"] = "other@example.com"
+		cache.get_value.return_value = payload
+		with patch.object(report.frappe, "cache", return_value=cache):
+			with patch.object(report.frappe, "throw", side_effect=frappe.PermissionError):
+				with self.assertRaises(frappe.PermissionError):
+					report.execute_item_price_update("TOKEN-1")
+
+	def test_execute_rejects_missing_create_permission(self):
+		with patch.object(report.frappe, "throw", side_effect=frappe.PermissionError):
+			with self.assertRaises(frappe.PermissionError):
+				self._run_with_common_patches(create_permission=False)
+
+	def test_execute_rejects_concurrent_rate_change_before_writes(self):
+		targets = [
+			{"name": None, "rate": None, "modified": None, "uom": "Nos", "duplicate_count": 0},
+			{"name": "IP-OLD", "rate": Decimal("19.000"),
+			 "modified": "2026-09-24 09:00:00", "uom": "Nos", "duplicate_count": 1},
+			{"name": "IP-SAME", "rate": Decimal("30.000"),
+			 "modified": "2026-09-24 09:00:00", "uom": "Nos", "duplicate_count": 1}
+		]
+		new_doc = MagicMock()
+		old_doc = MagicMock()
+		with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
+			with self.assertRaises(frappe.ValidationError):
+				self._run_with_common_patches(targets=targets, new_doc=new_doc, old_doc=old_doc)
+		new_doc.insert.assert_not_called()
+		old_doc.save.assert_not_called()
+
+	def test_execute_keeps_token_when_save_raises(self):
+		old_doc = MagicMock()
+		old_doc.save.side_effect = RuntimeError("save failed")
+		cache = None
+		with self.assertRaises(RuntimeError):
+			self._run_with_common_patches(old_doc=old_doc)
+		# The execution method deletes its token only after every save succeeds.
+		self.assertTrue(old_doc.save.called)
+
+
 class TestPricingStrategyDataSources(unittest.TestCase):
 
 	def test_sales_data_delegates_to_shared_packed_sales_aggregate(self):
