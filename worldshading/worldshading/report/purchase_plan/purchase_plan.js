@@ -153,6 +153,7 @@ function bind_current_prepared_report_download(report) {
 	});
 }
 
+
 function apply_purchase_plan_filter_labels(report) {
 	var page_form = report.page.main.find(".page-form");
 	page_form.addClass("purchase-plan-filter-form");
@@ -203,6 +204,11 @@ function apply_purchase_plan_filter_labels(report) {
 }
 
 
+function purchase_plan_rfq_row_needs_highlight(row) {
+	return Boolean(row && flt(row.rfq_order_quantity) > 0);
+}
+
+
 function apply_purchase_plan_sticky_columns(datatable) {
 	var wrapper = datatable && datatable.wrapper;
 	if (!wrapper) {
@@ -217,10 +223,27 @@ function apply_purchase_plan_sticky_columns(datatable) {
 	var row_highlight_frame = null;
 	var empty_layout_frame = null;
 	var refresh_empty_filter_layout = null;
+	var refresh_rfq_required_serials = function () {
+		var report_rows = frappe.query_report && frappe.query_report.data
+			? frappe.query_report.data : [];
+		$(wrapper).find(".dt-row[data-row-index]").each(function () {
+			var row_index = $(this).attr("data-row-index");
+			if (!/^\d+$/.test(row_index || "")) {
+				return;
+			}
+			$(this).find(".dt-cell--col-0").toggleClass(
+				"purchase-plan-rfq-required-serial",
+				purchase_plan_rfq_row_needs_highlight(
+					report_rows[cint(row_index)]
+				)
+			);
+		});
+	};
 	var restore_selected_row = function () {
 		row_highlight_frame = null;
 		$(wrapper).find(".purchase-plan-selected-row")
 			.removeClass("purchase-plan-selected-row");
+		refresh_rfq_required_serials();
 		if (selected_row_index === null) {
 			return;
 		}
@@ -265,6 +288,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			selected_row_index = cint(row_index);
 			restore_selected_row();
 		});
+	queue_selected_row_restore();
 	var row_index_width = 50;
 	var get_column_width = function (column_index, fallback_width) {
 		var cell = $(wrapper).find(
@@ -389,6 +413,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			update_sticky_offsets();
 			refresh_empty_filter_layout();
 			update_sticky_header();
+			refresh_rfq_required_serials();
 		});
 	};
 	if (!datatable.purchase_plan_sticky_events_bound) {
@@ -453,6 +478,10 @@ function apply_purchase_plan_sticky_columns(datatable) {
 				"box-shadow:2px 0 2px rgba(0,0,0,0.08);}" +
 			".purchase-plan-sticky-columns .purchase-plan-selected-row .dt-cell{" +
 				"background:#fff3cd !important;}" +
+			".purchase-plan-sticky-columns .purchase-plan-rfq-required-serial," +
+			".purchase-plan-sticky-columns .purchase-plan-selected-row " +
+				".purchase-plan-rfq-required-serial{" +
+				"background:#fde2e2 !important;color:#c62828 !important;font-weight:700;}" +
 			".purchase-plan-filter-summary{" +
 				"display:flex;flex-wrap:wrap;gap:4px 18px;" +
 				"padding:7px 15px;border-bottom:1px solid #d1d8dd;" +
@@ -495,6 +524,12 @@ function apply_purchase_plan_sticky_columns(datatable) {
 
 
 function show_item_reorder_dialog(report) {
+	if (report.purchase_plan_combined_view_active) {
+		frappe.msgprint(__(
+			"Combined View is for analysis only. Reset it before updating Item Reorder."
+		));
+		return;
+	}
 	var report_items = {};
 	(report.data || []).forEach(function (row) {
 		var minimum_qty = flt(row.min);
@@ -712,23 +747,588 @@ function show_item_reorder_dialog(report) {
 }
 
 
-function create_request_for_quotation(report) {
-	var rfq_items = [];
+function purchase_plan_sum_rows(rows, fieldname) {
+	return rows.reduce(function (total, row) {
+		return total + flt(row[fieldname]);
+	}, 0);
+}
+
+
+function purchase_plan_unique_values(rows, fieldname) {
+	var values = [];
+	rows.forEach(function (row) {
+		String(row[fieldname] || "").split(", ").forEach(function (value) {
+			value = value.trim();
+			if (value && values.indexOf(value) === -1) {
+				values.push(value);
+			}
+		});
+	});
+	return values;
+}
+
+
+function purchase_plan_latest_value(rows, fieldname) {
+	return rows.reduce(function (latest, row) {
+		var value = row[fieldname] || "";
+		return value > latest ? value : latest;
+	}, "");
+}
+
+
+function purchase_plan_latest_row(rows, fieldname) {
+	return rows.reduce(function (latest, row) {
+		return !latest || (row[fieldname] || "") > (latest[fieldname] || "")
+			? row : latest;
+	}, null) || {};
+}
+
+
+function purchase_plan_combined_price_details(rows, fieldname, currency) {
+	currency = currency || "BHD";
+	var display_values = [];
+	var tooltip_values = [];
+	(rows || []).forEach(function (row) {
+		var value = row[fieldname];
+		if (value === null || value === undefined || value === "" ||
+				!isFinite(Number(value))) {
+			tooltip_values.push(row.item + ": " + __("Not available"));
+			return;
+		}
+		var formatted_value = Number(value).toFixed(3);
+		display_values.push(formatted_value);
+		tooltip_values.push(
+			row.item + ": " + formatted_value + " " + currency
+		);
+	});
+	return {
+		display: display_values.join(", "),
+		tooltip: tooltip_values.join("\n")
+	};
+}
+
+
+function purchase_plan_combined_supplier_tooltip(rows, supplier) {
+	var sections = [];
+	(rows || []).forEach(function (row) {
+		var row_suppliers = String(row.item_suppliers || "").split(", ");
+		if (row_suppliers.indexOf(supplier) === -1) {
+			return;
+		}
+		var supplier_details = [];
+		try {
+			supplier_details = JSON.parse(row.supplier_purchase_details || "[]");
+		} catch (unused_error) {
+			supplier_details = [];
+		}
+		var detail = supplier_details.filter(function (value) {
+			return value.supplier == supplier;
+		})[0] || {};
+		var supplier_name = detail.supplier_name || supplier;
+		var lines = [
+			row.item,
+			__("Supplier Name") + ": " + supplier_name
+		];
+		if (detail.purchase_invoice) {
+			lines.push(
+				__("Last Cost") + ": " +
+					format_currency(flt(detail.cost), detail.currency),
+				__("Invoice") + ": " + detail.purchase_invoice,
+				__("Date") + ": " +
+					frappe.datetime.str_to_user(detail.posting_date),
+				__("No. of Purchases") + ": " +
+					cint(detail.purchase_invoice_count)
+			);
+		} else {
+			lines.push(
+				__("No submitted Purchase Invoice history"),
+				__("No. of Purchases") + ": " +
+					cint(detail.purchase_invoice_count)
+			);
+		}
+		sections.push(lines.join("\n"));
+	});
+	return sections.join("\n\n");
+}
+
+
+function purchase_plan_combined_tooltip(data, fieldname) {
+	if (!data || !data._purchase_plan_combined ||
+			!data._purchase_plan_member_rows || !fieldname) {
+		return "";
+	}
+	var ignored_fields = [
+		"total_cost", "total_selling_price", "minimum_purchase_qty",
+		"reorder_quantity"
+	];
+	if (ignored_fields.indexOf(fieldname) !== -1) {
+		return __("Not combined because the value differs by Item.");
+	}
+	var lines = data._purchase_plan_member_rows.map(function (member_row) {
+		var member_value = member_row[fieldname];
+		if (member_value === null || member_value === undefined || member_value === "") {
+			member_value = __("Not available");
+		}
+		var voucher_no = "";
+		if (fieldname == "last_purchase_invoice_date") {
+			voucher_no = member_row.last_purchase_voucher_no || "";
+		} else if (fieldname == "last_sales_invoice_date") {
+			voucher_no = member_row.last_sales_voucher_no || "";
+		}
+		return member_row.item + ": " + member_value +
+			(voucher_no ? " (" + voucher_no + ")" : "");
+	});
+	if (fieldname == "sales_invoice_count") {
+		lines.push(__("Combined total counts each invoice only once."));
+	} else if (fieldname == "out_of_stock_days") {
+		lines.push(__("Combined total counts a day only when the pooled stock is unavailable."));
+	} else if ([
+			"expected_order_quantity", "rfq_order_quantity"
+		].indexOf(fieldname) !== -1) {
+		lines.push(__(
+			"Combined recommendation is the sum of the individual Expected Order Quantity values."
+		));
+	} else if ([
+			"expected_total_sales", "monthy_sales", "annual_sales",
+			"period_expected_sales", "shortage_happened", "min",
+			"available_total_qty", "priority_month"
+		].indexOf(fieldname) !== -1) {
+		lines.push(__("Combined value is recalculated from the pooled demand and stock."));
+	}
+	return lines.join("\n");
+}
+
+
+function make_purchase_plan_combined_row(report, rows, label, combined_details) {
+	combined_details = combined_details || {};
+	var item_codes = rows.map(function (row) { return row.item; });
+	var estimated_out_of_stock_sales_qty = flt(
+		combined_details.estimated_out_of_stock_sales_qty
+	);
+	var adjusted_total_sales = purchase_plan_sum_rows(rows, "total_sales")
+		+ estimated_out_of_stock_sales_qty
+		+ purchase_plan_sum_rows(rows, "converted_repack_demand");
+	var expected_total_sales = adjusted_total_sales * (
+		1 + flt(report.get_filter_value("percentage")) / 100
+	);
+	var report_days = frappe.datetime.get_day_diff(
+		report.get_filter_value("end_date"), report.get_filter_value("start_date")
+	);
+	var report_months = report_days >= 30 ? parseInt(report_days / 30, 10) : 0;
+	var monthly_sales = report_months
+		? parseInt(expected_total_sales, 10) / report_months
+		: 0;
+	var available_quantity = purchase_plan_sum_rows(rows, "available_quantity");
+	var converted_available = purchase_plan_sum_rows(
+		rows, "converted_repack_available"
+	);
+	var on_purchase = purchase_plan_sum_rows(rows, "on_purchase");
+	var planning_available = available_quantity + converted_available;
+	var period_expected_sales = monthly_sales * flt(
+		report.get_filter_value("months_to_arrive")
+	);
+	var shortage = planning_available + on_purchase - period_expected_sales;
+	var minimum_qty = purchase_plan_rfq_order_quantity(
+		monthly_sales * flt(report.get_filter_value("minimum_stock_months")), false
+	);
+	var expected_order_quantity = purchase_plan_sum_rows(
+		rows, "expected_order_quantity"
+	);
+	var rfq_order_quantity = expected_order_quantity < 0
+		? purchase_plan_rfq_order_quantity(Math.abs(expected_order_quantity), false)
+		: 0;
+	var item_groups = purchase_plan_unique_values(rows, "item_group");
+	var latest_purchase_row = purchase_plan_latest_row(
+		rows, "last_purchase_invoice_date"
+	);
+	var latest_sales_row = purchase_plan_latest_row(
+		rows, "last_sales_invoice_date"
+	);
+
+	return {
+		_purchase_plan_combined: 1,
+		_purchase_plan_member_items: item_codes,
+		_purchase_plan_member_rows: rows,
+		item: item_codes.join(" + "),
+		item_name: label || __("Combined: {0}", [item_codes.join(" + ")]),
+		unit: rows[0].unit,
+		last_purchase_invoice_date: latest_purchase_row.last_purchase_invoice_date || "",
+		last_sales_invoice_date: latest_sales_row.last_sales_invoice_date || "",
+		sales_invoice_count: cint(combined_details.sales_invoice_count),
+		total_sales: purchase_plan_sum_rows(rows, "total_sales"),
+		item_group: item_groups.length === 1 ? item_groups[0] : "",
+		out_of_stock_days: combined_details.out_of_stock_days,
+		estimated_out_of_stock_sales_qty: estimated_out_of_stock_sales_qty,
+		converted_repack_demand: purchase_plan_sum_rows(
+			rows, "converted_repack_demand"
+		),
+		repack_demand_from: purchase_plan_unique_values(
+			rows, "repack_demand_from"
+		).join(", "),
+		percentage: flt(report.get_filter_value("percentage")),
+		expected_total_sales: expected_total_sales,
+		min: minimum_qty,
+		available_quantity: available_quantity,
+		converted_repack_available: converted_available,
+		on_purchase: on_purchase,
+		on_purchase_po: purchase_plan_unique_values(rows, "on_purchase_po").join(", "),
+		monthy_sales: monthly_sales,
+		annual_sales: monthly_sales * 12,
+		period_expected_sales: period_expected_sales,
+		shortage_happened: shortage,
+		minimum_purchase_qty: null,
+		reorder_quantity: null,
+		available_total_qty: planning_available + on_purchase,
+		expected_order_quantity: expected_order_quantity,
+		rfq_order_quantity: rfq_order_quantity,
+		priority_month: monthly_sales > 0
+			? (planning_available + on_purchase) / monthly_sales : 0,
+		item_suppliers: purchase_plan_unique_values(rows, "item_suppliers").join(", "),
+		least_supplier_cost: null,
+		total_cost: null,
+		selling_price: null,
+		total_selling_price: null,
+		priced_supplier_count: 0,
+		supplier_purchase_details: "[]",
+		last_purchase_voucher_type: latest_purchase_row.last_purchase_voucher_type || "",
+		last_purchase_voucher_no: latest_purchase_row.last_purchase_voucher_no || "",
+		last_sales_voucher_type: latest_sales_row.last_sales_voucher_type || "",
+		last_sales_voucher_no: latest_sales_row.last_sales_voucher_no || ""
+	};
+}
+
+
+function render_purchase_plan_combined_view(report, rows) {
+	report.data = rows.slice();
+	if (report.raw_data && report.raw_data.add_total_row) {
+		report.data.push(report.purchase_plan_original_total_row || {});
+	}
+	report.purchase_plan_combined_data = report.data;
+	report.purchase_plan_combined_view_active = true;
+	report.render_datatable();
+}
+
+
+function show_purchase_plan_combine_dialog(report) {
+	var current_rows = (report.data || []).slice();
+	if (report.raw_data && report.raw_data.add_total_row) {
+		current_rows = current_rows.slice(0, -1);
+	}
+	var rows = current_rows.filter(function (row) {
+		return row.item && !row._purchase_plan_combined;
+	});
+	if (rows.length < 2) {
+		frappe.msgprint(__("At least two individual Item rows are required."));
+		return;
+	}
+	var rows_by_item = {};
+	rows.forEach(function (row) { rows_by_item[row.item] = row; });
+	var dialog = new frappe.ui.Dialog({
+		title: __("Combine Purchase Plan Items"),
+		fields: [{
+				fieldname: "items",
+				fieldtype: "MultiSelectList",
+				label: __("Items to Combine"),
+				reqd: 1,
+				get_data: function (txt) {
+					txt = String(txt || "").toLowerCase();
+					return rows.filter(function (row) {
+						return !txt || row.item.toLowerCase().indexOf(txt) !== -1 ||
+							String(row.item_name || "").toLowerCase().indexOf(txt) !== -1;
+					}).map(function (row) {
+						return {value: row.item, description: row.item_name || ""};
+					});
+			}
+		}],
+		primary_action_label: __("Combine"),
+		primary_action: function () {
+			var values = dialog.get_values();
+			var item_codes = values && values.items ? values.items : [];
+			if (!Array.isArray(item_codes)) {
+				item_codes = [item_codes];
+			}
+			if (item_codes.length < 2) {
+				frappe.msgprint(__("Please select at least two Items."));
+				return;
+			}
+			var selected_rows = item_codes.map(function (item_code) {
+				return rows_by_item[item_code];
+			}).filter(Boolean);
+			var units = selected_rows.map(function (row) { return row.unit; })
+				.filter(function (unit, index, values_list) {
+					return values_list.indexOf(unit) === index;
+				});
+			if (selected_rows.length !== item_codes.length || units.length !== 1) {
+				frappe.msgprint(__("Only displayed Items with the same Stock UOM can be combined."));
+				return;
+			}
+			frappe.call({
+				method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_combined_purchase_plan_details",
+				freeze: true,
+				freeze_message: __("Calculating combined Item values..."),
+				args: {
+					item_codes: JSON.stringify(item_codes),
+					start_date: report.get_filter_value("start_date"),
+					end_date: report.get_filter_value("end_date"),
+					include_out_of_stock_sales: report.get_filter_value(
+						"include_out_of_stock_sales"
+					)
+				},
+				callback: function (response) {
+					if (!report.purchase_plan_combined_view_active) {
+						report.purchase_plan_original_data = (report.data || []).slice();
+						report.purchase_plan_original_total_row = report.raw_data &&
+							report.raw_data.add_total_row
+							? report.purchase_plan_original_data.slice(-1)[0] : null;
+					}
+					var selected_items = {};
+					item_codes.forEach(function (item_code) {
+						selected_items[item_code] = true;
+					});
+					var insert_at = current_rows.findIndex(function (row) {
+						return selected_items[row.item];
+					});
+					var remaining_rows = current_rows.filter(function (row) {
+						return !selected_items[row.item];
+					});
+					remaining_rows.splice(insert_at, 0, make_purchase_plan_combined_row(
+						report, selected_rows, null, response.message || {}
+					));
+					dialog.hide();
+					render_purchase_plan_combined_view(report, remaining_rows);
+					frappe.show_alert({
+						message: __("Combined {0} Items for this view.", [selected_rows.length]),
+						indicator: "blue"
+					});
+				}
+			});
+		}
+	});
+	dialog.show();
+}
+
+
+function reset_purchase_plan_combined_view(report) {
+	if (!report.purchase_plan_combined_view_active ||
+			!report.purchase_plan_original_data) {
+		frappe.show_alert({message: __("There is no Combined View to reset.")});
+		return;
+	}
+	report.purchase_plan_combined_view_active = false;
+	report.data = report.purchase_plan_original_data.slice();
+	report.purchase_plan_combined_data = null;
+	report.purchase_plan_original_data = null;
+	report.purchase_plan_original_total_row = null;
+	report.render_datatable();
+}
+
+
+function purchase_plan_combined_rfq_table_html() {
+	return '<p class="text-muted">' +
+		frappe.utils.escape_html(__(
+			"Choose the actual Item to order for each temporary combined row. The prepared report will remain unchanged."
+		)) + '</p>' +
+		'<div class="purchase-plan-combined-rfq-table" style="border:1px solid #d1d8dd;border-radius:4px">' +
+			'<div style="display:grid;grid-template-columns:minmax(240px,1.5fr) minmax(220px,1fr) minmax(130px,.6fr);gap:12px;padding:9px 12px;background:#f7fafc;border-bottom:1px solid #d1d8dd;font-weight:600">' +
+				'<div>' + frappe.utils.escape_html(__("Combined Items")) + '</div>' +
+				'<div>' + frappe.utils.escape_html(__("Item to Order")) + '</div>' +
+				'<div>' + frappe.utils.escape_html(__("RFQ Order Qty")) + '</div>' +
+			'</div>' +
+			'<div class="purchase-plan-combined-rfq-table-body"></div>' +
+		'</div>';
+}
+
+
+function choose_purchase_plan_combined_rfq_items(report, report_rows) {
+	var combined_rows = report_rows.filter(function (row) {
+		return row._purchase_plan_combined &&
+			purchase_plan_rfq_order_quantity(row.rfq_order_quantity, false) > 0;
+	});
+	if (!combined_rows.length) {
+		var individual_rfq_items = [];
+		report_rows.forEach(function (row) {
+			var quantity = purchase_plan_rfq_order_quantity(
+				row.rfq_order_quantity, false
+			);
+			if (row.item && !row._purchase_plan_combined && quantity > 0) {
+				individual_rfq_items.push({item_code: row.item, qty: quantity});
+			}
+		});
+		create_request_for_quotation(report, individual_rfq_items, []);
+		return;
+	}
+
+	var row_controls = [];
+	var dialog = new frappe.ui.Dialog({
+		title: __("Choose Items for Combined Rows"),
+		fields: [{
+			fieldname: "combined_items_table",
+			fieldtype: "HTML",
+			options: purchase_plan_combined_rfq_table_html()
+		}],
+		primary_action_label: __("Continue"),
+		primary_action: function () {
+			var selections = [];
+			for (var index = 0; index < combined_rows.length; index++) {
+				var combined_row = combined_rows[index];
+				var member_items = combined_row._purchase_plan_member_items || [];
+				var selected_item = row_controls[index].item.get_value();
+				var quantity = purchase_plan_rfq_order_quantity(
+					row_controls[index].quantity.get_value(), true
+				);
+				if (quantity <= 0) {
+					continue;
+				}
+				if (member_items.indexOf(selected_item) === -1) {
+					frappe.msgprint(__("Please choose an Item belonging to each combined row."));
+					return;
+				}
+				selections.push({
+					row: combined_row,
+					member_items: member_items,
+					selected_item: selected_item,
+					qty: quantity
+				});
+			}
+
+			var rfq_items = [];
+			report_rows.forEach(function (row) {
+				var quantity = purchase_plan_rfq_order_quantity(
+					row.rfq_order_quantity, false
+				);
+				if (!row.item || quantity <= 0) {
+					return;
+				}
+				if (!row._purchase_plan_combined) {
+					rfq_items.push({item_code: row.item, qty: quantity});
+					return;
+				}
+				var selection = selections.filter(function (value) {
+					return value.row === row;
+				})[0];
+				if (selection) {
+					rfq_items.push({
+						item_code: selection.selected_item,
+						qty: selection.qty
+					});
+				}
+			});
+			dialog.hide();
+			create_request_for_quotation(report, rfq_items, selections.map(function (value) {
+				return {
+					member_items: value.member_items,
+					selected_item: value.selected_item,
+					qty: value.qty
+				};
+			}));
+		}
+	});
+	dialog.show();
+	dialog.$wrapper.find(".modal-dialog").css({
+		width: "1000px",
+		"max-width": "95vw"
+	});
+	var table_body = dialog.fields_dict.combined_items_table.$wrapper.find(
+		".purchase-plan-combined-rfq-table-body"
+	);
+	if (combined_rows.length > 4) {
+		table_body.css({
+			"max-height": "55vh",
+			"overflow-y": "auto",
+			"overflow-x": "hidden"
+		});
+	}
+	combined_rows.forEach(function (row, index) {
+		var member_items = row._purchase_plan_member_items || [];
+		var table_row = $('<div class="purchase-plan-combined-rfq-row"></div>')
+			.css({
+				display: "grid",
+				"grid-template-columns": "minmax(240px,1.5fr) minmax(220px,1fr) minmax(130px,.6fr)",
+				gap: "12px",
+				padding: "8px 12px",
+				"align-items": "center",
+				"border-bottom": index === combined_rows.length - 1
+					? "none" : "1px solid #e8e8e8"
+			})
+			.appendTo(table_body);
+		$('<div class="text-muted"></div>')
+			.text(row.item_name || member_items.join(" + "))
+			.attr("title", member_items.join(" + "))
+			.appendTo(table_row);
+		var item_cell = $("<div></div>").appendTo(table_row);
+		var quantity_cell = $("<div></div>").appendTo(table_row);
+		var item_control = frappe.ui.form.make_control({
+			df: {
+				fieldname: "combined_item_" + index,
+				fieldtype: "Link",
+				options: "Item",
+				get_query: (function (allowed_items) {
+					return function () {
+						return {filters: {name: ["in", allowed_items], disabled: 0}};
+					};
+				})(member_items)
+			},
+			parent: item_cell,
+			only_input: true
+		});
+		item_control.make_input();
+		if (combined_rows.length > 4) {
+			item_control.$input.on("focus.purchase_plan_combined_rfq", function () {
+				table_body.css("padding-bottom", "215px");
+				window.requestAnimationFrame(function () {
+					table_body.scrollTop(
+						table_body.scrollTop() + table_row.position().top
+					);
+				});
+			}).on("blur.purchase_plan_combined_rfq", function () {
+				setTimeout(function () {
+					table_body.css("padding-bottom", "0");
+				}, 200);
+			});
+		}
+		var quantity_control = frappe.ui.form.make_control({
+			df: {
+				fieldname: "combined_qty_" + index,
+				fieldtype: "Float"
+			},
+			parent: quantity_cell,
+			only_input: true
+		});
+		quantity_control.make_input();
+		quantity_control.set_value(
+			purchase_plan_rfq_order_quantity(row.rfq_order_quantity, false)
+		);
+		row_controls.push({
+			item: item_control,
+			quantity: quantity_control
+		});
+	});
+}
+
+
+function create_request_for_quotation(report, resolved_rfq_items, combination_notes) {
+	var rfq_items = resolved_rfq_items || [];
 	var report_rows = report.data || [];
 	if (report.raw_data && report.raw_data.add_total_row && report_rows.length) {
 		report_rows = report_rows.slice(0, -1);
 	}
-	report_rows.forEach(function (row) {
-		var rfq_order_quantity = purchase_plan_rfq_order_quantity(
-			row.rfq_order_quantity, false
-		);
-		if (row.item && rfq_order_quantity > 0) {
-			rfq_items.push({
-				item_code: row.item,
-				qty: rfq_order_quantity
-			});
+	if (!resolved_rfq_items) {
+		if (report.purchase_plan_combined_view_active) {
+			choose_purchase_plan_combined_rfq_items(report, report_rows);
+			return;
 		}
-	});
+		report_rows.forEach(function (row) {
+			var rfq_order_quantity = purchase_plan_rfq_order_quantity(
+				row.rfq_order_quantity, false
+			);
+			if (row.item && rfq_order_quantity > 0) {
+				rfq_items.push({
+					item_code: row.item,
+					qty: rfq_order_quantity
+				});
+			}
+		});
+	}
 
 	if (!rfq_items.length) {
 		frappe.msgprint(__("There are no report Items with a purchase requirement."));
@@ -789,6 +1389,7 @@ function create_request_for_quotation(report) {
 				source_name: "Purchase Plan",
 				args: {
 					item_values: JSON.stringify(rfq_items),
+					combined_item_values: JSON.stringify(combination_notes || []),
 					supplier: supplier,
 					supplier_group: supplier_group,
 					supplier_country: supplier_country,
@@ -1158,6 +1759,12 @@ frappe.query_reports["Purchase Plan"] = {
 	},
 	"onload": function (report) {
 		apply_purchase_plan_filter_labels(report);
+		report.page.add_inner_button(__("Combine Items"), function () {
+			show_purchase_plan_combine_dialog(report);
+		});
+		report.page.add_inner_button(__("Reset Combined View"), function () {
+			reset_purchase_plan_combined_view(report);
+		});
 		report.page.add_inner_button(__("Create RFQ"), function () {
 			create_request_for_quotation(report);
 		});
@@ -1174,12 +1781,45 @@ frappe.query_reports["Purchase Plan"] = {
 		return restore_prepared_purchase_plan_filters(report);
 	},
 	"after_datatable_render": function (datatable) {
+		var report = frappe.query_report;
+		if (report.purchase_plan_combined_view_active &&
+				report.data !== report.purchase_plan_combined_data) {
+			report.purchase_plan_combined_view_active = false;
+			report.purchase_plan_combined_data = null;
+			report.purchase_plan_original_data = null;
+			report.purchase_plan_original_total_row = null;
+		}
 		enable_purchase_plan_rfq_qty_editing(datatable);
 		apply_purchase_plan_sticky_columns(datatable);
 		update_purchase_plan_filter_summary(frappe.query_report);
 		bind_current_prepared_report_download(frappe.query_report);
 	},
 	"formatter": function (value, row, column, data, default_formatter) {
+		if (data && data._purchase_plan_combined && column.fieldname == "item") {
+			return "<span class='text-primary' title='" +
+				frappe.utils.escape_html(
+					purchase_plan_combined_tooltip(data, "item") ||
+					__("Temporary Combined View")
+				) + "'>" +
+				frappe.utils.escape_html(value || "") + "</span>";
+		}
+		if (data && data._purchase_plan_combined && [
+				"least_supplier_cost", "selling_price"
+			].indexOf(column.fieldname) !== -1) {
+			var price_details = purchase_plan_combined_price_details(
+				data._purchase_plan_member_rows,
+				column.fieldname,
+				column.options || "BHD"
+			);
+			if (!price_details.display) {
+				return '<span class="text-muted" title="' +
+					frappe.utils.escape_html(price_details.tooltip) + '">' +
+					__("N/A") + '</span>';
+			}
+			return '<span title="' +
+				frappe.utils.escape_html(price_details.tooltip) + '">' +
+				frappe.utils.escape_html(price_details.display) + '</span>';
+		}
 		var transaction_link_fields = {
 			"last_purchase_invoice_date": {
 				"voucher_type": "last_purchase_voucher_type",
@@ -1199,12 +1839,18 @@ frappe.query_reports["Purchase Plan"] = {
 				"Sales Invoice", "Delivery Note"
 			];
 			var formatted_date = default_formatter(value, row, column, data);
+			var transaction_tooltip = purchase_plan_combined_tooltip(
+				data, column.fieldname
+			) || voucher_no;
 			if (voucher_no && supported_voucher_types.indexOf(voucher_type) !== -1) {
 				return '<a href="#Form/' + encodeURIComponent(voucher_type) + '/' +
 					encodeURIComponent(voucher_no) + '" title="' +
-					frappe.utils.escape_html(voucher_no) + '">' + formatted_date + '</a>';
+					frappe.utils.escape_html(transaction_tooltip) + '">' + formatted_date + '</a>';
 			}
-			return formatted_date;
+			return transaction_tooltip
+				? '<span title="' + frappe.utils.escape_html(transaction_tooltip) + '">' +
+					formatted_date + '</span>'
+				: formatted_date;
 		}
 		if (column.fieldname == "on_purchase_po" && value) {
 			return value.split(", ").map(function (purchase_order) {
@@ -1213,6 +1859,17 @@ frappe.query_reports["Purchase Plan"] = {
 			}).join(", ");
 		}
 		if (column.fieldname == "item_suppliers" && value) {
+			if (data && data._purchase_plan_combined) {
+				return value.split(", ").map(function (supplier) {
+					var tooltip = purchase_plan_combined_supplier_tooltip(
+						data._purchase_plan_member_rows, supplier
+					);
+					return '<a href="#Form/Supplier/' + encodeURIComponent(supplier) +
+						'" title="' + frappe.utils.escape_html(tooltip) +
+						'" style="color:#7a7a7a;font-weight:600">' +
+						frappe.utils.escape_html(supplier) + '</a>';
+				}).join(", ");
+			}
 			var priced_supplier_count = data ? cint(data.priced_supplier_count) : 0;
 			var supplier_details = [];
 			try {
@@ -1266,10 +1923,22 @@ frappe.query_reports["Purchase Plan"] = {
 				? flt(data.sales_invoice_count) / completed_report_months
 				: flt(data.sales_invoice_count);
 			if (average_monthly_invoices <= 5) {
-				return '<span class="text-muted">' + __("N/A") + '</span>';
+				var unavailable_tooltip = purchase_plan_combined_tooltip(
+					data, column.fieldname
+				);
+				return '<span class="text-muted"' + (unavailable_tooltip
+					? ' title="' + frappe.utils.escape_html(unavailable_tooltip) + '"'
+					: '') + '>' + __("N/A") + '</span>';
 			}
 		}
 		value = default_formatter(value, row, column, data);
+		var combined_tooltip = purchase_plan_combined_tooltip(
+			data, column.fieldname
+		);
+		if (combined_tooltip) {
+			value = '<span title="' + frappe.utils.escape_html(combined_tooltip) +
+				'">' + value + '</span>';
+		}
 		if (column.fieldname == "expected_order_quantity" && data && data.expected_order_quantity < 0) {
 			value = "<span style='color:red'>" + value + "</span>";
 		}
