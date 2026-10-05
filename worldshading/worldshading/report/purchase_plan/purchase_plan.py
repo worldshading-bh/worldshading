@@ -94,6 +94,33 @@ def get_rfq_report_filter_log(report_filters):
 	return '\n'.join(filter_log)
 
 
+def get_rfq_combination_log(combined_item_values, items_by_code):
+	if isinstance(combined_item_values, str):
+		combined_item_values = frappe.parse_json(combined_item_values)
+	if not isinstance(combined_item_values, (list, tuple)):
+		return ''
+
+	lines = []
+	for value in combined_item_values[:100]:
+		if not isinstance(value, dict):
+			continue
+		member_items = value.get('member_items') or []
+		if not isinstance(member_items, (list, tuple)):
+			continue
+		member_items = [str(item) for item in member_items if item]
+		selected_item = value.get('selected_item')
+		quantity = round_whole_qty(value.get('qty'))
+		if len(member_items) < 2 or selected_item not in member_items \
+				or selected_item not in items_by_code or quantity <= 0:
+			continue
+		lines.append('{0} => {1}, {2}: {3}'.format(
+			' + '.join(member_items), selected_item, _('Qty'), quantity))
+
+	return '\n'.join(
+		[_('Temporary Combined View:')] + lines
+	) if lines else ''
+
+
 def get_prepared_purchase_plan(prepared_report_name):
 	if not prepared_report_name:
 		return None
@@ -129,6 +156,144 @@ def get_prepared_purchase_plan_filters(prepared_report_name=None):
 	filters = frappe.parse_json(prepared_report_filters) \
 		if isinstance(prepared_report_filters, str) else prepared_report_filters
 	return filters if isinstance(filters, dict) else {}
+
+
+@frappe.whitelist()
+def get_combined_purchase_plan_details(item_codes=None, start_date=None,
+		end_date=None, include_out_of_stock_sales=0):
+	item_codes = frappe.parse_json(item_codes) \
+		if isinstance(item_codes, str) else item_codes
+	item_codes = list(set(item_codes or []))
+	if len(item_codes) < 2 or len(item_codes) > 100:
+		frappe.throw(_('Select between 2 and 100 Items to combine.'))
+	if not start_date or not end_date:
+		frappe.throw(_('Start Date and End Date are required.'))
+	if getdate(start_date) > getdate(end_date):
+		frappe.throw(_('Start Date cannot be later than End Date.'))
+	if getdate(end_date) > getdate(nowdate()):
+		frappe.throw(_('End Date cannot be later than today.'))
+
+	items = frappe.get_list(
+		'Item',
+		filters={'name': ['in', item_codes], 'is_stock_item': 1},
+		fields=['name', 'stock_uom'],
+		limit_page_length=0
+	)
+	if len(items) != len(item_codes):
+		frappe.throw(_('One or more selected Items are unavailable.'))
+	if len(set(row.stock_uom for row in items)) != 1:
+		frappe.throw(_('Only Items with the same Stock UOM can be combined.'))
+
+	invoice_count = frappe.db.sql("""
+		SELECT COUNT(DISTINCT invoice_items.parent)
+		FROM (
+			SELECT sii.parent
+			FROM `tabSales Invoice Item` sii
+			WHERE sii.docstatus = 1
+				AND sii.item_code IN %(item_codes)s
+				AND sii.creation >= %(start_date)s
+				AND sii.creation < %(exclusive_end_date)s
+			UNION
+			SELECT pi.parent
+			FROM `tabPacked Item` pi
+			WHERE pi.parenttype = 'Sales Invoice'
+				AND pi.docstatus = 1
+				AND pi.item_code IN %(item_codes)s
+				AND pi.creation >= %(start_date)s
+				AND pi.creation < %(exclusive_end_date)s
+		) invoice_items
+	""", {
+		'item_codes': tuple(item_codes),
+		'start_date': start_date,
+		'exclusive_end_date': add_days(end_date, 1)
+	})[0][0] or 0
+
+	result = {
+		'sales_invoice_count': invoice_count,
+		'out_of_stock_days': None,
+		'estimated_out_of_stock_sales_qty': 0
+	}
+	if not cint(include_out_of_stock_sales):
+		return result
+
+	filters = frappe._dict({'start_date': start_date, 'end_date': end_date})
+	total_sales_by_item = get_total_sales_by_item(item_codes, filters)
+	combined_total_sales = sum(total_sales_by_item.values())
+	total_report_days = date_diff(end_date, start_date)
+	completed_report_months = int(total_report_days / 30) \
+		if total_report_days >= 30 else 0
+	minimum_average_monthly_invoices = completed_report_months / 2.0
+	average_monthly_invoices = (
+		invoice_count / completed_report_months
+		if completed_report_months > 0 else invoice_count
+	)
+	if average_monthly_invoices < minimum_average_monthly_invoices:
+		return result
+
+	working_day_rows = frappe.db.sql("""
+		SELECT DISTINCT DATE(creation) AS working_date
+		FROM `tabSales Invoice`
+		WHERE docstatus = 1
+			AND DATE(creation) BETWEEN %(start_date)s AND %(end_date)s
+	""", {'start_date': start_date, 'end_date': end_date}, as_dict=1)
+	working_dates = set(
+		getdate(row.working_date) for row in working_day_rows if row.working_date
+	)
+	opening_rows = frappe.db.sql("""
+		SELECT item_code, warehouse,
+			CAST(SUBSTRING_INDEX(GROUP_CONCAT(
+				COALESCE(qty_after_transaction, 0)
+				ORDER BY posting_date DESC, posting_time DESC,
+					creation DESC, name DESC SEPARATOR ','
+			), ',', 1) AS DECIMAL(21, 9)) AS opening_qty
+		FROM `tabStock Ledger Entry`
+		WHERE posting_date < %(start_date)s
+			AND item_code IN %(item_codes)s
+		GROUP BY item_code, warehouse
+	""", {'start_date': start_date, 'item_codes': tuple(item_codes)}, as_dict=1)
+	movement_rows = frappe.db.sql("""
+		SELECT item_code, warehouse, posting_date,
+			CAST(SUBSTRING_INDEX(GROUP_CONCAT(
+				COALESCE(qty_after_transaction, 0)
+				ORDER BY posting_time DESC, creation DESC, name DESC SEPARATOR ','
+			), ',', 1) AS DECIMAL(21, 9)) AS closing_qty
+		FROM `tabStock Ledger Entry`
+		WHERE posting_date BETWEEN %(start_date)s AND %(end_date)s
+			AND item_code IN %(item_codes)s
+		GROUP BY item_code, warehouse, posting_date
+		ORDER BY posting_date, item_code, warehouse
+	""", {
+		'start_date': start_date,
+		'end_date': end_date,
+		'item_codes': tuple(item_codes)
+	}, as_dict=1)
+
+	balances = {}
+	for row in opening_rows:
+		balances[(row.item_code, row.warehouse)] = row.opening_qty or 0
+	movements = {}
+	for row in movement_rows:
+		movements.setdefault(getdate(row.posting_date), []).append(row)
+
+	out_of_stock_days = 0
+	selling_days = 0
+	current_date = getdate(start_date)
+	for unused_day in range(date_diff(end_date, start_date) + 1):
+		for row in movements.get(current_date, []):
+			balances[(row.item_code, row.warehouse)] = row.closing_qty or 0
+		if current_date in working_dates:
+			selling_days += 1
+			if sum(balances.values()) <= 0:
+				out_of_stock_days += 1
+		current_date = add_days(current_date, 1)
+
+	in_stock_days = selling_days - out_of_stock_days
+	result['out_of_stock_days'] = out_of_stock_days
+	result['estimated_out_of_stock_sales_qty'] = (
+		(combined_total_sales / in_stock_days) * out_of_stock_days
+		if in_stock_days > 0 else 0
+	)
+	return result
 
 
 def get_pricing_context():
@@ -222,7 +387,7 @@ def make_request_for_quotation(source_name=None):
 		item_code = row.get('item_code') if isinstance(row, dict) else None
 		qty = round_whole_qty(row.get('qty')) if isinstance(row, dict) else 0
 		if item_code and qty > 0:
-			items_by_code[item_code] = qty
+			items_by_code[item_code] = items_by_code.get(item_code, 0) + qty
 
 	if not items_by_code:
 		frappe.throw(_('There are no report Items with a purchase requirement.'))
@@ -320,7 +485,11 @@ def make_request_for_quotation(source_name=None):
 		rfq.prepared_purchase_plan = get_prepared_purchase_plan(
 			args.get('prepared_purchase_plan'))
 	if frappe.get_meta('Request for Quotation').has_field('report_filter'):
-		rfq.report_filter = get_rfq_report_filter_log(args.get('report_filters'))
+		report_filter = get_rfq_report_filter_log(args.get('report_filters'))
+		combination_log = get_rfq_combination_log(
+			args.get('combined_item_values'), items_by_code)
+		rfq.report_filter = '\n\n'.join(
+			value for value in [report_filter, combination_log] if value)
 	rfq.message_for_supplier = _(
 		'Please quote your best price and delivery schedule for the following items.'
 	)
@@ -586,7 +755,7 @@ def get_columns(filters, pricing_context):
 			'fieldname': 'percentage',
 			'label': _('Percentage %'),
 			'fieldtype': 'Percent',
-
+			'hidden': 1
 		},
 		{
 			'fieldname': 'expected_total_sales',
@@ -1554,26 +1723,27 @@ def get_stock_by_item(item_codes):
 
 def get_total_sales_by_item(item_codes, filters):
 	total_sales_by_item = {}
-	date_filter = ['between', [filters.start_date, filters.end_date]]
+	date_filters = [
+		['creation', '>=', filters.start_date],
+		['creation', '<', add_days(filters.end_date, 1)]
+	]
 
 	sales_invoice_rows = frappe.get_all(
 		'Sales Invoice Item',
-		filters={
-			'docstatus': 1,
-			'item_code': ['in', item_codes],
-			'creation': date_filter
-		},
+		filters=[
+			['docstatus', '=', 1],
+			['item_code', 'in', item_codes]
+		] + date_filters,
 		fields=['item_code', 'sum(qty) as qty'],
 		group_by='item_code'
 	)
 	packed_item_rows = frappe.get_all(
 		'Packed Item',
-		filters={
-			'parenttype': 'Sales Invoice',
-			'docstatus': 1,
-			'item_code': ['in', item_codes],
-			'creation': date_filter
-		},
+		filters=[
+			['parenttype', '=', 'Sales Invoice'],
+			['docstatus', '=', 1],
+			['item_code', 'in', item_codes]
+		] + date_filters,
 		fields=['item_code', 'sum(qty) as qty'],
 		group_by='item_code'
 	)
@@ -1596,20 +1766,22 @@ def get_sales_invoice_count_by_item(item_codes, filters):
 			FROM `tabSales Invoice Item` sii
 			WHERE sii.docstatus = 1
 				AND sii.item_code IN %(item_codes)s
-				AND sii.creation BETWEEN %(start_date)s AND %(end_date)s
+				AND sii.creation >= %(start_date)s
+				AND sii.creation < %(exclusive_end_date)s
 			UNION
 			SELECT pi.item_code, pi.parent
 			FROM `tabPacked Item` pi
 			WHERE pi.parenttype = 'Sales Invoice'
 				AND pi.docstatus = 1
 				AND pi.item_code IN %(item_codes)s
-				AND pi.creation BETWEEN %(start_date)s AND %(end_date)s
+				AND pi.creation >= %(start_date)s
+				AND pi.creation < %(exclusive_end_date)s
 		) invoice_items
 		GROUP BY invoice_items.item_code
 	""", {
 		'item_codes': tuple(item_codes),
 		'start_date': filters.start_date,
-		'end_date': filters.end_date
+		'exclusive_end_date': add_days(filters.end_date, 1)
 	}, as_dict=1)
 
 	return dict((row.item_code, row.invoice_count or 0) for row in rows)
