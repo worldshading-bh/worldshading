@@ -137,6 +137,7 @@ after_migrate = [
 # }
 
 override_doctype_dashboards = {
+	"Item": "worldshading.dashboards.item_dashboard.get_data",
 	"Quotation": "worldshading.dashboards.quotation_dashboard.get_data",
 	"Sales Order": "worldshading.dashboards.sales_order_dashboard.get_data",
 	"Sales Invoice": "worldshading.dashboards.sales_invoice_dashboard.get_data",
@@ -144,11 +145,18 @@ override_doctype_dashboards = {
 
 app_include_css = "/assets/worldshading/css/custom_theme.css"
 
+extend_bootinfo = "worldshading.api.note_popup_audience.filter_note_popups"
+
 app_include_js = [
+    "/assets/worldshading/js/pricing_update_notifications.js",
+    "/assets/worldshading/js/purchase_order_urgent_popup.js",
+    "/assets/worldshading/js/payment_entry_urgent_popup.js",
+    "/assets/worldshading/js/gl_payment_urgent_popup.js",
     "/assets/worldshading/js/email_signature_preview.js",
     "/assets/worldshading/js/email_validation.js",
     "/assets/worldshading/js/whatsapp_notification.js",
     "/assets/worldshading/js/customer_quick_entry.js",
+    "/assets/worldshading/js/customer_quick_entry_sijilat.js",
     "/assets/worldshading/js/global_list_patch.js",
     "/assets/worldshading/js/pbx_call_popup_test.js",
     # "/assets/worldshading/js/notification_sound.js"
@@ -229,7 +237,13 @@ fixtures = [
         "doctype": "Custom Field",
         "filters": [
             ["name", "in", [
-                "Email Account-custom_default_cc"
+                "Email Account-custom_default_cc",
+                "Purchase Order-custom_is_urgent",
+                "Purchase Order-custom_urgent_reason",
+                "Payment Entry-custom_is_urgent",
+                "Payment Entry-custom_urgent_reason",
+                "GL Payment-custom_is_urgent",
+                "GL Payment-custom_urgent_reason"
             ]]
         ]
     },
@@ -253,6 +267,11 @@ fixtures = [
 
 
 doctype_js = {
+	"Item": "public/js/item_packed_dashboard.js",
+	"Purchase Receipt": "public/js/purchase_receipt.js",
+	"Purchase Order": "public/js/purchase_order_urgency.js",
+	"Payment Entry": "public/js/payment_entry_urgency.js",
+	"GL Payment": "public/js/gl_payment_urgency.js",
     "Material Request": "public/js/material_request.js",
     "Quotation": [
         "public/js/production_bom.js",
@@ -262,7 +281,10 @@ doctype_js = {
         "public/js/production_bom.js",
         "public/js/dynamic_rounding_preview.js"
     ],
-    "Sales Invoice": "public/js/dynamic_rounding_preview.js",
+    "Sales Invoice": [
+        "public/js/dynamic_rounding_preview.js",
+        "public/js/sales_invoice_outstanding.js"
+    ],
     "Work Order": "public/js/work_order_team.js",
     "Request for Quotation": "public/js/request_for_quotation.js",
     "Email Account": "public/js/email_account.js"
@@ -284,6 +306,9 @@ override_whitelisted_methods = {
 doctype_list_js = {
     "Material Request": "public/js/material_request_list.js",
     "Sales Order": "public/js/sales_order_list.js",
+    "Purchase Order": "public/js/purchase_order_list.js",
+    "Payment Entry": "public/js/payment_entry_list.js",
+    "GL Payment": "public/js/gl_payment_list.js",
     "Customer": "public/js/customer_list.js",
     # "Purchase Invoice": "public/js/purchase_invoice_list.js",
 }
@@ -291,6 +316,14 @@ doctype_list_js = {
 
 
 doc_events = {
+    "GL Payment": {
+        "validate": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
+        "before_update_after_submit": "worldshading.api.purchase_order_urgency.clear_completed_urgency"
+    },
+    "Purchase Order": {
+        "validate": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
+        "before_update_after_submit": "worldshading.api.purchase_order_urgency.clear_completed_urgency"
+    },
     "*": {
         "on_cancel": [
             "worldshading.events.cancel_assign.assign_to_gm_on_cancel",
@@ -336,7 +369,10 @@ doc_events = {
         "autoname": "worldshading.api.repack_production_rule.autoname_repack_production_rule"
     },
     "Item": {
-        "validate": "worldshading.api.legacy_groups.validate_active_group_assignment"
+		"validate": [
+			"worldshading.api.legacy_groups.validate_active_group_assignment",
+			"worldshading.worldshading.doctype.pricing_group.pricing_group.validate_item_pricing_group"
+		]
     },
     "Supplier": {
         "validate": "worldshading.api.legacy_groups.validate_active_group_assignment"
@@ -368,6 +404,7 @@ doc_events = {
             "worldshading.api.quotation_packed_pricing.apply_quotation_packed_pricing",
             "worldshading.api.business_pricing.set_regular_price_list_rates",
             "worldshading.api.business_pricing.validate_verified_business_price_list",
+            "worldshading.api.quotation_discount_details.set_discount_calculation_details",
             "worldshading.api.dynamic_rounding.apply_dynamic_rounding"
         ],
         "after_insert": "worldshading.events.service_visit_link.sync_quotation_link",
@@ -386,6 +423,7 @@ doc_events = {
             "worldshading.api.dynamic_rounding.apply_dynamic_rounding"
         ],
         "after_save": "worldshading.overrides.sales_order.custom_after_save",
+		"on_update_after_submit": "worldshading.api.dynamic_rounding.sync_dynamic_rounding_after_submit",
         "after_insert": "worldshading.events.service_visit_link.sync_sales_order_link",
         "on_submit": [
             "worldshading.events.service_visit_link.mark_visit_ordered",
@@ -399,7 +437,8 @@ doc_events = {
         "validate": [
             "worldshading.api.business_pricing.set_regular_price_list_rates",
             "worldshading.api.business_pricing.validate_verified_business_price_list",
-            "worldshading.api.dynamic_rounding.apply_dynamic_rounding"
+            "worldshading.api.dynamic_rounding.apply_dynamic_rounding",
+            "worldshading.api.dynamic_rounding.validate_sales_invoice_payment_change"
         ],
         "after_insert": "worldshading.events.service_visit_link.sync_sales_invoice_link",
         "on_submit": "worldshading.events.service_visit_link.mark_visit_invoiced",
@@ -408,7 +447,9 @@ doc_events = {
     },
 
     "Payment Entry": {
+        "before_update_after_submit": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
         "validate": [
+            "worldshading.api.purchase_order_urgency.clear_completed_urgency",
             "worldshading.events.payment_entry_contact.set_payment_entry_contact",
             "worldshading.events.payment_entry_balance_snapshot.set_invoice_balance_snapshot"
         ],

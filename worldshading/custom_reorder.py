@@ -143,6 +143,15 @@ def create_material_request(material_requests):
                 print(f"👥 Creating Material Request for {d.item_code} ({request_type})")
 
                 try:
+                    from_warehouse = d.warehouse
+                    if request_type == "Production":
+                        from_warehouse = frappe.db.get_value(
+                            "Warehouse", d.warehouse, "production_source_warehouse"
+                        )
+                        if not from_warehouse:
+                            print(f"❌ Skipping {d.item_code} (Production) — no Production Source Warehouse configured for {d.warehouse}")
+                            continue
+
                     rules = frappe.get_all("Repack Production Rule", filters={"type": request_type})
                     found = False
 
@@ -160,16 +169,6 @@ def create_material_request(material_requests):
                                 print(f"🔢 Reorder Qty: {reorder_qty}, Rule Qty: {rule_qty}, Multiplier: {multiplier}")
 
                                 # ✅ Check stock of all source items before proceeding
-                                if request_type == "Production":
-                                    if d.warehouse == "Production Salmabad - WS":
-                                        from_warehouse = "Salmabad Showroom - WS"
-                                    elif d.warehouse == "Production Hamad Town - WS":
-                                        from_warehouse = "Hamad Town Showroom - WS"
-                                    else:
-                                        from_warehouse = d.warehouse
-                                else:
-                                    from_warehouse = d.warehouse
-
                                 source_missing = []
                                 for from_item in rule_doc.from_item:
                                     actual_qty = frappe.db.get_value("Bin", {

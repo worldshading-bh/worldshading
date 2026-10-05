@@ -1,5 +1,4 @@
 {
- "actions": [],
  "allow_rename": 1,
  "autoname": "field:strategy_name",
  "creation": "2026-09-24 00:00:00",
@@ -14,7 +13,6 @@
   "enabled",
   "is_default",
   "cost_expense_section",
-  "cost_basis",
   "expense_treatment",
   "indirect_expense_account",
   "column_break_cost",
@@ -22,12 +20,9 @@
   "vat_percent",
   "regular_section",
   "regular_price_list",
-  "column_break_regular",
   "regular_markup",
-  "b2b_section",
-  "enable_b2b_pricing",
+  "column_break_17",
   "b2b_price_list",
-  "column_break_b2b",
   "b2b_markup",
   "quantity_section",
   "enable_quantity_pricing",
@@ -78,8 +73,7 @@
    "fieldname": "is_default",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Is Default",
-   "description": "Only one enabled default strategy is allowed per company."
+   "label": "Is Default"
   },
   {
    "fieldname": "cost_expense_section",
@@ -87,18 +81,11 @@
    "label": "Cost, Expense and Tax"
   },
   {
-   "default": "Current Valuation Rate",
-   "fieldname": "cost_basis",
-   "fieldtype": "Select",
-   "label": "Cost Basis",
-   "options": "Current Valuation Rate\nLatest Purchase Rate\nWeighted Average Purchase Rate",
-   "reqd": 1
-  },
-  {
    "default": "Include Expense",
+   "description": "Controls whether the allocated indirect expense per unit is included in the cost used to calculate recommended prices.",
    "fieldname": "expense_treatment",
    "fieldtype": "Select",
-   "label": "Expense Treatment",
+   "label": "Expense in Price Calculation",
    "options": "Include Expense\nExclude Expense",
    "reqd": 1
   },
@@ -143,10 +130,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "column_break_regular",
-   "fieldtype": "Column Break"
-  },
-  {
    "default": "43",
    "fieldname": "regular_markup",
    "fieldtype": "Percent",
@@ -154,18 +137,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "b2b_section",
-   "fieldtype": "Section Break",
-   "label": "B2B Pricing"
-  },
-  {
-   "default": "1",
-   "fieldname": "enable_b2b_pricing",
-   "fieldtype": "Check",
-   "label": "Enable B2B Pricing"
-  },
-  {
-   "depends_on": "enable_b2b_pricing",
    "fieldname": "b2b_price_list",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -173,12 +144,8 @@
    "options": "Price List"
   },
   {
-   "fieldname": "column_break_b2b",
-   "fieldtype": "Column Break"
-  },
-  {
    "default": "33",
-   "depends_on": "enable_b2b_pricing",
+   "depends_on": "b2b_price_list",
    "fieldname": "b2b_markup",
    "fieldtype": "Percent",
    "label": "B2B Markup %"
@@ -217,12 +184,15 @@
   {
    "fieldname": "rounding_policy_help",
    "fieldtype": "HTML",
-   "options": "<p><b>Fixed company policy:</b> Below BHD 0.100: BHD 0.005; BHD 0.100–29.999: BHD 0.100; BHD 30–99.999: BHD 0.500; BHD 100–999.999: BHD 1.000; BHD 1,000 and above: BHD 10.000. Prices always round upward.</p>"
+   "options": "<p><b>Fixed company policy:</b> Below BHD 0.100: BHD 0.005; BHD 0.100\u201329.999: BHD 0.100; BHD 30\u201399.999: BHD 0.500; BHD 100\u2013999.999: BHD 1.000; BHD 1,000 and above: BHD 10.000. Prices always round upward.</p>"
+  },
+  {
+   "fieldname": "column_break_17",
+   "fieldtype": "Column Break"
   }
  ],
- "links": [],
- "modified": "2026-09-24 00:00:00",
- "modified_by": "Administrator",
+ "modified": "2026-10-04 10:04:24.508089",
+ "modified_by": "hilal@worldshading.com",
  "module": "Worldshading",
  "name": "Pricing Strategy Template",
  "owner": "Administrator",
@@ -267,7 +237,6 @@
    "role": "Sales User"
   }
  ],
- "quick_entry": 0,
  "sort_field": "modified",
  "sort_order": "DESC",
  "title_field": "strategy_name",

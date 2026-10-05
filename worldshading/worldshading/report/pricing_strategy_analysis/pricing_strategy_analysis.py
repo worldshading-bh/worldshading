@@ -1,12 +1,17 @@
 from __future__ import unicode_literals
 
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
+import hashlib
 import json
 
 import frappe
 from frappe.utils import cint, escape_html, getdate, gzip_decompress
 
+from worldshading.api.pricing_update_notifications import create_pricing_update_note
 from worldshading.reporting.item_wise_sales import get_item_sales_aggregates
+from worldshading.worldshading.doctype.pricing_group.pricing_group import (
+	get_pricing_group_configuration,
+)
 
 
 MONEY_QUANTUM = Decimal("0.001")
@@ -14,12 +19,13 @@ PERCENT_QUANTUM = Decimal("0.001")
 RATIO_QUANTUM = Decimal("0.000001")
 INDIRECT_EXPENSE_ACCOUNT = "Indirect Expenses - WS"
 ITEM_PRICE_UPDATE_LIMIT = 50
+PRICING_RULE_UPDATE_LIMIT = 50
 
 COST_SOURCES = (
 	"Current Valuation Rate",
-	"Latest Purchase Rate",
-	"Weighted Average Purchase Rate"
+	"Latest Valuation Rate"
 )
+COST_SOURCE_ALIASES = {"Latest Purchase Rate": "Latest Valuation Rate"}
 
 
 def _normalize_update_item_codes(item_codes):
@@ -36,6 +42,699 @@ def _normalize_update_item_codes(item_codes):
 		if len(result) == ITEM_PRICE_UPDATE_LIMIT:
 			break
 	return result
+
+
+def _pricing_rule_title(rule_set_name, tier_index, item_code=None, group_index=None):
+	suffix = " - Tier {0}".format(tier_index)
+	if item_code:
+		suffix = " - {0}{1}".format(item_code, suffix)
+	if group_index is not None:
+		suffix += " - Group {0}".format(group_index)
+	prefix = "PSA - "
+	rule_set = str(rule_set_name or "Selected Items").strip()
+	return "{0}{1}{2}".format(prefix, rule_set[:140 - len(prefix) - len(suffix)].rstrip(), suffix)
+
+
+def _default_pricing_rule_set_name(prepared_report):
+	filters = prepared_report.filters or {}
+	return str(filters.get("pricing_group") or filters.get("item_group")
+		or filters.get("brand") or filters.get("item")
+		or "Selected Items").strip()
+
+
+def _normalize_pricing_rule_mode(rule_mode):
+	rule_mode = str(rule_mode or "combined").strip().lower()
+	if rule_mode not in ("combined", "separate", "same_discount"):
+		frappe.throw("Select a valid Pricing Rule creation mode")
+	return rule_mode
+
+
+def _legacy_pricing_rule_title(pricing_strategy, tier_index):
+	identity = "{0}|{1}".format(pricing_strategy, tier_index)
+	digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:12]
+	prefix = "PSA {0} Tier {1}".format(pricing_strategy, tier_index)
+	return "{0} {1}".format(prefix[:126].rstrip(), digest)
+
+
+def _build_pricing_rule_specs(prepared_report, item_codes, rows_by_item, items, currency,
+		rule_mode="combined", rule_set_name=None, mixed_conditions=0):
+	tiers = prepared_report.filters.get("tiers") or []
+	if not tiers:
+		frappe.throw("The saved Prepared Report has no quantity pricing tiers")
+	strategy = prepared_report.filters.get("pricing_strategy") or "Legacy Strategy"
+	rule_mode = _normalize_pricing_rule_mode(rule_mode)
+	rule_set_name = str(rule_set_name or _default_pricing_rule_set_name(prepared_report)).strip()
+	if not rule_set_name:
+		frappe.throw("Rule Set Name is required")
+	mixed_conditions = cint(mixed_conditions) if rule_mode != "separate" else 0
+	selected_items = []
+	for item_code in item_codes:
+		row = rows_by_item.get(item_code)
+		item = items.get(item_code)
+		if not row or not item:
+			frappe.throw("The Pricing Rule update no longer matches the Prepared Report")
+		selected_items.append({"item_code": item_code, "uom": item.stock_uom})
+	def make_spec(tier_index, tier, discount, spec_items, item_code=None, group_index=None):
+		discount = quantize_percent(discount)
+		return {
+			"title": _pricing_rule_title(rule_set_name, tier_index, item_code, group_index),
+			"legacy_title": [
+				_pricing_rule_title(strategy, tier_index),
+				_legacy_pricing_rule_title(strategy, tier_index)
+			] if rule_mode == "combined" else [],
+			"rule_key": "{0}|{1}|{2}".format(tier_index, item_code or "", group_index or ""),
+			"tier_index": tier_index,
+				"minimum_qty": to_decimal(tier.get("minimum")),
+				"maximum_qty": None if tier.get("maximum") is None
+					else to_decimal(tier.get("maximum")),
+			"discount_percentage": discount,
+			"items": list(spec_items),
+			"currency": currency,
+			"company": prepared_report.filters.get("company"),
+			"pricing_strategy": strategy,
+			"rule_set_name": rule_set_name,
+			"rule_mode": rule_mode,
+			"mixed_conditions": mixed_conditions
+		}
+
+	specs = []
+	if rule_mode == "separate":
+		for item in selected_items:
+			for tier_index, tier in enumerate(tiers, 1):
+				value = rows_by_item[item["item_code"]].get(
+					"tier_{0}_discount_percent".format(tier_index))
+				if value is None:
+					frappe.throw("{0} has no valid Tier {1} discount".format(
+						item["item_code"], tier_index))
+				specs.append(make_spec(tier_index, tier, value, [item], item["item_code"]))
+	elif rule_mode == "same_discount":
+		for tier_index, tier in enumerate(tiers, 1):
+			groups = {}
+			for item in selected_items:
+				value = rows_by_item[item["item_code"]].get(
+					"tier_{0}_discount_percent".format(tier_index))
+				if value is None:
+					frappe.throw("{0} has no valid Tier {1} discount".format(
+						item["item_code"], tier_index))
+				discount = quantize_percent(value)
+				groups.setdefault(discount, []).append(item)
+			for group_index, discount in enumerate(sorted(groups), 1):
+				specs.append(make_spec(
+					tier_index, tier, discount, groups[discount], group_index=group_index
+				))
+	else:
+		for tier_index, tier in enumerate(tiers, 1):
+			discounts = []
+			for item_code in item_codes:
+				value = rows_by_item[item_code].get("tier_{0}_discount_percent".format(tier_index))
+				if value is None:
+					frappe.throw("{0} has no valid Tier {1} discount".format(item_code, tier_index))
+				discounts.append(to_decimal(value))
+			discount = sum(discounts, Decimal("0")) / Decimal(len(discounts))
+			specs.append(make_spec(tier_index, tier, discount, selected_items))
+	return specs
+
+
+def _build_pricing_rule_specs_with_groups(prepared_report, item_codes, rows_by_item, items,
+		currency, rule_mode="combined", rule_set_name=None, mixed_conditions=0):
+	grouped = {}
+	ungrouped = []
+	for item_code in item_codes:
+		group_name = (rows_by_item.get(item_code) or {}).get("pricing_group")
+		if group_name:
+			grouped.setdefault(group_name, []).append(item_code)
+		else:
+			ungrouped.append(item_code)
+
+	specs = []
+	tiers = prepared_report.filters.get("tiers") or []
+	for group_name in sorted(grouped):
+		group_codes = grouped[group_name]
+		expected_codes = sorted(
+			code for code, row in rows_by_item.items()
+			if row.get("pricing_group") == group_name
+		)
+		status = rows_by_item[group_codes[0]].get("pricing_group_status")
+		if sorted(group_codes) != expected_codes or status not in (
+				"Ready", "Different Current Prices"):
+			frappe.throw("Pricing Group {0} is not complete and updateable".format(group_name))
+		spec_items = [
+			{"item_code": code, "uom": items[code].stock_uom} for code in group_codes
+		]
+		reference_field = "group_recommended_b2b_net" \
+			if prepared_report.filters.get("b2b_price_list") else "group_recommended_regular_net"
+		reference_price = rows_by_item[group_codes[0]].get(reference_field)
+		if not _valid_group_price(reference_price):
+			frappe.throw("Pricing Group {0} has no valid reference price".format(group_name))
+		for tier_index, tier in enumerate(tiers, 1):
+			tier_price = rows_by_item[group_codes[0]].get(
+				"group_tier_{0}_net".format(tier_index)
+			)
+			if not _valid_group_price(tier_price):
+				frappe.throw("Pricing Group {0} has no valid Tier {1} price".format(
+					group_name, tier_index
+				))
+			discount = _percentage_difference(reference_price, tier_price)
+			specs.append({
+				"title": _pricing_rule_title(group_name, tier_index),
+				"legacy_title": [],
+				"rule_key": "pricing_group|{0}|{1}".format(group_name, tier_index),
+				"tier_index": tier_index,
+				"minimum_qty": to_decimal(tier.get("minimum")),
+				"maximum_qty": None if tier.get("maximum") is None
+					else to_decimal(tier.get("maximum")),
+				"discount_percentage": quantize_percent(discount),
+				"items": spec_items,
+				"currency": currency,
+				"company": prepared_report.filters.get("company"),
+				"pricing_strategy": prepared_report.filters.get("pricing_strategy")
+					or "Legacy Strategy",
+				"rule_set_name": group_name,
+				"rule_mode": "pricing_group",
+				"mixed_conditions": cint(mixed_conditions)
+			})
+
+	if ungrouped:
+		specs.extend(_build_pricing_rule_specs(
+			prepared_report, ungrouped, rows_by_item, items, currency,
+			rule_mode, rule_set_name, mixed_conditions
+		))
+	return specs
+
+
+def _apply_pricing_rule_spec(doc, spec, prepared_report_name):
+	doc.title = spec["title"]
+	doc.apply_on = "Item Code"
+	doc.price_or_product_discount = "Price"
+	doc.selling = 1
+	doc.buying = 0
+	doc.company = spec["company"]
+	doc.currency = spec["currency"]
+	doc.min_qty = spec["minimum_qty"]
+	doc.max_qty = spec["maximum_qty"]
+	doc.rate_or_discount = "Discount Percentage"
+	doc.discount_percentage = spec["discount_percentage"]
+	doc.mixed_conditions = cint(spec.get("mixed_conditions"))
+	doc.for_price_list = ""
+	doc.disable = 0
+	doc.rule_description = (
+		"[Pricing Strategy Analysis] Rule Set: {0}; Mode: {1}; Strategy: {2}; "
+		"Tier: {3}; Prepared Report: {4}"
+	).format(spec.get("rule_set_name") or "Selected Items", spec.get("rule_mode") or "combined",
+		spec["pricing_strategy"], spec["tier_index"], prepared_report_name)
+	doc.set("items", [])
+	for item in spec["items"]:
+		doc.append("items", item)
+	if doc.meta.has_field("pricing_prepared_report"):
+		doc.pricing_prepared_report = prepared_report_name
+
+
+def _pricing_rule_preview_cache_key(user, token):
+	return "pricing-strategy-pricing-rule-preview:{0}:{1}".format(user, token)
+
+
+def _get_pricing_rule_target(title, legacy_title=None):
+	target_name = title if frappe.db.exists("Pricing Rule", title) else None
+	legacy_titles = legacy_title if isinstance(legacy_title, (list, tuple)) else [legacy_title]
+	for old_title in legacy_titles:
+		if not target_name and old_title and frappe.db.exists("Pricing Rule", old_title):
+			target_name = old_title
+			break
+	if not target_name:
+		return None
+	doc = frappe.get_doc("Pricing Rule", target_name)
+	doc.check_permission("read")
+	if not (doc.rule_description or "").startswith("[Pricing Strategy Analysis]"):
+		frappe.throw("Pricing Rule title is already used by a rule outside this workflow: {0}".format(title))
+	items = doc.get("items") or []
+	return {
+		"name": doc.name,
+		"modified": str(doc.modified or ""),
+		"discount_percentage": quantize_percent(doc.discount_percentage),
+		"minimum_qty": to_decimal(doc.min_qty),
+		"maximum_qty": None if doc.max_qty in (None, "", 0) else to_decimal(doc.max_qty),
+		"items": sorted((row.item_code, row.uom or "") for row in items),
+		"disable": cint(doc.disable),
+		"mixed_conditions": cint(doc.mixed_conditions)
+	}
+
+
+def _pricing_rule_target_matches(target, spec):
+	return bool(target) and target["discount_percentage"] == spec["discount_percentage"] \
+		and target["minimum_qty"] == spec["minimum_qty"] \
+		and target["maximum_qty"] == spec["maximum_qty"] \
+		and target["items"] == sorted(
+			(item["item_code"], item.get("uom") or "") for item in spec["items"]
+		) \
+		and target.get("mixed_conditions", 0) == cint(spec.get("mixed_conditions")) \
+		and not target["disable"]
+
+
+def _ranges_overlap(first_minimum, first_maximum, second_minimum, second_maximum):
+	first_maximum = first_maximum if first_maximum is not None else Decimal("Infinity")
+	second_maximum = second_maximum if second_maximum is not None else Decimal("Infinity")
+	return first_minimum <= second_maximum and second_minimum <= first_maximum
+
+
+def _find_pricing_rule_conflicts(specs):
+	item_codes = sorted(set(
+		item["item_code"] for spec in specs for item in spec["items"]
+	))
+	if not item_codes:
+		return []
+	children = frappe.get_all(
+		"Pricing Rule Item Code", filters={"item_code": ["in", item_codes]},
+		fields=["parent", "item_code"], limit_page_length=0
+	)
+	items_by_rule = {}
+	for child in children:
+		items_by_rule.setdefault(child.parent, set()).add(child.item_code)
+	parents = list(items_by_rule)
+	if not parents:
+		return []
+	rules = frappe.get_all(
+		"Pricing Rule",
+		filters={"name": ["in", parents], "disable": 0, "selling": 1, "apply_on": "Item Code"},
+		fields=[
+			"name", "company", "price_or_product_discount", "min_qty", "max_qty",
+			"applicable_for"
+		], limit_page_length=0
+	)
+	target_titles = set()
+	for spec in specs:
+		target_titles.add(spec["title"])
+		for legacy_title in spec.get("legacy_title") or []:
+			target_titles.add(legacy_title)
+	conflicts = []
+	for spec in specs:
+		spec_item_codes = set(item["item_code"] for item in spec["items"])
+		for rule in rules:
+			common_items = spec_item_codes.intersection(items_by_rule.get(rule.name, set()))
+			if rule.name in target_titles or not common_items:
+				continue
+			if rule.company and rule.company != spec["company"]:
+				continue
+			if rule.price_or_product_discount != "Price" or rule.applicable_for:
+				continue
+			rule_minimum = to_decimal(rule.min_qty)
+			rule_maximum = None if rule.max_qty in (None, "", 0) else to_decimal(rule.max_qty)
+			if _ranges_overlap(
+				spec["minimum_qty"], spec["maximum_qty"], rule_minimum, rule_maximum
+			):
+				conflicts.append("{0} conflicts with {1}".format(
+					", ".join(sorted(common_items)), rule.name
+				))
+	return sorted(set(conflicts))
+
+
+def _legacy_preview_pricing_rule_update(prepared_report_name=None, item_codes=None):
+	prepared_report = _get_prepared_pricing_report(prepared_report_name)
+	raw_item_codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
+	normalized_item_codes = _normalize_update_item_codes(raw_item_codes)
+	if not normalized_item_codes:
+		frappe.throw("There are no report Items available for Pricing Rule update")
+	if not frappe.has_permission("Pricing Rule", "read"):
+		frappe.throw("You do not have permission to preview Pricing Rules", frappe.PermissionError)
+	prepared_rows = _get_prepared_pricing_rows(prepared_report.name)
+	rows_by_item = {row.get("item_code"): row for row in prepared_rows if row.get("item_code")}
+	missing = [item_code for item_code in normalized_item_codes if item_code not in rows_by_item]
+	if missing:
+		frappe.throw("These Items are not present in the saved Prepared Report: {0}".format(
+			", ".join(missing)
+		))
+	items = _get_update_items(normalized_item_codes)
+	currency = frappe.db.get_value("Company", prepared_report.filters.get("company"), "default_currency")
+	if not currency:
+		frappe.throw("Company currency is required for Pricing Rule update")
+	specs = _build_pricing_rule_specs(
+		prepared_report, normalized_item_codes, rows_by_item, items, currency
+	)
+	conflicts = _find_pricing_rule_conflicts(specs)
+	if conflicts:
+		frappe.throw("Conflicting active Pricing Rules must be resolved first: {0}".format(
+			"; ".join(conflicts)
+		))
+	entries = []
+	counts = {"create": 0, "update": 0, "unchanged": 0}
+	for spec in specs:
+		target = _get_pricing_rule_target(spec["title"], spec.get("legacy_title"))
+		action = "Create" if target is None else (
+			"Unchanged" if _pricing_rule_target_matches(target, spec) else "Update"
+		)
+		counts[action.lower()] += 1
+		entry = dict(spec)
+		entry.update({
+			"action": action,
+			"pricing_rule_name": target["name"] if target else None,
+			"target_modified": target["modified"] if target else None,
+			"current_rate": float(target["rate"]) if target else None,
+			"rate": float(spec["rate"]),
+			"minimum_qty": float(spec["minimum_qty"]),
+			"maximum_qty": float(spec["maximum_qty"]) if spec["maximum_qty"] is not None else None
+		})
+		entries.append(entry)
+	token = frappe.generate_hash(length=32)
+	frappe.cache().set_value(
+		_pricing_rule_preview_cache_key(frappe.session.user, token),
+		{"prepared_report": prepared_report.name, "user": frappe.session.user, "entries": entries},
+		expires_in_sec=600
+	)
+	return {
+		"token": token, "prepared_report": prepared_report.name, "entries": entries,
+		"counts": counts, "requested_item_count": len(normalized_item_codes),
+		"limited_to_first_50": len(raw_item_codes or []) > PRICING_RULE_UPDATE_LIMIT
+	}
+
+
+def _legacy_execute_pricing_rule_update(preview_token=None):
+	preview_token = str(preview_token or "").strip()
+	cache = frappe.cache()
+	cache_key = _pricing_rule_preview_cache_key(frappe.session.user, preview_token)
+	payload = cache.get_value(cache_key) if preview_token else None
+	payload = frappe.parse_json(payload) if isinstance(payload, str) else payload
+	if not isinstance(payload, dict) or payload.get("user") != frappe.session.user:
+		frappe.throw("The Pricing Rule update preview is invalid or expired")
+	prepared_report = _get_prepared_pricing_report(payload.get("prepared_report"))
+	entries = payload.get("entries") or []
+	item_codes = _normalize_update_item_codes([entry.get("item_code") for entry in entries])
+	prepared_rows = _get_prepared_pricing_rows(prepared_report.name)
+	rows_by_item = {row.get("item_code"): row for row in prepared_rows if row.get("item_code")}
+	items = _get_update_items(item_codes)
+	currency = frappe.db.get_value("Company", prepared_report.filters.get("company"), "default_currency")
+	specs = _build_pricing_rule_specs(prepared_report, item_codes, rows_by_item, items, currency)
+	if len(entries) != len(specs):
+		frappe.throw("The Pricing Rule update preview no longer matches the Prepared Report")
+	conflicts = _find_pricing_rule_conflicts(specs)
+	if conflicts:
+		frappe.throw("Conflicting active Pricing Rules must be resolved first: {0}".format(
+			"; ".join(conflicts)
+		))
+	if any(entry.get("action") == "Create" for entry in entries) \
+			and not frappe.has_permission("Pricing Rule", "create"):
+		frappe.throw("You do not have permission to create Pricing Rules", frappe.PermissionError)
+	created = updated = unchanged = 0
+	affected = []
+	for entry, spec in zip(entries, specs):
+		if entry.get("title") != spec["title"] or quantize_money(entry.get("rate")) != spec["rate"]:
+			frappe.throw("The recommended Pricing Rule changed after preview")
+		target = _get_pricing_rule_target(spec["title"])
+		expected_action = "Create" if target is None else (
+			"Unchanged" if _pricing_rule_target_matches(target, spec) else "Update"
+		)
+		if entry.get("action") != expected_action or (target and target["modified"] != entry.get("target_modified")):
+			frappe.throw("Pricing Rule changed after preview; preview again")
+		if expected_action == "Unchanged":
+			unchanged += 1
+			continue
+		if expected_action == "Create":
+			doc = frappe.new_doc("Pricing Rule")
+			_apply_pricing_rule_spec(doc, spec, prepared_report.name)
+			doc.insert()
+			created += 1
+		else:
+			doc = frappe.get_doc("Pricing Rule", target["name"])
+			doc.check_permission("write")
+			_apply_pricing_rule_spec(doc, spec, prepared_report.name)
+			doc.save()
+			updated += 1
+		_add_pricing_rule_update_comment(doc, prepared_report.name, spec)
+		affected.append(doc.name)
+	cache.delete_value(cache_key)
+	return {"prepared_report": prepared_report.name, "created": created,
+		"updated": updated, "unchanged": unchanged, "pricing_rules": affected}
+
+
+def _add_pricing_rule_update_comment(doc, prepared_report_name, spec):
+	link = '<a href="#Form/Prepared Report/{0}">{1}</a>'.format(
+		escape_html(prepared_report_name), escape_html(prepared_report_name)
+	)
+	doc.add_comment("Comment", (
+		"<b>Pricing Strategy Rule Update</b><br>Prepared Report: {0}<br>"
+		"Pricing Strategy: {1}<br>Quantity: {2} to {3}<br>Discount: {4}%"
+	).format(link, escape_html(spec["pricing_strategy"]), spec["minimum_qty"],
+		spec["maximum_qty"] if spec["maximum_qty"] is not None else "No limit",
+		spec["discount_percentage"]))
+
+
+def _get_bulk_pricing_rule_context(prepared_report, item_codes):
+	prepared_rows = _get_prepared_pricing_rows(prepared_report.name)
+	rows_by_item = {row.get("item_code"): row for row in prepared_rows if row.get("item_code")}
+	missing = [item_code for item_code in item_codes if item_code not in rows_by_item]
+	if missing:
+		frappe.throw("These Items are not present in the saved Prepared Report: {0}".format(
+			", ".join(missing)
+		))
+	items = _get_update_items(item_codes)
+	currency = frappe.db.get_value("Company", prepared_report.filters.get("company"), "default_currency")
+	if not currency:
+		frappe.throw("Company currency is required for Pricing Rule update")
+	return rows_by_item, items, currency
+
+
+def _get_bulk_pricing_rule_summary(prepared_report, item_codes, rule_mode="combined",
+		rule_set_name=None, mixed_conditions=0):
+	rows_by_item, items, currency = _get_bulk_pricing_rule_context(prepared_report, item_codes)
+	group_entries = [
+		{"item_code": item_code, "group_key": rows_by_item[item_code].get("pricing_group")}
+		for item_code in item_codes if rows_by_item[item_code].get("pricing_group")
+	]
+	validate_live_pricing_group_entries(group_entries, rows_by_item, items)
+	specs = _build_pricing_rule_specs_with_groups(
+		prepared_report, item_codes, rows_by_item, items, currency,
+		rule_mode, rule_set_name, mixed_conditions
+	)
+	conflicts = _find_pricing_rule_conflicts(specs)
+	if conflicts:
+		frappe.throw("Conflicting active Pricing Rules must be resolved first: {0}".format(
+			"; ".join(conflicts)
+		))
+	entries = []
+	counts = {"create": 0, "update": 0, "unchanged": 0}
+	for spec in specs:
+		target = _get_pricing_rule_target(spec["title"], spec.get("legacy_title"))
+		action = "Create" if target is None else (
+			"Unchanged" if _pricing_rule_target_matches(target, spec) else "Update"
+		)
+		counts[action.lower()] += 1
+		entries.append({
+			"included": 1, "title": spec["title"], "rule_key": spec["rule_key"],
+			"tier_index": spec["tier_index"], "item_count": len(spec["items"]),
+			"minimum_qty": float(spec["minimum_qty"]),
+			"maximum_qty": float(spec["maximum_qty"]) if spec["maximum_qty"] is not None else None,
+			"suggested_average_discount": float(spec["discount_percentage"]),
+			"final_discount_percentage": float(spec["discount_percentage"]),
+			"current_discount_percentage": float(target["discount_percentage"]) if target else None,
+			"action": action, "pricing_rule_name": target["name"] if target else None,
+			"target_modified": target["modified"] if target else None
+		})
+	return specs, entries, counts
+
+
+def _apply_final_tier_discounts(specs, provided):
+	values = {}
+	for row in provided or []:
+		index = cint(row.get("tier_index")) if isinstance(row, dict) else 0
+		key = str(row.get("rule_key") or index) if isinstance(row, dict) else ""
+		value = to_decimal(row.get("final_discount_percentage")) \
+			if isinstance(row, dict) else Decimal("-1")
+		if key in values or value < 0 or value > 100:
+			frappe.throw("Each final Tier Discount must be between 0 and 100")
+		values[key] = quantize_percent(value)
+	valid_keys = set(str(spec.get("rule_key") or spec["tier_index"]) for spec in specs)
+	if not values or not set(values).issubset(valid_keys):
+		frappe.throw("Select at least one valid quantity tier")
+	specs[:] = [spec for spec in specs
+		if str(spec.get("rule_key") or spec["tier_index"]) in values]
+	for spec in specs:
+		spec["discount_percentage"] = values[str(spec.get("rule_key") or spec["tier_index"])]
+
+
+@frappe.whitelist()
+def preview_bulk_pricing_rule_update(prepared_report_name=None, item_codes=None):
+	prepared_report = _get_prepared_pricing_report(prepared_report_name)
+	raw_item_codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
+	item_codes = _normalize_update_item_codes(raw_item_codes)
+	if not item_codes:
+		frappe.throw("There are no report Items available for Pricing Rule update")
+	if not frappe.has_permission("Pricing Rule", "read"):
+		frappe.throw("You do not have permission to preview Pricing Rules", frappe.PermissionError)
+	rows_by_item, items, currency = _get_bulk_pricing_rule_context(prepared_report, item_codes)
+	tiers = prepared_report.filters.get("tiers") or []
+	if not tiers:
+		frappe.throw("The saved Prepared Report has no quantity pricing tiers")
+	classification = classify_updateable_pricing_groups(
+		list(rows_by_item.values()), item_codes, PRICING_RULE_UPDATE_LIMIT
+	)
+	blocked_groups = classification["blocked_groups"]
+	blocked_codes = set(
+		item_code for item_code, row in rows_by_item.items()
+		if row.get("pricing_group") in blocked_groups
+	)
+	item_codes = [item_code for item_code in item_codes if item_code not in blocked_codes]
+	item_entries, eligible_item_codes, skipped = _build_pricing_rule_item_preview(
+		item_codes, rows_by_item, items, prepared_report.filters
+	)
+	skipped.extend([
+		{"pricing_group": group_name, "reason": reason}
+		for group_name, reason in sorted(blocked_groups.items())
+	])
+	if not item_entries:
+		frappe.throw("None of the selected Items has valid discounts for every quantity tier")
+	token = frappe.generate_hash(length=32)
+	frappe.cache().set_value(
+		_pricing_rule_preview_cache_key(frappe.session.user, token),
+		{"prepared_report": prepared_report.name, "user": frappe.session.user,
+		 "eligible_item_codes": eligible_item_codes}, expires_in_sec=600
+	)
+	return {"token": token, "prepared_report": prepared_report.name,
+		"items": item_entries, "tiers": len(tiers), "skipped": skipped,
+		"blocked_groups": blocked_groups,
+		"default_rule_set_name": _default_pricing_rule_set_name(prepared_report),
+		"limited_to_first_50": len(raw_item_codes or []) > PRICING_RULE_UPDATE_LIMIT}
+
+
+def _build_pricing_rule_item_preview(item_codes, rows_by_item, items, filters):
+	item_entries = []
+	eligible_item_codes = []
+	skipped = []
+	tier_count = len(filters.get("tiers") or [])
+	for item_code in item_codes:
+		row = rows_by_item[item_code]
+		pricing_group = row.get("pricing_group") or ""
+		entry = {
+			"item_code": item_code,
+			"item_name": row.get("item_name") or items[item_code].item_name,
+			"pricing_group": pricing_group,
+			"group_key": pricing_group
+		}
+		invalid_reason = None
+		for tier_index in range(1, tier_count + 1):
+			if pricing_group:
+				reference_field = "group_recommended_b2b_net" \
+					if filters.get("b2b_price_list") else "group_recommended_regular_net"
+				value = _percentage_difference(
+					row.get(reference_field), row.get("group_tier_{0}_net".format(tier_index))
+				) if _valid_group_price(row.get(reference_field)) and _valid_group_price(
+					row.get("group_tier_{0}_net".format(tier_index))) else None
+			else:
+				value = row.get("tier_{0}_discount_percent".format(tier_index))
+			if value is None:
+				invalid_reason = "No valid Tier {0} discount".format(tier_index)
+				break
+			entry["tier_{0}_discount_percent".format(tier_index)] = float(quantize_percent(value))
+		if invalid_reason:
+			skipped.append({"item_code": item_code, "reason": invalid_reason})
+			continue
+		item_entries.append(entry)
+		eligible_item_codes.append(item_code)
+	return item_entries, eligible_item_codes, skipped
+
+
+@frappe.whitelist()
+def preview_bulk_pricing_rule_summary(preview_token=None, item_codes=None, rule_mode="combined",
+		rule_set_name=None, mixed_conditions=0):
+	cache = frappe.cache()
+	cache_key = _pricing_rule_preview_cache_key(frappe.session.user, str(preview_token or ""))
+	payload = cache.get_value(cache_key)
+	payload = frappe.parse_json(payload) if isinstance(payload, str) else payload
+	if not isinstance(payload, dict) or payload.get("user") != frappe.session.user:
+		frappe.throw("The Pricing Rule update preview is invalid or expired")
+	selected = _normalize_update_item_codes(item_codes)
+	eligible = payload.get("eligible_item_codes") or []
+	if not selected or any(item_code not in eligible for item_code in selected):
+		frappe.throw("Select at least one valid Item for Pricing Rule update")
+	prepared_report = _get_prepared_pricing_report(payload.get("prepared_report"))
+	rule_mode = _normalize_pricing_rule_mode(rule_mode)
+	rule_set_name = str(rule_set_name or "").strip()
+	if not rule_set_name:
+		frappe.throw("Rule Set Name is required")
+	mixed_conditions = cint(mixed_conditions) if rule_mode != "separate" else 0
+	specs, entries, counts = _get_bulk_pricing_rule_summary(
+		prepared_report, selected, rule_mode, rule_set_name, mixed_conditions
+	)
+	payload["selected_item_codes"] = selected
+	payload["summary_entries"] = entries
+	payload["rule_config"] = {"rule_mode": rule_mode, "rule_set_name": rule_set_name,
+		"mixed_conditions": mixed_conditions}
+	cache.set_value(cache_key, payload, expires_in_sec=600)
+	return {"token": preview_token, "prepared_report": prepared_report.name,
+		"entries": entries, "counts": counts, "selected_item_count": len(selected),
+		"rule_mode": rule_mode, "rule_set_name": rule_set_name,
+		"mixed_conditions": mixed_conditions}
+
+
+@frappe.whitelist()
+def execute_bulk_pricing_rule_update(preview_token=None, tier_discounts=None):
+	cache = frappe.cache()
+	cache_key = _pricing_rule_preview_cache_key(frappe.session.user, str(preview_token or ""))
+	payload = cache.get_value(cache_key)
+	payload = frappe.parse_json(payload) if isinstance(payload, str) else payload
+	if not isinstance(payload, dict) or payload.get("user") != frappe.session.user:
+		frappe.throw("The Pricing Rule update preview is invalid or expired")
+	selected = payload.get("selected_item_codes") or []
+	if not selected:
+		frappe.throw("Review the selected Items before updating Pricing Rules")
+	prepared_report = _get_prepared_pricing_report(payload.get("prepared_report"))
+	config = payload.get("rule_config") or {}
+	specs, entries, counts = _get_bulk_pricing_rule_summary(
+		prepared_report, selected, config.get("rule_mode"), config.get("rule_set_name"),
+		config.get("mixed_conditions")
+	)
+	provided = frappe.parse_json(tier_discounts) if isinstance(tier_discounts, str) else tier_discounts
+	_apply_final_tier_discounts(specs, provided)
+	conflicts = _find_pricing_rule_conflicts(specs)
+	if conflicts:
+		frappe.throw("Conflicting active Pricing Rules must be resolved first: {0}".format(
+			"; ".join(conflicts)
+		))
+	if any(_get_pricing_rule_target(spec["title"], spec.get("legacy_title")) is None for spec in specs) \
+			and not frappe.has_permission("Pricing Rule", "create"):
+		frappe.throw("You do not have permission to create Pricing Rules", frappe.PermissionError)
+	created = updated = unchanged = 0
+	affected = []
+	notification_changes = []
+	preview_by_key = {str(row.get("rule_key") or row["tier_index"]): row
+		for row in payload.get("summary_entries") or []}
+	for spec in specs:
+		target = _get_pricing_rule_target(spec["title"], spec.get("legacy_title"))
+		preview = preview_by_key.get(str(spec.get("rule_key") or spec["tier_index"]))
+		if not preview or (target and target["modified"] != preview.get("target_modified")):
+			frappe.throw("Pricing Rule changed after preview; preview again")
+		if target and _pricing_rule_target_matches(target, spec):
+			unchanged += 1
+			continue
+		if not notification_changes and not frappe.has_permission("Note", "create"):
+			frappe.throw("You do not have permission to create the pricing announcement", frappe.PermissionError)
+		if target is None:
+			doc = frappe.new_doc("Pricing Rule")
+			_apply_pricing_rule_spec(doc, spec, prepared_report.name)
+			doc.insert()
+			created += 1
+		else:
+			target_name = target["name"]
+			if target_name != spec["title"]:
+				target_name = frappe.rename_doc("Pricing Rule", target_name, spec["title"])
+			doc = frappe.get_doc("Pricing Rule", target_name)
+			doc.check_permission("write")
+			_apply_pricing_rule_spec(doc, spec, prepared_report.name)
+			doc.save()
+			updated += 1
+		_add_pricing_rule_update_comment(doc, prepared_report.name, spec)
+		affected.append(doc.name)
+		notification_changes.append({
+			"rule_name": doc.name,
+			"item_codes": [row.item_code for row in doc.get("items")],
+			"minimum_qty": doc.min_qty, "maximum_qty": doc.max_qty,
+			"discount_percentage": doc.discount_percentage,
+			"disabled": doc.disable, "mixed_conditions": doc.mixed_conditions
+		})
+	notification_note = create_pricing_update_note(
+		"pricing_rule", prepared_report.name, notification_changes
+	) if notification_changes else None
+	cache.delete_value(cache_key)
+	return {"prepared_report": prepared_report.name, "created": created,
+		"updated": updated, "unchanged": unchanged, "pricing_rules": affected,
+		"notification_note": notification_note}
 
 
 def _get_prepared_pricing_report(prepared_report_name):
@@ -62,8 +761,28 @@ def _get_prepared_pricing_report(prepared_report_name):
 		frappe.throw("The Prepared Report filters are invalid")
 	if not isinstance(filters, dict):
 		frappe.throw("The Prepared Report filters are invalid")
-	prepared_report.filters = validate_and_normalize_filters(filters, apply_strategy=False)
+	prepared_report.saved_filters = filters
+	prepared_report.filters = _normalize_prepared_report_filters(filters)
 	return prepared_report
+
+
+@frappe.whitelist()
+def get_prepared_pricing_strategy_filters(prepared_report_name=None):
+	prepared_report = _get_prepared_pricing_report(prepared_report_name)
+	return prepared_report.saved_filters
+
+
+def _normalize_prepared_report_filters(filters):
+	normalized = validate_and_normalize_filters(filters, apply_strategy=False)
+	if not normalized.get("tiers") and normalized.get("pricing_strategy"):
+		settings = _get_pricing_strategy_settings(
+			normalized.get("pricing_strategy"), normalized.get("company")
+		)
+		if settings.get("show_pricing_rule_strategy") and settings.get("tiers"):
+			normalized["show_pricing_rule_strategy"] = True
+			normalized["tiers"] = settings["tiers"]
+			normalized["gap_messages"] = _validate_tiers(normalized["tiers"])
+	return normalized
 
 
 def _get_pricing_strategy_settings(strategy_name, company=None):
@@ -86,16 +805,15 @@ def _get_pricing_strategy_settings(strategy_name, company=None):
 	return {
 		"pricing_strategy": strategy.name,
 		"company": strategy.company,
-		"cost_source": strategy.cost_basis,
 		"exclude_expense_from_pricing": strategy.expense_treatment == "Exclude Expense",
 		"indirect_expense_account": strategy.indirect_expense_account,
 		"expense_allocation_method": strategy.expense_allocation_method,
 		"vat_percent": to_decimal(strategy.vat_percent),
 		"regular_price_list": strategy.regular_price_list,
 		"regular_markup": to_decimal(strategy.regular_markup),
-		"enable_b2b_pricing": bool(cint(strategy.enable_b2b_pricing)),
-		"b2b_price_list": strategy.b2b_price_list if cint(strategy.enable_b2b_pricing) else None,
-		"b2b_markup": to_decimal(strategy.b2b_markup) if cint(strategy.enable_b2b_pricing) else Decimal("0"),
+		"enable_b2b_pricing": bool(strategy.b2b_price_list),
+		"b2b_price_list": strategy.b2b_price_list or None,
+		"b2b_markup": to_decimal(strategy.b2b_markup) if strategy.b2b_price_list else Decimal("0"),
 		"show_pricing_rule_strategy": bool(cint(strategy.enable_quantity_pricing)),
 		"tiers": tiers
 	}
@@ -139,9 +857,12 @@ def _get_prepared_pricing_rows(prepared_report_name):
 
 
 def _get_update_items(item_codes):
+	fields = ["name", "item_name", "item_group", "stock_uom"]
+	if frappe.get_meta("Item").has_field("pricing_group"):
+		fields.append("pricing_group")
 	rows = frappe.get_list(
 		"Item", filters={"name": ["in", item_codes], "disabled": 0},
-		fields=["name", "item_name", "item_group", "stock_uom"], limit_page_length=0
+		fields=fields, limit_page_length=0
 	)
 	items = {row.name: row for row in rows}
 	missing = [item_code for item_code in item_codes if item_code not in items]
@@ -261,19 +982,47 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 			)
 		)
 
+	classification = classify_updateable_pricing_groups(
+		prepared_rows, normalized_item_codes, ITEM_PRICE_UPDATE_LIMIT
+	)
+	blocked_groups = classification["blocked_groups"]
+	blocked_codes = set(
+		row.get("item_code") for row in prepared_rows
+		if row.get("pricing_group") in blocked_groups
+	)
+	normalized_item_codes = [
+		item_code for item_code in normalized_item_codes if item_code not in blocked_codes
+	]
+	if not normalized_item_codes:
+		frappe.throw("None of the selected Items belongs to a complete updateable Pricing Group")
+
 	items = _get_update_items(normalized_item_codes)
 	price_lists = _get_update_price_lists(prepared_report.filters)
 	entries = []
+	skipped = [
+		{"pricing_group": group_name, "reason": reason}
+		for group_name, reason in sorted(blocked_groups.items())
+	]
 	counts = {"create": 0, "update": 0, "unchanged": 0}
 	for item_code in normalized_item_codes:
 		item = items[item_code]
 		saved_row = rows_by_item[item_code]
 		for price_list in price_lists:
-			new_rate = quantize_money(saved_row.get(price_list.recommendation_field))
+			pricing_group = saved_row.get("pricing_group") or ""
+			group_field = {
+				"recommended_regular_net": "group_recommended_regular_net",
+				"recommended_b2b_net": "group_recommended_b2b_net"
+			}.get(price_list.recommendation_field)
+			individual_rate = quantize_money(saved_row.get(price_list.recommendation_field))
+			group_rate = quantize_money(saved_row.get(group_field)) \
+				if pricing_group and group_field else None
+			new_rate = group_rate if group_rate and group_rate > 0 else individual_rate
 			if new_rate <= 0:
-				frappe.throw(
-					"{0} has no valid recommended {1} price".format(item_code, price_list.kind)
-				)
+				skipped.append({
+					"item_code": item_code, "price_kind": price_list.kind,
+					"reason": "No valid recommended {0} price".format(price_list.kind)
+				})
+				continue
 			target = _resolve_item_price_target(
 				item, price_list, prepared_report.filters["to_date"]
 			)
@@ -298,6 +1047,10 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 				"currency": price_list.currency,
 				"current_rate": float(target["rate"]) if target["rate"] is not None else None,
 				"new_rate": float(new_rate),
+				"individual_rate": float(individual_rate) if individual_rate > 0 else None,
+				"group_rate": float(group_rate) if group_rate and group_rate > 0 else None,
+				"pricing_group": pricing_group,
+				"group_key": pricing_group,
 				"action": action,
 				"item_price_name": target["name"],
 				"target_modified": target["modified"],
@@ -305,6 +1058,8 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 				"warning": warning
 			})
 
+	if not entries:
+		frappe.throw("None of the selected Items has a valid recommended Item Price")
 	token = frappe.generate_hash(length=32)
 	payload = {
 		"prepared_report": prepared_report.name,
@@ -323,12 +1078,88 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 		"source_row_count": len(rows_by_item),
 		"limited_to_first_50": len(unique_requested) > ITEM_PRICE_UPDATE_LIMIT,
 		"entries": entries,
+		"skipped": skipped,
+		"blocked_groups": blocked_groups,
 		"counts": counts
 	}
 
 
+def _filter_item_price_preview_entries(entries, selected_rows=None):
+	if selected_rows is None:
+		return entries
+	selected_rows = frappe.parse_json(selected_rows) if isinstance(selected_rows, str) else selected_rows
+	if not isinstance(selected_rows, list):
+		frappe.throw("Select valid Item Price rows")
+	requested = []
+	seen = set()
+	for value in selected_rows:
+		key = str(value or "").strip()
+		if not key or key in seen:
+			frappe.throw("Select valid Item Price rows")
+		seen.add(key)
+		requested.append(key)
+	available = {
+		"{0}|{1}".format(entry.get("item_code"), entry.get("price_list")): entry
+		for entry in entries if isinstance(entry, dict)
+	}
+	if not requested or any(key not in available for key in requested):
+		frappe.throw("Select at least one valid Item Price row")
+	selected = [available[key] for key in requested]
+	selected_groups = set(entry.get("group_key") for entry in selected if entry.get("group_key"))
+	for group_key in selected_groups:
+		available_keys = set(
+			"{0}|{1}".format(entry.get("item_code"), entry.get("price_list"))
+			for entry in entries if entry.get("group_key") == group_key
+		)
+		selected_keys = set(
+			"{0}|{1}".format(entry.get("item_code"), entry.get("price_list"))
+			for entry in selected if entry.get("group_key") == group_key
+		)
+		if available_keys != selected_keys:
+			frappe.throw(
+				"Keep or remove every Item Price row for Pricing Group {0}.".format(group_key)
+			)
+	return selected
+
+
+def validate_live_pricing_group_entries(entries, rows_by_item, items):
+	group_names = sorted(set(
+		entry.get("group_key") for entry in entries if entry.get("group_key")
+	))
+	if not group_names:
+		return
+	live_membership = get_pricing_group_membership(group_names)
+	for group_name in group_names:
+		definition = live_membership.get(group_name) or {"disabled": 1, "item_codes": []}
+		if cint(definition.get("disabled")):
+			frappe.throw("Pricing Group {0} is disabled; preview again".format(group_name))
+		snapshot_codes = set(
+			item_code for item_code, row in rows_by_item.items()
+			if row.get("pricing_group") == group_name
+		)
+		entry_codes = set(
+			entry.get("item_code") for entry in entries
+			if entry.get("group_key") == group_name
+		)
+		live_codes = set(definition.get("item_codes") or [])
+		if not snapshot_codes or snapshot_codes != entry_codes or snapshot_codes != live_codes:
+			frappe.throw(
+				"Pricing Group {0} membership changed after preview; rebuild and preview again".format(
+					group_name
+				)
+			)
+		for item_code in snapshot_codes:
+			item = items.get(item_code)
+			if not item or getattr(item, "pricing_group", None) != group_name:
+				frappe.throw(
+					"Pricing Group {0} membership changed after preview; rebuild and preview again".format(
+						group_name
+					)
+				)
+
+
 @frappe.whitelist()
-def execute_item_price_update(preview_token=None):
+def execute_item_price_update(preview_token=None, selected_rows=None):
 	preview_token = str(preview_token or "").strip()
 	if not preview_token:
 		frappe.throw("Item Price update preview token is required")
@@ -343,6 +1174,7 @@ def execute_item_price_update(preview_token=None):
 	entries = payload.get("entries")
 	if not isinstance(entries, list) or not entries:
 		frappe.throw("The Item Price update preview is invalid")
+	entries = _filter_item_price_preview_entries(entries, selected_rows)
 
 	prepared_report = _get_prepared_pricing_report(payload.get("prepared_report"))
 	prepared_rows = _get_prepared_pricing_rows(prepared_report.name)
@@ -355,6 +1187,7 @@ def execute_item_price_update(preview_token=None):
 	if not item_codes or len(entries) > ITEM_PRICE_UPDATE_LIMIT * 2:
 		frappe.throw("The Item Price update preview exceeds the allowed limit")
 	items = _get_update_items(item_codes)
+	validate_live_pricing_group_entries(entries, rows_by_item, items)
 	price_lists = _get_update_price_lists(prepared_report.filters)
 	price_lists_by_name = {price_list.name: price_list for price_list in price_lists}
 
@@ -373,7 +1206,14 @@ def execute_item_price_update(preview_token=None):
 		if not item or not price_list or not saved_row:
 			frappe.throw("The Item Price update preview no longer matches the Prepared Report")
 		new_rate = quantize_money(entry.get("new_rate"))
-		saved_rate = quantize_money(saved_row.get(price_list.recommendation_field))
+		group_field = {
+			"recommended_regular_net": "group_recommended_regular_net",
+			"recommended_b2b_net": "group_recommended_b2b_net"
+		}.get(price_list.recommendation_field)
+		saved_rate = quantize_money(
+			saved_row.get(group_field) if entry.get("group_key") and group_field
+			else saved_row.get(price_list.recommendation_field)
+		)
 		if new_rate <= 0 or new_rate != saved_rate:
 			frappe.throw("The recommended Item Price changed after preview")
 		if entry.get("currency") != price_list.currency:
@@ -403,10 +1243,15 @@ def execute_item_price_update(preview_token=None):
 			item_price.check_permission("write")
 			update_docs[(item_code, price_list.name)] = item_price
 
+	if any(entry["action"] != "Unchanged" for entry in entries) \
+			and not frappe.has_permission("Note", "create"):
+		frappe.throw("You do not have permission to create the pricing announcement", frappe.PermissionError)
+
 	created = 0
 	updated = 0
 	unchanged = 0
 	affected_item_prices = []
+	notification_changes = []
 	for entry in entries:
 		action = entry["action"]
 		new_rate = quantize_money(entry["new_rate"])
@@ -439,14 +1284,27 @@ def execute_item_price_update(preview_token=None):
 			prepared_report.filters.get("pricing_strategy")
 		)
 		affected_item_prices.append(item_price.name)
+		notification_changes.append({
+			"item_code": item_price.item_code,
+			"item_name": item_price.item_name or items[entry["item_code"]].item_name,
+			"price_list": item_price.price_list, "uom": item_price.uom,
+			"price_kind": entry.get("price_kind"),
+			"currency": item_price.currency, "old_rate": previous_rate,
+			"new_rate": item_price.price_list_rate,
+			"workflow_state": item_price.get("workflow_state")
+		})
 
+	notification_note = create_pricing_update_note(
+		"item_price", prepared_report.name, notification_changes
+	) if notification_changes else None
 	cache.delete_value(cache_key)
 	return {
 		"prepared_report": prepared_report.name,
 		"created": created,
 		"updated": updated,
 		"unchanged": unchanged,
-		"item_prices": affected_item_prices
+		"item_prices": affected_item_prices,
+		"notification_note": notification_note
 	}
 
 
@@ -571,9 +1429,9 @@ def get_suggested_action(current_price, recommended_price, increment):
 	return "Keep Price"
 
 
-def calculate_expense_allocation(sales_qty, sales_value, current_normal_price, expense_ratio):
+def calculate_expense_allocation(sales_qty, net_cogs, selected_base_cost, expense_ratio):
 	sales_qty = to_decimal(sales_qty)
-	sales_value = to_decimal(sales_value)
+	net_cogs = to_decimal(net_cogs)
 	expense_ratio = to_decimal(expense_ratio)
 	result = {"allocated_expense": None, "expense_per_unit": None, "expense_source": "", "warnings": []}
 	if expense_ratio <= 0:
@@ -583,26 +1441,46 @@ def calculate_expense_allocation(sales_qty, sales_value, current_normal_price, e
 			"expense_source": "No indirect expense"
 		})
 		return result
-	if sales_qty > 0 and sales_value > 0:
-		allocated_expense = sales_value * expense_ratio
+	if sales_qty > 0 and net_cogs > 0:
+		allocated_expense = net_cogs * expense_ratio
 		result.update({
 			"allocated_expense": quantize_money(allocated_expense),
 			"expense_per_unit": quantize_money(allocated_expense / sales_qty),
-			"expense_source": "Actual period sales"
+			"expense_source": "Actual period COGS"
 		})
 		return result
-	if current_normal_price is not None and to_decimal(current_normal_price) > 0:
+	if selected_base_cost is not None and to_decimal(selected_base_cost) > 0:
 		result.update({
-			"expense_per_unit": quantize_money(to_decimal(current_normal_price) * expense_ratio),
-			"expense_source": "Regular Item Price fallback"
+			"expense_per_unit": quantize_money(to_decimal(selected_base_cost) * expense_ratio),
+			"expense_source": "Base Cost fallback"
 		})
 		return result
 	result["warnings"].append("No basis for indirect expense allocation")
 	return result
 
 
+def apply_pricing_group_filter_configuration(filters):
+	result = dict(filters or {})
+	pricing_group = result.get("pricing_group")
+	if not pricing_group:
+		return result
+	if result.get("purchase_receipt"):
+		frappe.throw("Pricing Group and Purchase Receipt cannot be used together")
+	configuration = get_pricing_group_configuration(pricing_group)
+	for fieldname in ("company", "item_group", "pricing_strategy"):
+		configured_value = configuration.get(fieldname)
+		if result.get(fieldname) and result.get(fieldname) != configured_value:
+			frappe.throw(
+				"{0} conflicts with Pricing Group {1}".format(
+					fieldname.replace("_", " ").title(), pricing_group
+				)
+			)
+		result[fieldname] = configured_value
+	return result
+
+
 def validate_and_normalize_filters(filters, apply_strategy=True):
-	filters = dict(filters or {})
+	filters = apply_pricing_group_filter_configuration(filters) if apply_strategy else dict(filters or {})
 	strategy_settings = None
 	if apply_strategy and filters.get("pricing_strategy"):
 		strategy_settings = _get_pricing_strategy_settings(
@@ -620,7 +1498,9 @@ def validate_and_normalize_filters(filters, apply_strategy=True):
 	if result["from_date"] > result["to_date"]:
 		frappe.throw("From Date cannot be after To Date")
 
-	result["cost_source"] = filters.get("cost_source") or "Current Valuation Rate"
+	result["cost_source"] = COST_SOURCE_ALIASES.get(
+		filters.get("cost_source"), filters.get("cost_source")
+	) or "Latest Valuation Rate"
 	if result["cost_source"] not in COST_SOURCES:
 		frappe.throw("Unsupported Cost Source: {0}".format(result["cost_source"]))
 
@@ -766,6 +1646,16 @@ def _format_decimal(value):
 def calculate_item_row(item, context):
 	row = dict(item)
 	warnings = list(row.get("warnings") or [])
+	vat_factor = Decimal("1") + to_decimal(context.get("vat_percent")) / Decimal("100")
+	for net_fieldname, gross_fieldname in (
+		("current_normal_price", "current_normal_gross"),
+		("current_b2b_price", "current_b2b_gross")
+	):
+		current_price = row.get(net_fieldname)
+		row[gross_fieldname] = (
+			quantize_money(to_decimal(current_price) * vat_factor)
+			if current_price is not None else None
+		)
 	base_cost = to_decimal(row.get("selected_base_cost"))
 	if base_cost <= 0:
 		row.update({
@@ -781,6 +1671,9 @@ def calculate_item_row(item, context):
 			for suffix in ("net", "gross", "profit", "actual_markup_percent", "gross_margin_percent"):
 				row[prefix + "_" + suffix] = None
 		row["b2b_discount_percent"] = None
+		row["average_actual_markup_percent"] = None
+		row["average_gross_margin_percent"] = None
+		row["average_discount_percent"] = None
 		row["change_from_current_normal"] = None
 		row["change_from_current_normal_percent"] = None
 		for index in range(1, len(context["tiers"]) + 1):
@@ -825,6 +1718,21 @@ def calculate_item_row(item, context):
 			discount_base, tier_result["net_price"]
 		)
 
+	markup_values = [row.get("recommended_regular_actual_markup_percent")]
+	margin_values = [row.get("recommended_regular_gross_margin_percent")]
+	discount_values = []
+	if b2b:
+		markup_values.append(row.get("recommended_b2b_actual_markup_percent"))
+		margin_values.append(row.get("recommended_b2b_gross_margin_percent"))
+		discount_values.append(row.get("b2b_discount_percent"))
+	for index in range(1, len(context["tiers"]) + 1):
+		markup_values.append(row.get("tier_{0}_actual_markup_percent".format(index)))
+		margin_values.append(row.get("tier_{0}_gross_margin_percent".format(index)))
+		discount_values.append(row.get("tier_{0}_discount_percent".format(index)))
+	row["average_actual_markup_percent"] = _average_percentages(markup_values)
+	row["average_gross_margin_percent"] = _average_percentages(margin_values)
+	row["average_discount_percent"] = _average_percentages(discount_values)
+
 	current_price = row.get("current_normal_price")
 	row["change_from_current_normal"] = None
 	row["change_from_current_normal_percent"] = None
@@ -849,6 +1757,13 @@ def _apply_price_result(row, prefix, result):
 	row[prefix + "_gross_margin_percent"] = result["gross_margin_percent"]
 
 
+def _average_percentages(values):
+	values = [to_decimal(value) for value in values if value is not None]
+	if not values:
+		return None
+	return quantize_percent(sum(values, Decimal("0")) / Decimal(len(values)))
+
+
 def _percentage_difference(base_value, lower_value):
 	base_value = to_decimal(base_value)
 	if not base_value:
@@ -856,6 +1771,232 @@ def _percentage_difference(base_value, lower_value):
 	return quantize_percent(
 		(base_value - to_decimal(lower_value)) / base_value * Decimal("100")
 	)
+
+
+def validate_pricing_group_setup(filters=None):
+	filters = filters or {}
+	has_field = frappe.get_meta("Item").has_field("pricing_group")
+	if filters.get("pricing_group") and not has_field:
+		frappe.throw(
+			"Create the Item custom field pricing_group (Link to Pricing Group) "
+			"before using Pricing Groups."
+		)
+	return bool(has_field)
+
+
+def get_pricing_group_membership(group_names):
+	group_names = sorted(set(group_name for group_name in (group_names or []) if group_name))
+	if not group_names:
+		return {}
+	groups = frappe.get_all(
+		"Pricing Group", filters={"name": ("in", group_names)},
+		fields=["name", "disabled"], limit_page_length=0
+	)
+	result = {
+		row.name: {"disabled": cint(row.disabled), "item_codes": []}
+		for row in groups
+	}
+	items = frappe.get_all(
+		"Item",
+		filters={
+			"pricing_group": ("in", group_names), "disabled": 0, "is_stock_item": 1
+		},
+		fields=["name", "pricing_group"], order_by="name asc", limit_page_length=0
+	)
+	for item in items:
+		result.setdefault(
+			item.pricing_group, {"disabled": 1, "item_codes": []}
+		)["item_codes"].append(item.name)
+	for group_name in group_names:
+		result.setdefault(group_name, {"disabled": 1, "item_codes": []})
+	return result
+
+
+def _valid_group_price(value):
+	return value not in (None, "") and to_decimal(value) > 0
+
+
+def _pricing_group_reference_row(group_rows, valid_rows):
+	total_sales_qty = sum(
+		max(to_decimal(row.get("sales_qty")), Decimal("0"))
+		for row in group_rows
+	)
+	if total_sales_qty > 0:
+		return max(valid_rows, key=lambda row: (
+			max(to_decimal(row.get("sales_qty")), Decimal("0")),
+			to_decimal(row.get("recommended_regular_net")),
+			row.get("item_code") or ""
+		)), total_sales_qty, "Highest Sales Qty"
+	return max(valid_rows, key=lambda row: (
+		to_decimal(row.get("recommended_regular_net")),
+		row.get("item_code") or ""
+	)), total_sales_qty, "No Sales - Highest Price"
+
+
+def _set_group_sales_contributions(group_rows, reference_row, total_sales_qty):
+	if total_sales_qty <= 0:
+		for row in group_rows:
+			row["sales_contribution_percent"] = Decimal("0.000")
+		return
+	total_percentage = Decimal("0.000")
+	for row in group_rows:
+		contribution = quantize_percent(
+			max(to_decimal(row.get("sales_qty")), Decimal("0")) /
+			total_sales_qty * Decimal("100")
+		)
+		row["sales_contribution_percent"] = contribution
+		total_percentage += contribution
+	reference_row["sales_contribution_percent"] += Decimal("100.000") - total_percentage
+
+
+def _pricing_group_summary_row(group_name, status, reference_row, price_fields,
+		selection_reason):
+	summary = {
+		"item_code": "",
+		"item_name": "",
+		"group_summary_label": "Group Strategy Price",
+		"pricing_group": group_name,
+		"pricing_group_status": status,
+		"is_pricing_group_summary": 1,
+		"group_reference_item_code": reference_row.get("item_code"),
+		"group_reference_sales_qty": reference_row.get("sales_qty"),
+		"group_reference_sales_contribution_percent": reference_row.get(
+			"sales_contribution_percent"
+		),
+		"group_selection_reason": selection_reason,
+		"selected_base_cost": reference_row.get("selected_base_cost"),
+		"cost_source_detail": reference_row.get("cost_source_detail")
+	}
+	for fieldname in price_fields:
+		summary[fieldname] = (
+			quantize_money(reference_row.get(fieldname))
+			if _valid_group_price(reference_row.get(fieldname)) else None
+		)
+		gross_fieldname = fieldname[:-4] + "_gross" if fieldname.endswith("_net") else ""
+		if gross_fieldname:
+			summary[gross_fieldname] = reference_row.get(gross_fieldname)
+	return summary
+
+
+def apply_pricing_group_recommendations(rows, membership, filters):
+	rows = rows or []
+	membership = membership or {}
+	filters = filters or {}
+	groups = {}
+	for row in rows:
+		group_name = row.get("pricing_group")
+		if group_name:
+			groups.setdefault(group_name, []).append(row)
+		else:
+			row["pricing_group_status"] = ""
+			row["pricing_group_member_count"] = 0
+			row["sales_contribution_percent"] = None
+			row["group_recommended_regular_net"] = None
+			row["group_recommended_b2b_net"] = None
+			for index in range(1, len(filters.get("tiers") or []) + 1):
+				row["group_tier_{0}_net".format(index)] = None
+
+	price_fields = ["recommended_regular_net"]
+	if filters.get("b2b_price_list"):
+		price_fields.append("recommended_b2b_net")
+	price_fields.extend([
+		"tier_{0}_net".format(index)
+		for index in range(1, len(filters.get("tiers") or []) + 1)
+	])
+
+	summaries = {}
+	for group_name, group_rows in groups.items():
+		definition = membership.get(group_name) or {"disabled": 1, "item_codes": []}
+		expected_codes = set(definition.get("item_codes") or [])
+		present_codes = set(row.get("item_code") for row in group_rows if row.get("item_code"))
+		valid_rows = [
+			row for row in group_rows
+			if all(_valid_group_price(row.get(fieldname)) for fieldname in price_fields)
+		]
+		if cint(definition.get("disabled")):
+			status = "Disabled Group"
+		elif expected_codes != present_codes:
+			status = "Incomplete Group"
+		elif not valid_rows:
+			status = "Missing Cost"
+		else:
+			current_fields = ["current_normal_price"]
+			if filters.get("b2b_price_list"):
+				current_fields.append("current_b2b_price")
+			different = any(len(set(
+				str(row.get(fieldname)) for row in group_rows
+			)) > 1 for fieldname in current_fields)
+			status = "Different Current Prices" if different else "Ready"
+
+		reference_candidates = valid_rows or group_rows
+		reference_row, total_sales_qty, selection_reason = _pricing_group_reference_row(
+			group_rows, reference_candidates
+		)
+		_set_group_sales_contributions(group_rows, reference_row, total_sales_qty)
+		for row in group_rows:
+			row["is_pricing_group_reference"] = int(row is reference_row)
+		shared = {
+			fieldname: (
+				quantize_money(reference_row.get(fieldname))
+				if _valid_group_price(reference_row.get(fieldname)) else None
+			)
+			for fieldname in price_fields
+		}
+		for row in group_rows:
+			row["pricing_group_status"] = status
+			row["pricing_group_member_count"] = len(expected_codes)
+			row["group_recommended_regular_net"] = shared.get("recommended_regular_net")
+			row["group_recommended_b2b_net"] = shared.get("recommended_b2b_net")
+			for index in range(1, len(filters.get("tiers") or []) + 1):
+				row["group_tier_{0}_net".format(index)] = shared.get(
+					"tier_{0}_net".format(index)
+				)
+		summaries[group_name] = _pricing_group_summary_row(
+			group_name, status, reference_row, price_fields, selection_reason
+		)
+	last_group_indexes = {}
+	for index, row in enumerate(rows):
+		if row.get("pricing_group"):
+			last_group_indexes[row.get("pricing_group")] = index
+	result = []
+	for index, row in enumerate(rows):
+		result.append(row)
+		group_name = row.get("pricing_group")
+		if group_name and last_group_indexes.get(group_name) == index:
+			result.append(summaries[group_name])
+	return result
+
+
+def classify_updateable_pricing_groups(rows, requested_codes, limit=ITEM_PRICE_UPDATE_LIMIT):
+	requested = set(list(requested_codes or [])[:limit])
+	groups = {}
+	ungrouped_items = []
+	for row in rows or []:
+		item_code = row.get("item_code")
+		group_name = row.get("pricing_group")
+		if group_name:
+			groups.setdefault(group_name, []).append(row)
+		elif item_code in requested:
+			ungrouped_items.append(item_code)
+	allowed_groups = []
+	blocked_groups = {}
+	for group_name, group_rows in groups.items():
+		all_codes = set(row.get("item_code") for row in group_rows if row.get("item_code"))
+		selected_codes = all_codes.intersection(requested)
+		if not selected_codes:
+			continue
+		status = group_rows[0].get("pricing_group_status") or "Incomplete Group"
+		if selected_codes != all_codes:
+			blocked_groups[group_name] = "Incomplete Group"
+		elif status not in ("Ready", "Different Current Prices"):
+			blocked_groups[group_name] = status
+		else:
+			allowed_groups.append(group_name)
+	return {
+		"allowed_groups": sorted(allowed_groups),
+		"blocked_groups": blocked_groups,
+		"ungrouped_items": ungrouped_items
+	}
 
 
 def validate_master_filters(filters):
@@ -885,13 +2026,115 @@ def validate_master_filters(filters):
 	return company_currency
 
 
+def get_purchase_receipt_item_scope(filters, allow_empty=False):
+	receipt_name = filters.get("purchase_receipt")
+	if not receipt_name:
+		return []
+	receipt = frappe.db.get_value(
+		"Purchase Receipt", receipt_name,
+		["company", "docstatus", "is_return"], as_dict=True
+	)
+	if not receipt:
+		frappe.throw("Purchase Receipt {0} does not exist".format(receipt_name))
+	if not frappe.has_permission("Purchase Receipt", "read", receipt_name):
+		frappe.throw(
+			"You do not have permission to read Purchase Receipt {0}".format(receipt_name),
+			frappe.PermissionError
+		)
+	if cint(receipt.docstatus) != 1:
+		frappe.throw("Purchase Receipt {0} must be submitted".format(receipt_name))
+	if cint(receipt.is_return):
+		frappe.throw("A return Purchase Receipt cannot be used for pricing analysis")
+	if receipt.company != filters.get("company"):
+		frappe.throw("Purchase Receipt must belong to the selected Company")
+
+	receipt_rows = frappe.get_all(
+		"Purchase Receipt Item", filters={"parent": receipt_name},
+		fields=["item_code"], order_by="idx asc", limit_page_length=0
+	)
+	direct_codes = []
+	seen = set()
+	for row in receipt_rows:
+		item_code = row.get("item_code")
+		if item_code and item_code not in seen:
+			seen.add(item_code)
+			direct_codes.append(item_code)
+	if not direct_codes:
+		frappe.throw("Purchase Receipt has no stock Items for pricing analysis")
+
+	has_pricing_group = frappe.get_meta("Item").has_field("pricing_group")
+	fields = ["name"]
+	if has_pricing_group:
+		fields.append("pricing_group")
+	direct_items = frappe.get_all(
+		"Item",
+		filters={"name": ("in", direct_codes), "disabled": 0, "is_stock_item": 1},
+		fields=fields, limit_page_length=0
+	)
+	direct_by_code = {row.name: row for row in direct_items}
+	result = [item_code for item_code in direct_codes if item_code in direct_by_code]
+	if not result:
+		if allow_empty:
+			return []
+		frappe.throw("Purchase Receipt has no active stock Items for pricing analysis")
+
+	group_names = sorted(set(
+		row.get("pricing_group") for row in direct_items if row.get("pricing_group")
+	))
+	if group_names:
+		group_items = frappe.get_all(
+			"Item",
+			filters={
+				"pricing_group": ("in", group_names), "disabled": 0, "is_stock_item": 1
+			},
+			fields=["name", "pricing_group"], order_by="name asc", limit_page_length=0
+		)
+		for row in group_items:
+			if row.name not in seen:
+				seen.add(row.name)
+				result.append(row.name)
+	return result
+
+
+@frappe.whitelist()
+def get_purchase_receipt_pricing_eligibility(purchase_receipt=None, company=None):
+	item_codes = get_purchase_receipt_item_scope({
+		"purchase_receipt": purchase_receipt,
+		"company": company
+	}, allow_empty=True)
+	if not item_codes:
+		return {
+			"eligible": False,
+			"eligible_item_count": 0,
+			"message": (
+				"Purchase Receipt {0} has no active stock Items for pricing analysis. "
+				"Its Items are disabled or do not maintain stock."
+			).format(purchase_receipt)
+		}
+	return {
+		"eligible": True,
+		"eligible_item_count": len(item_codes),
+		"message": None
+	}
+
+
 def get_items(filters):
 	item_filters = {"disabled": 0, "is_stock_item": 1}
-	if filters.get("item"):
+	has_pricing_group = validate_pricing_group_setup(filters)
+	if filters.get("purchase_receipt"):
+		item_scope = get_purchase_receipt_item_scope(filters, allow_empty=True)
+		if not item_scope:
+			return []
+		item_filters["name"] = ("in", item_scope)
+	elif filters.get("item"):
 		item_filters["name"] = filters["item"]
-	if filters.get("brand"):
+	if not filters.get("purchase_receipt") and filters.get("pricing_group"):
+		item_filters["pricing_group"] = filters["pricing_group"]
+	if not filters.get("purchase_receipt") and filters.get("brand"):
 		item_filters["brand"] = filters["brand"]
-	if filters.get("item_group"):
+	if not filters.get("purchase_receipt") and filters.get("stock_uom"):
+		item_filters["stock_uom"] = filters["stock_uom"]
+	if not filters.get("purchase_receipt") and filters.get("item_group"):
 		group = frappe.db.get_value(
 			"Item Group", filters["item_group"], ["lft", "rgt"], as_dict=True
 		)
@@ -904,9 +2147,12 @@ def get_items(filters):
 		)
 		groups = [row.name for row in group_rows]
 		item_filters["item_group"] = ("in", groups)
+	fields = ["name as item_code", "item_name", "item_group", "brand", "stock_uom"]
+	if has_pricing_group:
+		fields.append("pricing_group")
 	return frappe.get_list(
 		"Item", filters=item_filters,
-		fields=["name as item_code", "item_name", "item_group", "brand", "stock_uom"],
+		fields=fields,
 		order_by="name asc", limit_page_length=0
 	)
 
@@ -985,51 +2231,55 @@ def get_purchase_data(filters, item_codes):
 	if not item_codes:
 		return {}
 	values = {
-		"company": filters["company"], "from_date": filters["from_date"],
+		"company": filters["company"],
 		"to_date": filters["to_date"], "item_codes": tuple(item_codes)
 	}
-	average_rows = frappe.db.sql("""
-		select pii.item_code, sum(pii.stock_qty) as purchase_qty,
-			sum(pii.base_net_amount) as purchase_value
-		from `tabPurchase Invoice Item` pii
-		inner join `tabPurchase Invoice` pi on pi.name = pii.parent
-		where pi.docstatus = 1 and pi.company = %(company)s
-			and pi.posting_date between %(from_date)s and %(to_date)s
-			and pii.item_code in %(item_codes)s
-		group by pii.item_code
-	""", values, as_dict=True)
+	pr_warehouse_condition = " and pri.warehouse = %(warehouse)s" \
+		if filters.get("warehouse") else ""
+	pi_warehouse_condition = " and pii.warehouse = %(warehouse)s" \
+		if filters.get("warehouse") else ""
+	if filters.get("warehouse"):
+		values["warehouse"] = filters["warehouse"]
 	latest_rows = frappe.db.sql("""
-		select pii.item_code,
-			case when pii.stock_qty = 0 then null else pii.base_net_amount / pii.stock_qty end as latest_purchase_rate
-		from `tabPurchase Invoice Item` pii
-		inner join `tabPurchase Invoice` pi on pi.name = pii.parent
-		where pi.docstatus = 1 and pi.company = %(company)s
-			and pi.posting_date <= %(to_date)s
-			and pii.item_code in %(item_codes)s and pii.stock_qty > 0
-		order by pii.item_code, pi.posting_date desc, pi.posting_time desc, pi.creation desc, pii.idx desc
-	""", values, as_dict=True)
-	return normalize_purchase_rows(average_rows, latest_rows)
+		select receipt.item_code, receipt.valuation_rate as latest_purchase_rate
+		from (
+			select pri.item_code, pri.valuation_rate, pr.posting_date,
+				pr.posting_time, pr.creation, pri.idx
+			from `tabPurchase Receipt Item` pri
+			inner join `tabPurchase Receipt` pr on pr.name = pri.parent
+			where pr.docstatus = 1 and pr.company = %(company)s
+				and pr.posting_date <= %(to_date)s
+				and pri.item_code in %(item_codes)s and pri.stock_qty > 0
+				and pri.valuation_rate > 0
+				{pr_warehouse_condition}
+			union all
+			select pii.item_code, pii.valuation_rate, pi.posting_date,
+				pi.posting_time, pi.creation, pii.idx
+			from `tabPurchase Invoice Item` pii
+			inner join `tabPurchase Invoice` pi on pi.name = pii.parent
+			where pi.docstatus = 1 and pi.company = %(company)s and pi.update_stock = 1
+				and pi.posting_date <= %(to_date)s
+				and pii.item_code in %(item_codes)s and pii.stock_qty > 0
+				and pii.valuation_rate > 0
+				{pi_warehouse_condition}
+		) receipt
+		order by receipt.item_code, receipt.posting_date desc,
+			receipt.posting_time desc, receipt.creation desc, receipt.idx desc
+	""".format(
+		pr_warehouse_condition=pr_warehouse_condition,
+		pi_warehouse_condition=pi_warehouse_condition
+	), values, as_dict=True)
+	return normalize_purchase_rows(latest_rows)
 
 
-def normalize_purchase_rows(average_rows, latest_rows):
+def normalize_purchase_rows(latest_rows):
 	result = {}
-	for row in average_rows or []:
-		qty = to_decimal(row.get("purchase_qty"))
-		entry = result.setdefault(row.get("item_code"), {"warnings": []})
-		entry["weighted_average_purchase_rate"] = None
-		if qty > 0:
-			entry["weighted_average_purchase_rate"] = quantize_money(
-				to_decimal(row.get("purchase_value")) / qty
-			)
-		else:
-			entry["warnings"].append("Purchase returns equal or exceed purchases")
 	for row in latest_rows or []:
 		entry = result.setdefault(row.get("item_code"), {"warnings": []})
 		if "latest_purchase_rate" not in entry:
 			entry["latest_purchase_rate"] = quantize_money(row.get("latest_purchase_rate"))
 	for entry in result.values():
 		entry.setdefault("latest_purchase_rate", None)
-		entry.setdefault("weighted_average_purchase_rate", None)
 	return result
 
 
@@ -1047,6 +2297,35 @@ def get_sales_data(filters, item_codes):
 	return get_item_sales_aggregates(sales_filters, item_codes)
 
 
+def get_item_cogs(filters, item_codes):
+	if not item_codes:
+		return {}
+	values = {
+		"company": filters.get("company"),
+		"from_date": filters.get("from_date"),
+		"to_date": filters.get("to_date"),
+		"item_codes": tuple(item_codes),
+		"warehouse": filters.get("warehouse")
+	}
+	warehouse_condition = " and sle.warehouse = %(warehouse)s" \
+		if filters.get("warehouse") else ""
+	rows = frappe.db.sql("""
+		select sle.item_code, coalesce(sum(-sle.stock_value_difference), 0) as net_cogs
+		from `tabStock Ledger Entry` sle
+		inner join `tabWarehouse` warehouse on warehouse.name = sle.warehouse
+		where sle.docstatus < 2 and warehouse.company = %(company)s
+			and sle.posting_date between %(from_date)s and %(to_date)s
+			and sle.voucher_type in ('Delivery Note', 'Sales Invoice')
+			and sle.item_code in %(item_codes)s
+			{warehouse_condition}
+		group by sle.item_code
+	""".format(warehouse_condition=warehouse_condition), values, as_dict=True)
+	return dict(
+		(row.get("item_code"), quantize_money(row.get("net_cogs")))
+		for row in rows or []
+	)
+
+
 def get_indirect_expense_context(filters):
 	expense_account = filters.get("indirect_expense_account") or INDIRECT_EXPENSE_ACCOUNT
 	account = frappe.db.get_value(
@@ -1054,7 +2333,7 @@ def get_indirect_expense_context(filters):
 	)
 	if not account:
 		return {
-			"expense_total": Decimal("0.000"), "net_sales": Decimal("0.000"),
+			"expense_total": Decimal("0.000"), "net_cogs": Decimal("0.000"),
 			"expense_ratio": Decimal("0.000000"),
 			"warnings": ["Indirect expense account not found: {0}".format(expense_account)]
 		}
@@ -1072,23 +2351,25 @@ def get_indirect_expense_context(filters):
 			and account.lft between %(lft)s and %(rgt)s
 			and gle.voucher_type != 'Period Closing Voucher'
 	""", values, as_dict=True)
-	sales_rows = frappe.db.sql("""
-		select coalesce(sum(base_net_total), 0) as net_sales
-		from `tabSales Invoice`
-		where docstatus = 1 and company = %(company)s
-			and posting_date between %(from_date)s and %(to_date)s
+	cogs_rows = frappe.db.sql("""
+		select coalesce(sum(-sle.stock_value_difference), 0) as net_cogs
+		from `tabStock Ledger Entry` sle
+		inner join `tabWarehouse` warehouse on warehouse.name = sle.warehouse
+		where sle.docstatus < 2 and warehouse.company = %(company)s
+			and sle.posting_date between %(from_date)s and %(to_date)s
+			and sle.voucher_type in ('Delivery Note', 'Sales Invoice')
 	""", values, as_dict=True)
 	expense_total = to_decimal(expense_rows[0].get("expense_total") if expense_rows else 0)
-	net_sales = to_decimal(sales_rows[0].get("net_sales") if sales_rows else 0)
+	net_cogs = to_decimal(cogs_rows[0].get("net_cogs") if cogs_rows else 0)
 	warnings = []
 	expense_ratio = Decimal("0")
-	if net_sales > 0:
-		expense_ratio = expense_total / net_sales
+	if net_cogs > 0:
+		expense_ratio = expense_total / net_cogs
 	elif expense_total > 0:
-		warnings.append("Indirect expenses cannot be allocated because company net sales are zero")
+		warnings.append("Indirect expenses cannot be allocated because company net COGS is zero")
 	return {
 		"expense_total": quantize_money(expense_total),
-		"net_sales": quantize_money(net_sales),
+		"net_cogs": quantize_money(net_cogs),
 		"expense_ratio": expense_ratio.quantize(RATIO_QUANTUM, rounding=ROUND_HALF_UP),
 		"warnings": warnings
 	}
@@ -1178,10 +2459,19 @@ def execute(filters=None):
 	filters = validate_and_normalize_filters(filters)
 	validate_master_filters(filters)
 	items = get_items(filters)
+	if filters.get("purchase_receipt") and not items:
+		return (
+			get_columns(filters), [],
+			"Purchase Receipt {0} has no active stock Items for pricing analysis.".format(
+				filters.get("purchase_receipt")
+			),
+			None
+		)
 	item_codes = [row.get("item_code") for row in items]
 	stock_data = get_stock_data(filters, item_codes)
 	purchase_data = get_purchase_data(filters, item_codes)
 	sales_data = get_sales_data(filters, item_codes)
+	item_cogs = get_item_cogs(filters, item_codes)
 	price_data = get_item_prices(filters, item_codes)
 	expense_context = get_indirect_expense_context(filters)
 
@@ -1199,20 +2489,24 @@ def execute(filters=None):
 			"available_qty": stock.get("available_qty", Decimal("0.000")),
 			"valuation_rate": stock.get("valuation_rate"),
 			"latest_purchase_rate": purchase.get("latest_purchase_rate"),
-			"weighted_average_purchase_rate": purchase.get("weighted_average_purchase_rate"),
 			"current_normal_price": prices.get("current_normal_price"),
 			"current_b2b_price": prices.get("current_b2b_price")
 		})
 		if sales:
 			row.update(sales)
+		row["net_cogs"] = item_cogs.get(item_code, Decimal("0.000"))
+		_set_selected_cost(row, filters["cost_source"])
 		allocation = calculate_expense_allocation(
-			row.get("sales_qty"), row.get("sales_value"),
-			row.get("current_normal_price"), expense_context["expense_ratio"]
+			row.get("sales_qty"), row.get("net_cogs"),
+			row.get("selected_base_cost"), expense_context["expense_ratio"]
 		)
 		row.update({
 			"allocated_expense": allocation["allocated_expense"],
 			"expense_per_unit": allocation["expense_per_unit"],
-			"expense_source": allocation["expense_source"]
+			"expense_source": allocation["expense_source"],
+			"company_expense_total": expense_context["expense_total"],
+			"company_net_cogs": expense_context["net_cogs"],
+			"company_expense_ratio": expense_context["expense_ratio"]
 		})
 		warnings = []
 		for source in (stock, purchase, sales or {}, prices):
@@ -1221,16 +2515,20 @@ def execute(filters=None):
 		if not sales:
 			warnings.append("No recent sales")
 		row["warnings"] = warnings
-		_set_selected_cost(row, filters["cost_source"])
 		row = calculate_item_row(row, filters)
 		_add_analysis_warnings(row)
-		data.append(_serialize_row(row))
+		data.append(row)
+
+	group_names = set(row.get("pricing_group") for row in data if row.get("pricing_group"))
+	group_membership = get_pricing_group_membership(group_names) if group_names else {}
+	data = apply_pricing_group_recommendations(data, group_membership, filters)
+	data = [_serialize_row(row) for row in data]
 
 	messages = list(filters["gap_messages"])
 	if expense_context["expense_total"] > 0:
 		messages.append(
-			"Indirect expense allocation: {0} / {1} net sales = {2}%".format(
-				expense_context["expense_total"], expense_context["net_sales"],
+			"Indirect expense allocation: {0} / {1} net COGS = {2}%".format(
+				expense_context["expense_total"], expense_context["net_cogs"],
 				(expense_context["expense_ratio"] * Decimal("100")).quantize(PERCENT_QUANTUM)
 			)
 		)
@@ -1242,8 +2540,7 @@ def execute(filters=None):
 def _set_selected_cost(row, cost_source):
 	field_by_source = {
 		"Current Valuation Rate": "valuation_rate",
-		"Latest Purchase Rate": "latest_purchase_rate",
-		"Weighted Average Purchase Rate": "weighted_average_purchase_rate"
+		"Latest Valuation Rate": "latest_purchase_rate"
 	}
 	fieldname = field_by_source[cost_source]
 	row["selected_base_cost"] = row.get(fieldname)
@@ -1277,25 +2574,23 @@ def _serialize_row(row):
 def get_columns(filters):
 	columns = [
 		_column("Item Code", "item_code", "Link", 130, "Item"),
-		_column("Item Name", "item_name", "Data", 200),
 		_column("Item Group", "item_group", "Link", 130, "Item Group"),
+		_column("Pricing Group", "pricing_group", "Link", 145, "Pricing Group"),
 		_column("Brand", "brand", "Link", 100, "Brand"),
 		_column("Stock UOM", "stock_uom", "Link", 90, "UOM"),
 		_column("Available Qty", "available_qty", "Float", 100),
-		_column("Selected Base Cost", "selected_base_cost", "Currency", 120),
+		_column("Base Cost", "selected_base_cost", "Currency", 120),
 		_column("Expense / Unit", "expense_per_unit", "Currency", 110),
-		_column("Expense Basis", "expense_source", "Data", 145),
-		_column("Fully Loaded Cost", "fully_loaded_cost", "Currency", 120),
+		_column("Cost + Expense", "fully_loaded_cost", "Currency", 120),
 		_column("Sales Qty", "sales_qty", "Float", 90),
+		_column("Sales Contribution %", "sales_contribution_percent", "Percent", 135),
 		_column("Last Sold Rate", "last_sold_rate", "Currency", 105),
 		_column("Average Sold Rate", "weighted_average_sold_rate", "Currency", 115),
 		_column("Current Regular Price", "current_normal_price", "Currency", 125)
 	]
 	columns.extend(_compact_price_columns("Regular", "recommended_regular"))
 	columns.extend([
-		_column("Change from Current Regular", "change_from_current_normal", "Currency", 145),
-		_column("Change from Current Regular %", "change_from_current_normal_percent", "Percent", 155),
-		_column("Suggested Action", "suggested_action", "Data", 110)
+		_column("Change from Current Regular %", "change_from_current_normal_percent", "Percent", 155)
 	])
 	if filters.get("enable_b2b_pricing"):
 		columns.append(_column("Current B2B Price", "current_b2b_price", "Currency", 115))
@@ -1306,26 +2601,28 @@ def get_columns(filters):
 		prefix = "tier_{0}".format(index)
 		columns.extend([
 			_column(label + " Net", prefix + "_net", "Currency", 105),
-			_column(label + " Incl. VAT", prefix + "_gross", "Currency", 115),
 			_column(label + " Discount %", prefix + "_discount_percent", "Percent", 120),
 			_column(label + " Gross Margin %", prefix + "_gross_margin_percent", "Percent", 135)
 		])
-	columns.append(_column("Warnings", "warnings", "Data", 280))
+	columns.extend([
+		_column("Average Actual Markup %", "average_actual_markup_percent", "Percent", 165),
+		_column("Average Gross Margin %", "average_gross_margin_percent", "Percent", 155),
+		_column("Average Discount %", "average_discount_percent", "Percent", 145)
+	])
 	return columns
 
 
 def _compact_price_columns(label, prefix):
 	return [
-		_column("Recommended {0} Net".format(label), prefix + "_net", "Currency", 130),
-		_column("Recommended {0} Incl. VAT".format(label), prefix + "_gross", "Currency", 145),
+		_column("Strategy {0} Net".format(label), prefix + "_net", "Currency", 130),
 		_column(label + " Gross Margin %", prefix + "_gross_margin_percent", "Percent", 130)
 	]
 
 
 def _price_columns(label, prefix, include_markup):
 	columns = [
-		_column("Recommended {0} Net".format(label), prefix + "_net", "Currency", 130),
-		_column("Recommended {0} Incl. VAT".format(label), prefix + "_gross", "Currency", 145),
+		_column("Strategy {0} Net".format(label), prefix + "_net", "Currency", 130),
+		_column("Strategy {0} Incl. VAT".format(label), prefix + "_gross", "Currency", 145),
 		_column(label + " Profit/Unit", prefix + "_profit", "Currency", 115)
 	]
 	if include_markup:

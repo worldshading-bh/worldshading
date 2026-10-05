@@ -101,9 +101,8 @@ def create_journal_entry(name, expense_account, payment_account,
     otherwise (bank/cash) a single credit row carries the total and the per-person
     detail stays on the payout document.
     """
-    frappe.only_for(("System Manager", "Accounts Manager"))
-
     payout = frappe.get_doc("Commission Payout", name)
+    _validate_journal_entry_permissions(payout)
 
     if payout.docstatus != 1:
         frappe.throw("Submit the Commission Payout first.")
@@ -166,3 +165,9 @@ def create_journal_entry(name, expense_account, payment_account,
     payout.db_set("journal_entry", entry.name, update_modified=False)
 
     return entry.name
+
+
+def _validate_journal_entry_permissions(payout):
+    """Authorize by document permissions instead of hard-coded role names."""
+    payout.check_permission("read")
+    frappe.has_permission("Journal Entry", ptype="create", throw=True)

@@ -1,0 +1,128 @@
+{
+ "allow_rename": 1,
+ "autoname": "field:pricing_group_name",
+ "creation": "2026-09-30 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pricing_group_name",
+  "item_group",
+  "pricing_strategy",
+  "description",
+  "column_break_4",
+  "disabled",
+  "company",
+  "section_break_8",
+  "included_items_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "pricing_group_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Pricing Group Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Item Group",
+   "options": "Item Group",
+   "reqd": 1
+  },
+  {
+   "fieldname": "pricing_strategy",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Pricing Strategy",
+   "options": "Pricing Strategy Template",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Disabled"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "included_items_html",
+   "fieldtype": "HTML",
+   "label": "Included Items",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_8",
+   "fieldtype": "Section Break"
+  }
+ ],
+ "modified": "2026-10-04 09:41:45.088485",
+ "modified_by": "hilal@worldshading.com",
+ "module": "Worldshading",
+ "name": "Pricing Group",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager"
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "pricing_group_name",
+ "track_changes": 1
+}

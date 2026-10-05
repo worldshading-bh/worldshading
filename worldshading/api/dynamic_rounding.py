@@ -83,7 +83,7 @@ def _prepare_rules(rules):
 	return prepared
 
 
-def calculate_dynamic_rounding(amount, rules):
+def calculate_dynamic_rounding(amount, rules, doctype=None, is_return=False):
 	amount = _to_decimal(amount, "Grand Total")
 	absolute_amount = abs(amount)
 	prepared_rules = _prepare_rules(rules)
@@ -103,10 +103,15 @@ def calculate_dynamic_rounding(amount, rules):
 		"Highest": ROUND_CEILING,
 	}
 	rounding_value = matched_rule["rounding_value"]
-	units = (amount / rounding_value).quantize(
+	# Sales returns reverse the positive rounding direction, including Lowest/Highest.
+	mirror_return = doctype == "Sales Invoice" and cint(is_return) and amount < 0
+	rounding_amount = absolute_amount if mirror_return else amount
+	units = (rounding_amount / rounding_value).quantize(
 		Decimal("1"), rounding=rounding_modes[matched_rule["rounding_method"]]
 	)
 	rounded_total = units * rounding_value
+	if mirror_return:
+		rounded_total = -rounded_total
 
 	result = dict(matched_rule)
 	result.update({
@@ -121,6 +126,57 @@ def _recalculate_sales_invoice_outstanding(doc):
 	calculator = object.__new__(calculate_taxes_and_totals)
 	calculator.doc = doc
 	calculator.calculate_outstanding_amount()
+
+
+def validate_sales_invoice_payment_change(doc, method=None):
+	_reconcile_sales_invoice_change(doc)
+
+
+def _reconcile_sales_invoice_change(doc):
+	if not cint(getattr(doc, "is_pos", 0)) or cint(getattr(doc, "is_return", 0)):
+		return
+
+	payable_total = flt(
+		doc.rounded_total or doc.grand_total,
+		doc.precision("rounded_total"),
+	)
+	paid_amount = flt(doc.paid_amount, doc.precision("paid_amount"))
+	overpayment = flt(
+		paid_amount - payable_total,
+		doc.precision("change_amount"),
+	)
+	cash_amount = flt(sum(
+		flt(payment.amount)
+		for payment in (getattr(doc, "payments", None) or [])
+		if payment.type == "Cash" and flt(payment.amount) > 0
+	), doc.precision("paid_amount"))
+
+	if overpayment > 0 and overpayment > cash_amount:
+		frappe.throw(_(
+			"Payment exceeds the rounded total by {0}, but there is not enough "
+			"Cash payment to return this amount as change. Please correct the "
+			"non-cash payment."
+		).format("{0:.3f}".format(overpayment)))
+
+	doc.write_off_amount = 0
+	doc.base_write_off_amount = 0
+	doc.change_amount = overpayment if overpayment > 0 else 0
+	doc.base_change_amount = flt(
+		doc.change_amount * doc.conversion_rate,
+		doc.precision("base_change_amount"),
+	)
+
+	if doc.party_account_currency == doc.currency:
+		doc.outstanding_amount = flt(
+			payable_total - flt(doc.total_advance) - paid_amount + doc.change_amount,
+			doc.precision("outstanding_amount"),
+		)
+	else:
+		doc.outstanding_amount = flt(
+			doc.base_rounded_total - flt(doc.total_advance)
+			- flt(doc.base_paid_amount) + doc.base_change_amount,
+			doc.precision("outstanding_amount"),
+		)
 
 
 @frappe.whitelist()
@@ -159,7 +215,9 @@ def apply_dynamic_rounding(doc, method=None):
 	rules = settings.get("dynamic_rounding_rules") or []
 
 	try:
-		result = calculate_dynamic_rounding(doc.grand_total, rules)
+		result = calculate_dynamic_rounding(
+			doc.grand_total, rules, doc.doctype, getattr(doc, "is_return", False)
+		)
 	except DynamicRoundingConfigurationError as error:
 		frappe.throw(
 			_("Dynamic rounding configuration error: {0}").format(str(error))
@@ -194,8 +252,15 @@ def apply_dynamic_rounding(doc, method=None):
 		doc.base_rounded_total - doc.base_grand_total,
 		doc.precision("base_rounding_adjustment"),
 	)
+	if (doc.doctype == "Sales Invoice" and cint(getattr(doc, "is_pos", 0))
+			and not cint(getattr(doc, "is_return", 0))):
+		doc.write_off_amount = 0
+		doc.base_write_off_amount = 0
+		doc.change_amount = 0
+		doc.base_change_amount = 0
 	if doc.doctype == "Sales Invoice":
 		_recalculate_sales_invoice_outstanding(doc)
+		validate_sales_invoice_payment_change(doc)
 	doc.set_total_in_words()
 	if not (doc.doctype == "Sales Invoice" and getattr(doc, "is_return", False)):
 		doc.set_payment_schedule()
@@ -204,8 +269,60 @@ def apply_dynamic_rounding(doc, method=None):
 	return True
 
 
+def sync_dynamic_rounding_after_submit(doc, method=None):
+	"""Persist only derived Sales Order totals after an allowed submitted update."""
+	if doc.doctype != "Sales Order" or doc.is_rounded_total_disabled():
+		return False
+
+	settings = frappe.get_single("WS Settings")
+	if not cint(settings.get("enable_dynamic_rounding")):
+		return False
+
+	try:
+		result = calculate_dynamic_rounding(
+			doc.grand_total,
+			settings.get("dynamic_rounding_rules") or [],
+			doc.doctype,
+			False,
+		)
+	except DynamicRoundingConfigurationError as error:
+		frappe.throw(_("Dynamic rounding configuration error: {0}").format(str(error)))
+		return False
+
+	if not result:
+		frappe.throw(_("No dynamic rounding rule matches this amount. Please check WS Settings."))
+		return False
+
+	doc.rounded_total = flt(result["rounded_total"], doc.precision("rounded_total"))
+	doc.rounding_adjustment = flt(
+		doc.rounded_total - doc.grand_total, doc.precision("rounding_adjustment")
+	)
+	doc.base_rounded_total = flt(
+		doc.rounded_total * doc.conversion_rate, doc.precision("base_rounded_total")
+	)
+	doc.base_rounding_adjustment = flt(
+		doc.base_rounded_total - doc.base_grand_total,
+		doc.precision("base_rounding_adjustment"),
+	)
+	doc.set_total_in_words()
+
+	values = {
+		"rounded_total": doc.rounded_total,
+		"rounding_adjustment": doc.rounding_adjustment,
+		"base_rounded_total": doc.base_rounded_total,
+		"base_rounding_adjustment": doc.base_rounding_adjustment,
+	}
+	if hasattr(doc, "in_words"):
+		values["in_words"] = doc.in_words
+	if hasattr(doc, "base_in_words"):
+		values["base_in_words"] = doc.base_in_words
+	frappe.db.set_value(doc.doctype, doc.name, values, update_modified=False)
+	return True
+
+
 @frappe.whitelist()
-def get_dynamic_rounding_preview(doctype, grand_total, core_rounded_total=None, currency=None):
+def get_dynamic_rounding_preview(doctype, grand_total, core_rounded_total=None, currency=None,
+		is_return=False):
 	if not is_pilot_user(frappe.session.user):
 		return None
 
@@ -218,7 +335,7 @@ def get_dynamic_rounding_preview(doctype, grand_total, core_rounded_total=None, 
 
 	try:
 		result = calculate_dynamic_rounding(
-			grand_total, settings.get("dynamic_rounding_rules") or []
+			grand_total, settings.get("dynamic_rounding_rules") or [], doctype, is_return
 		)
 	except DynamicRoundingConfigurationError as error:
 		return {"error": str(error)}

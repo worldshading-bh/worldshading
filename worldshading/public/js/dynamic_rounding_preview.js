@@ -11,7 +11,7 @@
 	};
 	namespace = window.worldshading.dynamic_rounding;
 
-	function calculate_dynamic_total(amount, rules) {
+	function calculate_dynamic_total(amount, rules, doctype, is_return) {
 		var digits = precision("rounded_total");
 		var scale = Math.pow(10, digits);
 		var amount_units = Math.round(flt(amount) * scale);
@@ -42,7 +42,9 @@
 			return null;
 		}
 
-		quotient = amount_units / rounding_value_units;
+		// Mirror positive rounding only for negative Sales Invoice returns.
+		var mirror_return = doctype === "Sales Invoice" && cint(is_return) && flt(amount) < 0;
+		quotient = (mirror_return ? absolute_amount_units : amount_units) / rounding_value_units;
 		if (matched_rule.rounding_method === "Lowest") {
 			units = Math.floor(quotient + 0.000000001);
 		} else if (matched_rule.rounding_method === "Highest") {
@@ -55,6 +57,9 @@
 			return null;
 		}
 
+		if (mirror_return) {
+			units = -units;
+		}
 		return flt(
 			(units * rounding_value_units) / scale,
 			digits
@@ -63,62 +68,154 @@
 
 	namespace.calculate = calculate_dynamic_total;
 
-	function install_client_rounding() {
-		var original_set_rounded_total;
+	function apply_dynamic_rounding(calculator) {
+		var settings = calculator.frm.__ws_dynamic_rounding_settings
+			|| { enabled: false, rules: [] };
+		var doc = calculator.frm.doc;
+		var rounded_total;
+		var rounding_disabled;
 
-		if (namespace.installed || !erpnext.taxes_and_totals) {
+		if (
+			!settings.enabled
+			|| SUPPORTED_DOCTYPES.indexOf(doc.doctype) === -1
+			|| doc.docstatus > 0
+		) {
 			return;
 		}
 
-		original_set_rounded_total = erpnext.taxes_and_totals.prototype.set_rounded_total;
-		erpnext.taxes_and_totals.prototype.set_rounded_total = function () {
-			var doc = this.frm.doc;
-			var rounded_total;
-			var rounding_disabled;
+		rounding_disabled = cint(doc.disable_rounded_total)
+			|| cint(frappe.sys_defaults.disable_rounded_total);
+		if (rounding_disabled) {
+			return;
+		}
 
-			original_set_rounded_total.apply(this, arguments);
+		rounded_total = calculate_dynamic_total(
+			doc.grand_total, settings.rules, doc.doctype, doc.is_return
+		);
+		if (rounded_total === null || (flt(doc.grand_total) && !rounded_total)) {
+			return;
+		}
 
+		doc.rounded_total = rounded_total;
+		doc.rounding_adjustment = flt(
+			doc.rounded_total - doc.grand_total,
+			precision("rounding_adjustment")
+		);
+		calculator.set_in_company_currency(
+			doc,
+			["rounding_adjustment", "rounded_total"]
+		);
+		doc.base_rounding_adjustment = flt(
+			doc.base_rounded_total - doc.base_grand_total,
+			precision("base_rounding_adjustment")
+		);
+		if (doc.doctype === "Sales Invoice" && cint(doc.is_pos) && !cint(doc.is_return)) {
+			doc.write_off_amount = 0;
+			doc.base_write_off_amount = 0;
+		}
+	}
+
+	function reconcile_sales_invoice_change(calculator) {
+		var doc = calculator.frm.doc;
+		var payable_total;
+		var paid_amount;
+		var overpayment;
+		var cash_amount = 0;
+
+		if (doc.doctype !== "Sales Invoice" || !cint(doc.is_pos) || cint(doc.is_return)) {
+			return;
+		}
+
+		payable_total = flt(
+			doc.rounded_total || doc.grand_total,
+			precision("rounded_total")
+		);
+		paid_amount = flt(doc.paid_amount, precision("paid_amount"));
+		overpayment = flt(
+			paid_amount - payable_total,
+			precision("change_amount")
+		);
+		(doc.payments || []).forEach(function (payment) {
+			if (payment.type === "Cash" && flt(payment.amount) > 0) {
+				cash_amount += flt(payment.amount);
+			}
+		});
+		cash_amount = flt(cash_amount, precision("paid_amount"));
+
+		doc.write_off_amount = 0;
+		doc.base_write_off_amount = 0;
+		doc.change_amount = overpayment > 0 && overpayment <= cash_amount
+			? overpayment
+			: 0;
+		doc.base_change_amount = flt(
+			doc.change_amount * doc.conversion_rate,
+			precision("base_change_amount")
+		);
+
+		if (doc.party_account_currency === doc.currency) {
+			doc.outstanding_amount = flt(
+				payable_total - flt(doc.total_advance) - paid_amount + doc.change_amount,
+				precision("outstanding_amount")
+			);
+		} else {
+			doc.outstanding_amount = flt(
+				flt(doc.base_rounded_total) - flt(doc.total_advance)
+				- flt(doc.base_paid_amount) + doc.base_change_amount,
+				precision("outstanding_amount")
+			);
+		}
+	}
+
+	function wrap_form_method(frm, method_name, apply_before) {
+		var original_method;
+		var wrapped_method;
+
+		if (!frm.cscript || typeof frm.cscript[method_name] !== "function") {
+			return;
+		}
+		if (frm.cscript[method_name].__ws_dynamic_rounding) {
+			return;
+		}
+
+		original_method = frm.cscript[method_name];
+		wrapped_method = function () {
+			var result;
+
+			if (apply_before) {
+				apply_dynamic_rounding(this);
+			}
+			result = original_method.apply(this, arguments);
 			if (
-				!namespace.settings.enabled
-				|| SUPPORTED_DOCTYPES.indexOf(doc.doctype) === -1
-				|| doc.docstatus > 0
+				method_name === "calculate_outstanding_amount"
+				|| method_name === "calculate_change_amount"
+				|| method_name === "calculate_write_off_amount"
 			) {
-				return;
+				reconcile_sales_invoice_change(this);
 			}
-
-			rounding_disabled = cint(doc.disable_rounded_total)
-				|| cint(frappe.sys_defaults.disable_rounded_total);
-			if (rounding_disabled) {
-				return;
+			if (!apply_before) {
+				apply_dynamic_rounding(this);
 			}
-
-			rounded_total = calculate_dynamic_total(
-				doc.grand_total,
-				namespace.settings.rules
-			);
-			if (rounded_total === null || (flt(doc.grand_total) && !rounded_total)) {
-				return;
-			}
-
-			doc.rounded_total = rounded_total;
-			doc.rounding_adjustment = flt(
-				doc.rounded_total - doc.grand_total,
-				precision("rounding_adjustment")
-			);
-			this.set_in_company_currency(doc, ["rounding_adjustment", "rounded_total"]);
-			doc.base_rounding_adjustment = flt(
-				doc.base_rounded_total - doc.base_grand_total,
-				precision("base_rounding_adjustment")
-			);
+			return result;
 		};
+		wrapped_method.__ws_dynamic_rounding = true;
+		wrapped_method.__ws_original = original_method;
+		frm.cscript[method_name] = wrapped_method;
+	}
 
-		namespace.installed = true;
+	function install_form_rounding(frm) {
+		wrap_form_method(frm, "set_rounded_total", false);
+
+		if (frm.doc.doctype === "Sales Invoice") {
+			wrap_form_method(frm, "calculate_outstanding_amount", true);
+			wrap_form_method(frm, "calculate_change_amount", true);
+			wrap_form_method(frm, "calculate_write_off_amount", true);
+		}
 	}
 
 	function load_client_settings(frm) {
-		var request_generation = (namespace.request_generation || 0) + 1;
-		var requested_document_name = frm.doc.name;
-		namespace.request_generation = request_generation;
+		var request_generation = (frm.__ws_dynamic_rounding_request_generation || 0) + 1;
+		frm.__ws_dynamic_rounding_request_generation = request_generation;
+		frm.__ws_dynamic_rounding_settings = { enabled: false, rules: [] };
 
 		frappe.call({
 			method: "worldshading.api.dynamic_rounding.get_dynamic_rounding_client_settings",
@@ -127,13 +224,13 @@
 				var is_obsolete_form = typeof cur_frm !== "undefined" && cur_frm !== frm;
 
 				if (
-					request_generation !== namespace.request_generation
+					request_generation !== frm.__ws_dynamic_rounding_request_generation
 					|| is_obsolete_form
-					|| frm.doc.name !== requested_document_name
 				) {
 					return;
 				}
 
+				frm.__ws_dynamic_rounding_settings = settings;
 				namespace.settings = settings;
 				if (settings.error) {
 					frappe.msgprint({
@@ -148,14 +245,12 @@
 					&& frm.cscript
 					&& typeof frm.cscript.calculate_taxes_and_totals === "function"
 				) {
-					frm.cscript.calculate_taxes_and_totals();
+					frm.cscript.calculate_taxes_and_totals(false);
 					frm.refresh_fields();
 				}
 			}
 		});
 	}
-
-	install_client_rounding();
 
 	function format_amount(value, currency) {
 		return format_currency(flt(value), currency);
@@ -177,7 +272,8 @@
 				doctype: frm.doctype,
 				grand_total: grand_total,
 				core_rounded_total: core_rounded_total,
-				currency: currency
+				currency: currency,
+				is_return: cint(frm.doc.is_return)
 			},
 			freeze: true,
 			freeze_message: __("Calculating dynamic rounding preview..."),
@@ -230,6 +326,7 @@
 	SUPPORTED_DOCTYPES.forEach(function (doctype) {
 		frappe.ui.form.on(doctype, {
 			refresh: function (frm) {
+				install_form_rounding(frm);
 				add_preview_button(frm);
 				load_client_settings(frm);
 			}

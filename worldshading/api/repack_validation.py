@@ -33,6 +33,14 @@ def validate_repack_quantities(doc, method=None):
 		return
 
 	candidates = _get_applicable_rules(actual_targets, rules)
+	missing_rule_message = _build_missing_rule_message(
+		actual_sources, actual_targets, candidates)
+	if missing_rule_message:
+		frappe.throw(
+			missing_rule_message,
+			title=_("{0} Rule Not Found").format(stock_entry_type)
+		)
+
 	if not candidates:
 		frappe.throw(_(
 			"<b>Problem:</b> No {0} Production Rule matches target item(s):<br>{1}<br><br>"
@@ -273,6 +281,44 @@ def _build_mismatch_message(actual_sources, actual_targets, candidates):
 		))
 
 	return "<br><br>".join(sections)
+
+
+def _build_missing_rule_message(actual_sources, actual_targets, candidates):
+	missing_sources = _get_missing_quantities(
+		actual_sources, _get_covered_quantities(candidates, "sources"))
+	missing_targets = _get_missing_quantities(
+		actual_targets, _get_covered_quantities(candidates, "targets"))
+
+	if not missing_sources and not missing_targets:
+		return None
+
+	sections = [_("<b>Missing Repack Production Rule</b>")]
+	if missing_sources:
+		sections.append(_("Source: {0}").format(
+			_format_items(missing_sources)))
+	if missing_targets:
+		sections.append(_("Target: {0}").format(
+			_format_items(missing_targets)))
+
+	sections.append(_(
+		"Create the missing rule, then save this Stock Entry again."
+	))
+	return "<br><br>".join(sections)
+
+
+def _get_covered_quantities(rules, fieldname):
+	covered = {}
+	for rule in rules:
+		_merge_quantities(covered, rule[fieldname], 1)
+	return covered
+
+
+def _get_missing_quantities(actual, covered):
+	missing = {}
+	for key, actual_qty in actual.items():
+		if key not in covered:
+			missing[key] = actual_qty
+	return missing
 
 
 def _get_whole_multiplier(actual, configured):

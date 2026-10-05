@@ -7,19 +7,15 @@ from erpnext.stock.get_item_details import get_price_list_rate_for
 from frappe.utils import cint, flt, nowdate
 
 
-SECRET_PRICE_ROLES = ("Accounts Manager", "System Manager")
-SECRET_PRICING_SALES_ENABLED = False
-
-
 @frappe.whitelist()
 def get_secret_price_lists(customer=None):
     """Return enabled protected Selling Price Lists available for assignment."""
-    _validate_secret_price_permission()
+    if not customer:
+        frappe.throw("Customer is required")
 
-    customer_doc = None
-    if customer:
-        customer_doc = frappe.get_doc("Customer", customer)
-        customer_doc.check_permission("write")
+    customer_doc = frappe.get_doc("Customer", customer)
+    customer_doc.check_permission("write")
+    _validate_secret_price_permission(customer_doc)
 
     price_lists = frappe.get_all(
         "Price List",
@@ -37,20 +33,21 @@ def get_secret_price_lists(customer=None):
         frappe.throw("No enabled protected Selling Price List is configured")
 
     default_price_list = price_list_names[0]
+    current_secret_price_list = None
     if customer_doc and customer_doc.default_price_list in price_list_names:
         default_price_list = customer_doc.default_price_list
+        current_secret_price_list = customer_doc.default_price_list
 
     return {
         "price_lists": price_list_names,
-        "default_price_list": default_price_list
+        "default_price_list": default_price_list,
+        "current_secret_price_list": current_secret_price_list
     }
 
 
 @frappe.whitelist()
 def apply_secret_price_list(customer, price_list):
     """Assign a protected Selling Price List through the controlled action."""
-    _validate_secret_price_permission()
-
     if not customer:
         frappe.throw("Customer is required")
     if not price_list:
@@ -58,6 +55,7 @@ def apply_secret_price_list(customer, price_list):
 
     customer_doc = frappe.get_doc("Customer", customer)
     customer_doc.check_permission("write")
+    _validate_secret_price_permission(customer_doc)
 
     price_list_details = frappe.db.get_value(
         "Price List",
@@ -87,6 +85,30 @@ def apply_secret_price_list(customer, price_list):
     }
 
 
+@frappe.whitelist()
+def remove_secret_price_list(customer):
+    """Remove a protected Selling Price List through the controlled action."""
+    if not customer:
+        frappe.throw("Customer is required")
+
+    customer_doc = frappe.get_doc("Customer", customer)
+    customer_doc.check_permission("write")
+    _validate_secret_price_permission(customer_doc)
+    current_price_list = customer_doc.default_price_list
+
+    if not current_price_list or not _is_protected_price_list(current_price_list):
+        frappe.throw("This Customer does not have a protected B2B Price List")
+
+    customer_doc.default_price_list = None
+    customer_doc.flags.secret_price_list_assignment = True
+    customer_doc.save()
+
+    return {
+        "customer": customer_doc.name,
+        "removed_price_list": current_price_list
+    }
+
+
 def validate_customer_secret_price_list_assignment(doc, method=None):
     """Prevent protected Price Lists from being assigned outside the controlled action."""
     price_list = doc.get("default_price_list")
@@ -105,11 +127,13 @@ def validate_customer_secret_price_list_assignment(doc, method=None):
     )
 
 
-def _validate_secret_price_permission():
-    user_roles = set(frappe.get_roles(frappe.session.user))
-    if not user_roles.intersection(SECRET_PRICE_ROLES):
+def _validate_secret_price_permission(customer_doc):
+    """Use the button field's configured permission level as authorization."""
+    if not customer_doc.has_permlevel_access_to(
+        "apply_secret_price_list", permission_type="write"
+    ):
         frappe.throw(
-            "Only Accounts Manager or System Manager can apply a B2B Secret Price List",
+            "You do not have permission to manage B2B Secret Pricing",
             frappe.PermissionError
         )
 
@@ -484,14 +508,6 @@ def validate_verified_business_price_list(doc, method=None):
 
     if _is_valid_linked_sales_invoice_return(doc, price_list):
         return
-
-    if not SECRET_PRICING_SALES_ENABLED:
-        if "System Manager" in frappe.get_roles():
-            return
-        frappe.throw(
-            "B2B Secret Pricing is temporarily unavailable while item prices "
-            "and print formats are being prepared. Please select a regular Price List"
-        )
 
     price_list_details = frappe.db.get_value(
         "Price List",

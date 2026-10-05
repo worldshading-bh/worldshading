@@ -38,7 +38,7 @@ class PricingStrategyTemplate(Document):
 
 	def validate_percentages(self):
 		fields = ["vat_percent", "regular_markup"]
-		if self.enable_b2b_pricing:
+		if self.b2b_price_list:
 			fields.append("b2b_markup")
 		for fieldname in fields:
 			if flt(self.get(fieldname)) < 0:
@@ -68,9 +68,7 @@ class PricingStrategyTemplate(Document):
 			frappe.throw(_("Company {0} has no default currency.").format(self.company))
 
 		self.validate_price_list(self.regular_price_list, company_currency, _("Regular"))
-		if self.enable_b2b_pricing:
-			if not self.b2b_price_list:
-				frappe.throw(_("B2B Price List is required when B2B Pricing is enabled."))
+		if self.b2b_price_list:
 			if self.b2b_price_list == self.regular_price_list:
 				frappe.throw(_("Regular and B2B Price Lists must be different."))
 			self.validate_price_list(self.b2b_price_list, company_currency, _("B2B"))

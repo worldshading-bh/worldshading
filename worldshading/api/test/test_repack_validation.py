@@ -5,8 +5,8 @@ import unittest
 
 from worldshading.api import repack_validation
 from worldshading.api.repack_validation import (
-	_build_mismatch_message, _get_rule_stock_entry_type, find_matching_rule,
-	find_matching_rules)
+	_build_mismatch_message, _build_missing_rule_message,
+	_get_rule_stock_entry_type, find_matching_rule, find_matching_rules)
 
 
 ROLL = ("ROLL-001", "Roll")
@@ -186,6 +186,44 @@ class TestRepackRuleMatching(unittest.TestCase):
 			"Target quantity for FABRIC-002 is 20.0 Meter; it must be 25.0 Meter.",
 			message)
 		self.assertNotIn("item or UOM does not match", message)
+
+	def test_missing_rule_message_reports_unmatched_source_and_target(self):
+		rules = [
+			{
+				"name": "Repack-DCAM1007",
+				"sources": {("DCA1007", "Each"): 1},
+				"targets": {("DCAM1007", "Each"): 2}
+			},
+			{
+				"name": "Repack-DCAM1016",
+				"sources": {("DCA1016", "Each"): 1},
+				"targets": {("DCAM1016", "Each"): 2}
+			},
+			{
+				"name": "Repack-DCAM1031",
+				"sources": {("DCA1031", "Each"): 1},
+				"targets": {("DCAM1031", "Each"): 2}
+			}
+		]
+		message = _build_missing_rule_message(
+			{
+				("DCA1007", "Each"): 1,
+				("DCA1016", "Each"): 1,
+				("DCA1031", "Each"): 1,
+				("DCA1037", "Each"): 1
+			},
+			{
+				("DCAM1007", "Each"): 2,
+				("DCAM1016", "Each"): 2,
+				("DCAM1031", "Each"): 2,
+				("DCAM1037", "Each"): 2
+			},
+			rules
+		)
+		self.assertIn("Missing Repack Production Rule", message)
+		self.assertIn("Source: &bull; DCA1037: 1.0 Each", message)
+		self.assertIn("Target: &bull; DCAM1037: 2.0 Each", message)
+		self.assertNotIn("DCA1007", message)
 
 
 if __name__ == "__main__":

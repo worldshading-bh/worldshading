@@ -1,0 +1,339 @@
+{
+ "autoname": "REX-.YY.-.#####",
+ "creation": "2026-10-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_section",
+  "expense_name",
+  "company",
+  "category",
+  "details_column",
+  "status",
+  "responsible_user",
+  "description",
+  "provider_section",
+  "provider_name",
+  "supplier",
+  "account_section",
+  "registered_email",
+  "provider_column",
+  "account_identifier",
+  "service_identifier",
+  "portal_url",
+  "expense_section",
+  "expense_account",
+  "amount_section",
+  "amount_type",
+  "currency",
+  "expected_amount",
+  "amount_column",
+  "billing_currency",
+  "provider_amount",
+  "schedule_section",
+  "billing_frequency",
+  "start_date",
+  "first_due_date",
+  "schedule_column",
+  "end_date",
+  "payment_section",
+  "mode_of_payment",
+  "automatic_charge",
+  "payment_column",
+  "payment_method_reference",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Details"
+  },
+  {
+   "fieldname": "expense_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_global_search": 1,
+   "label": "Expense Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "remember_last_selected_value": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "label": "Category",
+   "options": "\nRent\nUtilities\nHosting\nSoftware Subscription\nAPI Usage\nMaintenance\nInsurance\nOther",
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "details_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nClosed",
+   "reqd": 1,
+   "description": "Closing this record does not cancel the service with the provider."
+  },
+  {
+   "fieldname": "responsible_user",
+   "fieldtype": "Link",
+   "label": "Responsible User",
+   "options": "User"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Purpose / Description"
+  },
+  {
+   "fieldname": "provider_section",
+   "fieldtype": "Section Break",
+   "label": "Payee Details"
+  },
+  {
+   "fieldname": "provider_name",
+   "fieldtype": "Data",
+   "fetch_from": "supplier.supplier_name",
+   "fetch_if_empty": 1,
+   "label": "Payee Name",
+   "in_global_search": 1,
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "account_section",
+   "fieldtype": "Section Break",
+   "label": "Account Details",
+   "depends_on": "eval:doc.category && doc.category != 'Rent'"
+  },
+  {
+   "fieldname": "registered_email",
+   "fieldtype": "Data",
+   "label": "Account Email",
+   "options": "Email",
+   "description": "Optional email associated with this account."
+  },
+  {
+   "fieldname": "provider_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "account_identifier",
+   "fieldtype": "Data",
+   "label": "Account Reference"
+  },
+  {
+   "fieldname": "service_identifier",
+   "fieldtype": "Data",
+   "label": "Service Reference",
+   "in_global_search": 1,
+   "description": "Optional reference identifying this expense."
+  },
+  {
+   "fieldname": "portal_url",
+   "fieldtype": "Data",
+   "label": "Portal URL",
+   "options": "URL"
+  },
+  {
+   "fieldname": "expense_section",
+   "fieldtype": "Section Break",
+   "label": "Expense Account"
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "Expense Ledger",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "Currency and Amount"
+  },
+  {
+   "default": "Fixed",
+   "fieldname": "amount_type",
+   "fieldtype": "Select",
+   "label": "Amount Type",
+   "options": "Fixed\nVariable",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "company.default_currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Company Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "label": "Expected Amount / Budget",
+   "in_list_view": 1,
+   "options": "currency",
+   "description": "Net amount before tax for ONE billing period, in company currency. For Yearly, enter the full annual amount. For Variable, enter a budget; zero means no budget set."
+  },
+  {
+   "fieldname": "amount_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "billing_currency",
+   "fieldtype": "Link",
+   "label": "Billing Currency",
+   "options": "Currency",
+   "description": "Optional invoice currency. Enter the corresponding billing amount below."
+  },
+  {
+   "depends_on": "eval:doc.billing_currency",
+   "fieldname": "provider_amount",
+   "fieldtype": "Currency",
+   "label": "Billing Amount",
+   "options": "billing_currency",
+   "description": "Net amount for one billing period in the billing currency. The company-currency estimate is entered separately."
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Billing Schedule"
+  },
+  {
+   "default": "Monthly",
+   "fieldname": "billing_frequency",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Billing Frequency",
+   "options": "Monthly\nQuarterly\nHalf-yearly\nYearly",
+   "reqd": 1
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "reqd": 1,
+   "description": "Date from which this expense should be tracked."
+  },
+  {
+   "fieldname": "first_due_date",
+   "fieldtype": "Date",
+   "label": "First Due Date",
+   "reqd": 1,
+   "description": "First payment due in the tracked schedule. For Yearly, use the annual payment date."
+  },
+  {
+   "fieldname": "schedule_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "description": "Last date to include in the schedule. Leave blank for an ongoing expense."
+  },
+  {
+   "fieldname": "payment_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Details"
+  },
+  {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Payment Method",
+   "options": "Mode of Payment"
+  },
+  {
+   "default": "0",
+   "fieldname": "automatic_charge",
+   "fieldtype": "Check",
+   "label": "Automatic Payment"
+  },
+  {
+   "fieldname": "payment_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_method_reference",
+   "fieldtype": "Data",
+   "label": "Payment Reference",
+   "description": "Company card label or last four digits only."
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes and Attachments"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes",
+   "description": "Use the document's Attachments for contracts and invoices. Do not store passwords, API keys, or full card details."
+  }
+ ],
+ "modified": "2026-10-01 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Recurring Expense",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "role": "Accounts User"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "delete": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "delete": 1,
+   "role": "System Manager"
+  }
+ ],
+ "search_fields": "expense_name,provider_name,registered_email,service_identifier",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "expense_name",
+ "track_changes": 1
+}

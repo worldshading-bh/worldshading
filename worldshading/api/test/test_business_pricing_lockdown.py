@@ -42,41 +42,6 @@ class TestSecretPricingTransactionLockdown(unittest.TestCase):
 	@patch.object(
 		business_pricing,
 		"_is_valid_linked_sales_invoice_return",
-		return_value=False
-	)
-	@patch.object(business_pricing, "_is_protected_price_list", return_value=True)
-	@patch.object(business_pricing.frappe, "get_roles", return_value=["Sales User"])
-	def test_sales_user_cannot_use_protected_price_list_during_lockdown(
-		self, get_roles, is_protected, is_return
-	):
-		with self.assertRaises(frappe.ValidationError) as context:
-			business_pricing.validate_verified_business_price_list(
-				self._quotation()
-			)
-
-		self.assertIn("temporarily unavailable", str(context.exception))
-
-	@patch.object(
-		business_pricing,
-		"_is_valid_linked_sales_invoice_return",
-		return_value=False
-	)
-	@patch.object(business_pricing, "_is_protected_price_list", return_value=True)
-	@patch.object(
-		business_pricing.frappe,
-		"get_roles",
-		return_value=["Sales User", "System Manager"]
-	)
-	def test_system_manager_bypasses_temporary_lockdown(
-		self, get_roles, is_protected, is_return
-	):
-		business_pricing.validate_verified_business_price_list(
-			self._quotation()
-		)
-
-	@patch.object(
-		business_pricing,
-		"_is_valid_linked_sales_invoice_return",
 		return_value=True
 	)
 	@patch.object(business_pricing, "_is_protected_price_list", return_value=True)
@@ -94,6 +59,45 @@ class TestSecretPricingTransactionLockdown(unittest.TestCase):
 
 		business_pricing.validate_verified_business_price_list(doc)
 		get_roles.assert_not_called()
+
+	@patch.object(business_pricing, "_is_protected_price_list", return_value=True)
+	@patch.object(business_pricing, "_validate_secret_price_permission")
+	@patch.object(business_pricing.frappe, "get_doc")
+	def test_remove_secret_price_list_clears_only_protected_assignment(
+		self, get_doc, validate_permission, is_protected
+	):
+		customer_doc = MagicMock()
+		customer_doc.name = "CM0001"
+		customer_doc.default_price_list = "B2B Price - Test"
+		customer_doc.flags = frappe._dict()
+		get_doc.return_value = customer_doc
+
+		result = business_pricing.remove_secret_price_list("CM0001")
+
+		validate_permission.assert_called_once_with(customer_doc)
+		customer_doc.check_permission.assert_called_once_with("write")
+		is_protected.assert_called_once_with("B2B Price - Test")
+		self.assertIsNone(customer_doc.default_price_list)
+		self.assertTrue(customer_doc.flags.secret_price_list_assignment)
+		customer_doc.save.assert_called_once_with()
+		self.assertEqual(result["removed_price_list"], "B2B Price - Test")
+
+	@patch.object(business_pricing, "_is_protected_price_list", return_value=False)
+	@patch.object(business_pricing, "_validate_secret_price_permission")
+	@patch.object(business_pricing.frappe, "get_doc")
+	def test_remove_secret_price_list_rejects_ordinary_default(
+		self, get_doc, validate_permission, is_protected
+	):
+		customer_doc = MagicMock()
+		customer_doc.default_price_list = "Standard Selling"
+		get_doc.return_value = customer_doc
+
+		with self.assertRaises(frappe.ValidationError) as context:
+			business_pricing.remove_secret_price_list("CM0001")
+
+		self.assertIn("does not have a protected", str(context.exception))
+		validate_permission.assert_called_once_with(customer_doc)
+		customer_doc.save.assert_not_called()
 
 
 class TestQuotationPricingTotals(unittest.TestCase):

@@ -50,7 +50,7 @@ ERPNext core files are not modified.
 |---|---|---|---|
 | CR No | `cr_no` | Data | Bahrain CR number including branch, for example `90666-1` |
 | Verify CR | `verify_cr` | Button | Starts the Sijilat preview and confirmation flow |
-| Apply Secret Price List | `apply_secret_price_list` | Button | Opens the controlled protected Price List selector |
+| Apply Secret Price List | `apply_secret_price_list` | Button | Opens the controlled protected Price List assignment/removal dialog |
 | Business Verification Status | `business_verification_status` | Select | `Not Verified`, `Pending`, `Verified`, `Rejected`, or `Expired` |
 | CR Expiry Date | `cr_expiry_date` | Date | Expiry returned by Sijilat |
 | Verified Business Details | `verified_business_details` | Small Text | Saved legal name, CR status, activities, address and related information |
@@ -241,17 +241,20 @@ A blue scalloped verification badge is shown in Customer List for records whose
 `business_verification_status` is `Verified`. The badge is only a visual indicator; it
 does not authorize pricing.
 
+An independent gold `B2B` text badge is shown when the Customer's
+`default_price_list` is an enabled protected Selling Price List. Its tooltip is
+`B2B Special Pricing Enabled`. The Customer List loads the protected Price List names
+once and evaluates all visible rows locally; it does not perform a database request per
+Customer. A Customer may display either badge or both because business verification
+and protected-price authorization are intentionally independent.
+
 ## 5. Applying a Secret Price List
 
 ### 5.1 Permissions
 
-Only users with either of these roles can see and use **Apply Secret Price List**:
-
-- `Accounts Manager`
-- `System Manager`
-
-The role is checked again on the server. Hiding the button is not considered security.
-The user must also have write permission on the Customer.
+The button uses its configured Customer field permission level. A user must have write
+access at that permission level and normal write permission on the Customer. The server
+checks both permissions again; hiding the button is not considered security.
 
 ### 5.2 Assignment flow
 
@@ -263,6 +266,14 @@ The user must also have write permission on the Customer.
 5. Select a Price List and click **Apply Price List**.
 6. The server validates the Price List again and stores it in
    `Customer.default_price_list`.
+
+If the Customer already has a protected Price List, the same dialog also shows a red
+**Remove B2B Special Price** button. Removal requires confirmation and calls the
+controlled `remove_secret_price_list` method. The server repeats the field-level and
+Customer write-permission checks and clears `Customer.default_price_list` only when its current
+value is genuinely protected. An ordinary default Price List cannot be removed through
+this action. After removal, new transactions use the normal regular-price selection and
+the gold `B2B` Customer List badge disappears on refresh.
 
 This action works for companies, individuals, verified Customers and unverified
 Customers. It represents management approval, not legal verification.
@@ -302,28 +313,11 @@ a different protected list.
 A linked submitted Sales Invoice return may preserve the original Customer and protected
 Price List so historical returns are not broken by later master-data changes.
 
-### 6.1 Temporary sales lockdown
+### 6.1 Sales access
 
-Protected pricing is temporarily locked while Accounts completes item prices and the
-sales print formats are prepared. The application constant is:
-
-```python
-SECRET_PRICING_SALES_ENABLED = False
-```
-
-While the value is `False`:
-
-- users without the `System Manager` role cannot save a Quotation, Sales Order or Sales
-  Invoice using a protected Price List;
-- System Managers may use protected pricing without the temporary restriction;
-- linked submitted Sales Invoice returns remain allowed;
-- regular Price Lists are unaffected; and
-- Accounts may continue maintaining the protected Price List and its Item Prices.
-
-Customer assignment remains available, but assignment does not allow ordinary users to
-use the protected list during the lockdown. When pricing and print formats are ready,
-change `SECRET_PRICING_SALES_ENABLED` to `True`; the normal Customer-assignment
-authorization described above then resumes.
+Protected pricing is available to sales users through the normal transaction flow. The
+authorization rules above remain enforced: the protected Price List must be enabled and
+Selling, and it must exactly match the Customer's assigned default Price List.
 
 ## 7. Item pricing and regular-price fallback
 
@@ -581,6 +575,8 @@ Future changes must preserve these rules:
 - Multiple protected lists are selectable.
 - Individual and unverified Customers can receive an approved list.
 - Ordinary manual assignment of a protected list is blocked.
+- An existing protected assignment can be removed through the same dialog.
+- The removal action refuses to clear an ordinary default Price List.
 
 ### Transactions
 
