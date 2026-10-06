@@ -204,6 +204,60 @@ function apply_purchase_plan_filter_labels(report) {
 }
 
 
+function purchase_plan_header_formula(fieldname) {
+	var formulas = {
+		expected_total_sales: __(
+			"Expected Total Sale = (Direct Sales + Estimated Out-of-Stock Sales + Repack Demand) × (1 + Growth %)"
+		),
+		min: __(
+			"Min = Exact Monthly Sales × Min Stock Months (rounded to a whole quantity)"
+		),
+		monthy_sales: __(
+			"Monthly Sales = Expected Total Sale ÷ Report Months\nThe calculation keeps decimals; the column displays a whole number."
+		),
+		period_expected_sales: __(
+			"Arrival Period Expected Sales = Exact Monthly Sales × Months to Arrive"
+		),
+		shortage_happened: __(
+			"Shortage = Available Total Qty − Arrival Period Expected Sales\nA negative value means a shortage."
+		),
+		available_total_qty: __(
+			"Available Total Qty = Available Qty + Usable Repack Available + On Purchase"
+		),
+		expected_order_quantity: __(
+			"Expected Order Quantity = max(Shortage, 0) − Purchase Plan Coverage − Min\nCombined Row = Sum of individual Expected Order Quantities"
+		),
+		rfq_order_quantity: __(
+			"RFQ Order Qty = |Expected Order Quantity| when negative; otherwise 0"
+		),
+		priority_month: __(
+			"Priority Month = Available Total Qty ÷ Exact Monthly Sales\nDisplayed Value = Complete whole months covered"
+		)
+	};
+	return formulas[fieldname] || "";
+}
+
+
+function apply_purchase_plan_header_formulas(datatable) {
+	if (!datatable || !datatable.wrapper || !datatable.datamanager) {
+		return;
+	}
+	(datatable.datamanager.getColumns() || []).forEach(function (column) {
+		var formula = purchase_plan_header_formula(
+			column.fieldname || column.id
+		);
+		if (!formula) {
+			return;
+		}
+		$(datatable.wrapper).find(
+			".dt-row-header .dt-cell--col-" + column.colIndex
+		).attr("title", formula)
+			.addClass("purchase-plan-formula-heading")
+			.find(".dt-cell__content").attr("title", formula);
+	});
+}
+
+
 function purchase_plan_rfq_row_needs_highlight(row) {
 	return Boolean(row && flt(row.rfq_order_quantity) > 0);
 }
@@ -414,6 +468,7 @@ function apply_purchase_plan_sticky_columns(datatable) {
 			refresh_empty_filter_layout();
 			update_sticky_header();
 			refresh_rfq_required_serials();
+			apply_purchase_plan_header_formulas(datatable);
 		});
 	};
 	if (!datatable.purchase_plan_sticky_events_bound) {
@@ -520,6 +575,12 @@ function apply_purchase_plan_sticky_columns(datatable) {
 		important_style = $("<style id='purchase-plan-important-columns-style'></style>").appendTo("head");
 	}
 	important_style.text(important_column_rules.join(""));
+	apply_purchase_plan_header_formulas(datatable);
+	$(wrapper).find(".purchase-plan-formula-heading .dt-cell__content").css({
+		cursor: "help",
+		"text-decoration": "underline dotted",
+		"text-underline-offset": "3px"
+	});
 }
 
 
