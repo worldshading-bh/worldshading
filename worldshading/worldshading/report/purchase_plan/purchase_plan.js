@@ -960,6 +960,74 @@ function purchase_plan_combined_tooltip(data, fieldname) {
 }
 
 
+function purchase_plan_filter_signature(report) {
+	var normalize = function (value) {
+		if (Array.isArray(value)) {
+			return value.map(normalize);
+		}
+		if (value && typeof value == "object") {
+			var normalized = {};
+			Object.keys(value).sort().forEach(function (key) {
+				normalized[key] = normalize(value[key]);
+			});
+			return normalized;
+		}
+		return value;
+	};
+	var values = report.get_filter_values
+		? report.get_filter_values() : {};
+	return JSON.stringify(normalize(values));
+}
+
+
+function purchase_plan_combined_filters_match(report) {
+	return report.purchase_plan_combined_filter_signature ===
+		purchase_plan_filter_signature(report);
+}
+
+
+function purchase_plan_merge_combination_groups(current_rows, combined_groups) {
+	var group_by_item = {};
+	(combined_groups || []).forEach(function (group, group_index) {
+		(group.item_codes || []).forEach(function (item_code) {
+			group_by_item[item_code] = group_index;
+		});
+	});
+	var inserted_groups = {};
+	var merged_rows = [];
+	(current_rows || []).forEach(function (row) {
+		var group_index = group_by_item[row.item];
+		if (group_index === undefined) {
+			merged_rows.push(row);
+			return;
+		}
+		if (!inserted_groups[group_index]) {
+			merged_rows.push(combined_groups[group_index].row);
+			inserted_groups[group_index] = true;
+		}
+	});
+	return merged_rows;
+}
+
+
+function purchase_plan_selected_combination_items(group_controls, excluded_control) {
+	var selected_items = {};
+	(group_controls || []).forEach(function (entry) {
+		if (!entry.control || entry.control === excluded_control) {
+			return;
+		}
+		var values = entry.control.get_value() || [];
+		if (!Array.isArray(values)) {
+			values = [values];
+		}
+		values.forEach(function (item_code) {
+			selected_items[item_code] = true;
+		});
+	});
+	return selected_items;
+}
+
+
 function make_purchase_plan_combined_row(report, rows, label, combined_details) {
 	combined_details = combined_details || {};
 	var item_codes = rows.map(function (row) { return row.item; });
@@ -1066,6 +1134,8 @@ function render_purchase_plan_combined_view(report, rows) {
 	}
 	report.purchase_plan_combined_data = report.data;
 	report.purchase_plan_combined_view_active = true;
+	report.purchase_plan_combined_filter_signature =
+		purchase_plan_filter_signature(report);
 	report.render_datatable();
 }
 
@@ -1087,85 +1157,173 @@ function show_purchase_plan_combine_dialog(report) {
 	var dialog = new frappe.ui.Dialog({
 		title: __("Combine Purchase Plan Items"),
 		fields: [{
-				fieldname: "items",
-				fieldtype: "MultiSelectList",
-				label: __("Items to Combine"),
-				reqd: 1,
-				get_data: function (txt) {
-					txt = String(txt || "").toLowerCase();
-					return rows.filter(function (row) {
-						return !txt || row.item.toLowerCase().indexOf(txt) !== -1 ||
-							String(row.item_name || "").toLowerCase().indexOf(txt) !== -1;
-					}).map(function (row) {
-						return {value: row.item, description: row.item_name || ""};
-					});
-			}
+			fieldname: "combination_groups",
+			fieldtype: "HTML",
+			options: '<div class="purchase-plan-combination-groups"></div>' +
+				'<button type="button" class="btn btn-xs btn-default ' +
+				'purchase-plan-add-combination-group">' +
+				frappe.utils.escape_html(__("Add Another Group")) + '</button>'
 		}],
 		primary_action_label: __("Combine"),
 		primary_action: function () {
-			var values = dialog.get_values();
-			var item_codes = values && values.items ? values.items : [];
-			if (!Array.isArray(item_codes)) {
-				item_codes = [item_codes];
-			}
-			if (item_codes.length < 2) {
-				frappe.msgprint(__("Please select at least two Items."));
-				return;
-			}
-			var selected_rows = item_codes.map(function (item_code) {
-				return rows_by_item[item_code];
-			}).filter(Boolean);
-			var units = selected_rows.map(function (row) { return row.unit; })
-				.filter(function (unit, index, values_list) {
-					return values_list.indexOf(unit) === index;
-				});
-			if (selected_rows.length !== item_codes.length || units.length !== 1) {
-				frappe.msgprint(__("Only displayed Items with the same Stock UOM can be combined."));
-				return;
-			}
-			frappe.call({
-				method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_combined_purchase_plan_details",
-				freeze: true,
-				freeze_message: __("Calculating combined Item values..."),
-				args: {
-					item_codes: JSON.stringify(item_codes),
-					start_date: report.get_filter_value("start_date"),
-					end_date: report.get_filter_value("end_date"),
-					include_out_of_stock_sales: report.get_filter_value(
-						"include_out_of_stock_sales"
-					)
-				},
-				callback: function (response) {
-					if (!report.purchase_plan_combined_view_active) {
-						report.purchase_plan_original_data = (report.data || []).slice();
-						report.purchase_plan_original_total_row = report.raw_data &&
-							report.raw_data.add_total_row
-							? report.purchase_plan_original_data.slice(-1)[0] : null;
-					}
-					var selected_items = {};
-					item_codes.forEach(function (item_code) {
-						selected_items[item_code] = true;
-					});
-					var insert_at = current_rows.findIndex(function (row) {
-						return selected_items[row.item];
-					});
-					var remaining_rows = current_rows.filter(function (row) {
-						return !selected_items[row.item];
-					});
-					remaining_rows.splice(insert_at, 0, make_purchase_plan_combined_row(
-						report, selected_rows, null, response.message || {}
-					));
-					dialog.hide();
-					render_purchase_plan_combined_view(report, remaining_rows);
-					frappe.show_alert({
-						message: __("Combined {0} Items for this view.", [selected_rows.length]),
-						indicator: "blue"
-					});
+			var used_items = {};
+			var groups = [];
+			for (var group_index = 0; group_index < group_controls.length; group_index++) {
+				var item_codes = group_controls[group_index].control.get_value() || [];
+				if (!Array.isArray(item_codes)) {
+					item_codes = [item_codes];
 				}
+				if (item_codes.length < 2) {
+					frappe.msgprint(__("Group {0}: select at least two Items.", [group_index + 1]));
+					return;
+				}
+				var selected_rows = [];
+				for (var item_index = 0; item_index < item_codes.length; item_index++) {
+					var item_code = item_codes[item_index];
+					if (used_items[item_code]) {
+						frappe.msgprint(__("Item {0} is selected in more than one group.", [item_code]));
+						return;
+					}
+					used_items[item_code] = true;
+					if (rows_by_item[item_code]) {
+						selected_rows.push(rows_by_item[item_code]);
+					}
+				}
+				var units = selected_rows.map(function (row) { return row.unit; })
+					.filter(function (unit, index, values_list) {
+						return values_list.indexOf(unit) === index;
+					});
+				if (selected_rows.length !== item_codes.length || units.length !== 1) {
+					frappe.msgprint(__(
+						"Group {0}: only displayed Items with the same Stock UOM can be combined.",
+						[group_index + 1]
+					));
+					return;
+				}
+				groups.push({item_codes: item_codes, rows: selected_rows});
+			}
+			frappe.dom.freeze(__("Calculating combined Item values..."));
+			var requests = groups.map(function (group) {
+				return frappe.call({
+					method: "worldshading.worldshading.report.purchase_plan.purchase_plan.get_combined_purchase_plan_details",
+					args: {
+						item_codes: JSON.stringify(group.item_codes),
+						start_date: report.get_filter_value("start_date"),
+						end_date: report.get_filter_value("end_date"),
+						include_out_of_stock_sales: report.get_filter_value(
+							"include_out_of_stock_sales"
+						)
+					}
+				});
+			});
+			Promise.all(requests).then(function (responses) {
+				frappe.dom.unfreeze();
+				if (!report.purchase_plan_combined_view_active) {
+					report.purchase_plan_original_data = (report.data || []).slice();
+					report.purchase_plan_original_total_row = report.raw_data &&
+						report.raw_data.add_total_row
+						? report.purchase_plan_original_data.slice(-1)[0] : null;
+				}
+				var combined_groups = groups.map(function (group, index) {
+					return {
+						item_codes: group.item_codes,
+						row: make_purchase_plan_combined_row(
+							report, group.rows, null, responses[index].message || {}
+						)
+					};
+				});
+				var remaining_rows = purchase_plan_merge_combination_groups(
+					current_rows, combined_groups
+				);
+				dialog.hide();
+				render_purchase_plan_combined_view(report, remaining_rows);
+				frappe.show_alert({
+					message: __("Combined {0} groups for this view.", [groups.length]),
+					indicator: "blue"
+				});
+			}, function () {
+				frappe.dom.unfreeze();
 			});
 		}
 	});
 	dialog.show();
+	dialog.$wrapper.find(".modal-dialog").css({
+		width: "780px",
+		"max-width": "95vw"
+	});
+	dialog.$wrapper.find(".modal-body").css({
+		"overflow": "visible"
+	});
+	var groups_wrapper = dialog.fields_dict.combination_groups.$wrapper.find(
+		".purchase-plan-combination-groups"
+	);
+	var group_controls = [];
+	var group_sequence = 0;
+	var refresh_group_numbers = function () {
+		group_controls.forEach(function (entry, index) {
+			entry.wrapper.find(".purchase-plan-combination-group-title")
+				.text(__("Group {0}", [index + 1]));
+		});
+	};
+	var add_group = function () {
+		group_sequence += 1;
+		var group_wrapper = $('<div class="purchase-plan-combination-group"></div>')
+			.css({
+				border: "1px solid #d1d8dd",
+				"border-radius": "4px",
+				padding: "10px 12px",
+				"margin-bottom": "10px"
+			}).appendTo(groups_wrapper);
+		var heading = $('<div class="clearfix" style="margin-bottom:8px"></div>')
+			.appendTo(group_wrapper);
+		$('<strong class="purchase-plan-combination-group-title"></strong>')
+			.appendTo(heading);
+		var remove_button = $('<button type="button" class="btn btn-xs btn-link pull-right"></button>')
+			.text(__("Remove"))
+			.appendTo(heading);
+		var control_parent = $("<div></div>").appendTo(group_wrapper);
+		var control = null;
+		control = frappe.ui.form.make_control({
+			df: {
+				fieldname: "items_to_combine_" + group_sequence,
+				fieldtype: "MultiSelectList",
+				get_data: function (txt) {
+					txt = String(txt || "").toLowerCase();
+					var selected_elsewhere =
+						purchase_plan_selected_combination_items(
+							group_controls, control
+						);
+					return rows.filter(function (row) {
+						var matches_search = !txt ||
+							row.item.toLowerCase().indexOf(txt) !== -1 ||
+							String(row.item_name || "").toLowerCase().indexOf(txt) !== -1;
+						return matches_search && !selected_elsewhere[row.item];
+					}).map(function (row) {
+						return {value: row.item, description: row.item_name || ""};
+					});
+				}
+			},
+			parent: control_parent,
+			only_input: true
+		});
+		control.make_input();
+		var entry = {wrapper: group_wrapper, control: control};
+		group_controls.push(entry);
+		remove_button.on("click", function () {
+			if (group_controls.length === 1) {
+				frappe.show_alert({message: __("At least one group is required.")});
+				return;
+			}
+			group_controls.splice(group_controls.indexOf(entry), 1);
+			group_wrapper.remove();
+			refresh_group_numbers();
+		});
+		refresh_group_numbers();
+	};
+	dialog.fields_dict.combination_groups.$wrapper.find(
+		".purchase-plan-add-combination-group"
+	).on("click", add_group);
+	add_group();
 }
 
 
@@ -1180,6 +1338,7 @@ function reset_purchase_plan_combined_view(report) {
 	report.purchase_plan_combined_data = null;
 	report.purchase_plan_original_data = null;
 	report.purchase_plan_original_total_row = null;
+	report.purchase_plan_combined_filter_signature = null;
 	report.render_datatable();
 }
 
@@ -1845,10 +2004,25 @@ frappe.query_reports["Purchase Plan"] = {
 		var report = frappe.query_report;
 		if (report.purchase_plan_combined_view_active &&
 				report.data !== report.purchase_plan_combined_data) {
+			if (purchase_plan_combined_filters_match(report)) {
+				if (!report.purchase_plan_combined_restore_pending) {
+					report.purchase_plan_combined_restore_pending = true;
+					setTimeout(function () {
+						report.purchase_plan_combined_restore_pending = false;
+						if (report.purchase_plan_combined_view_active &&
+								purchase_plan_combined_filters_match(report)) {
+							report.data = report.purchase_plan_combined_data;
+							report.render_datatable();
+						}
+					}, 0);
+				}
+				return;
+			}
 			report.purchase_plan_combined_view_active = false;
 			report.purchase_plan_combined_data = null;
 			report.purchase_plan_original_data = null;
 			report.purchase_plan_original_total_row = null;
+			report.purchase_plan_combined_filter_signature = null;
 		}
 		enable_purchase_plan_rfq_qty_editing(datatable);
 		apply_purchase_plan_sticky_columns(datatable);
