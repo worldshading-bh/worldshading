@@ -355,11 +355,13 @@ calculation there.
 
 ### 7.2 Dynamically priced service items
 
-Only stock-maintained items (`Item.is_stock_item = 1`) participate in regular-versus-
-protected price comparison in the active Quotation and Sales Order summary calculation.
-A service/non-stock item's Item Price may be a placeholder used to load the row, while
-its final `rate` is calculated from production or packed-item logic. After that
-calculation, validation normalizes the service row as:
+Ordinary stock and non-stock items participate in regular-versus-protected price
+comparison and receive the same protected-to-Regular Price fallback. Only genuinely
+dynamically priced rows are excluded: enabled Product Bundle parents with
+`custom_project_logic = 1`, plus the calculated `QC7026` warranty item. Their Item
+Price may be a placeholder used to load the row, while the final `rate` is calculated
+from packed-item or warranty logic. After that calculation, validation normalizes the
+dynamic row as:
 
 ```text
 price_list_rate = unchanged (actual selected Item Price/placeholder)
@@ -371,7 +373,7 @@ total_discount_amount = 0
 applied_price_list = blank
 ```
 
-Service rows are then excluded from protected-price lookup and regular-price fallback.
+Dynamic rows are then excluded from protected-price lookup and regular-price fallback.
 The placeholder `price_list_rate` is not presented as a comparison price. Their actual
 `amount` contributes equally to the regular and used Price List subtotals, so they
 create no artificial savings or discount while the sales transaction continues to

@@ -366,8 +366,7 @@ class TestQuotationPricingTotals(unittest.TestCase):
 		})
 		doc = self._quotation("B2B Price", [item])
 
-		with patch.object(business_pricing.frappe, "db") as database:
-			database.get_value.return_value = 1
+		with patch.object(business_pricing.frappe, "get_all", return_value=[]):
 			service_item_ids = business_pricing.normalize_quotation_service_item_pricing(doc)
 
 		self.assertEqual(service_item_ids, set())
@@ -377,6 +376,51 @@ class TestQuotationPricingTotals(unittest.TestCase):
 		self.assertEqual(item.discount_amount, 1.1)
 		self.assertEqual(item.rate, 53.9)
 		self.assertEqual(item.applied_price_list, "B2B Price")
+
+	def test_non_stock_item_without_custom_project_logic_uses_normal_pricing(self):
+		item = frappe._dict({
+			"item_code": "HA0001",
+			"price_list_rate": 0,
+			"regular_price_list_rate": 0,
+			"discount_percentage": 0,
+			"discount_amount": 0,
+			"rate": 0,
+			"applied_price_list": None
+		})
+		doc = self._quotation("B2B Price", [item])
+
+		with patch.object(
+			business_pricing.frappe, "get_all", return_value=[]
+		), patch.object(business_pricing.frappe, "db") as database:
+			database.get_value.return_value = 0
+			service_item_ids = business_pricing.normalize_quotation_service_item_pricing(doc)
+
+		self.assertEqual(service_item_ids, set())
+
+	def test_custom_project_bundle_is_normalized_as_dynamic_pricing(self):
+		item = frappe._dict({
+			"item_code": "W0000",
+			"price_list_rate": 1,
+			"regular_price_list_rate": 59.091,
+			"discount_percentage": 10,
+			"discount_amount": 0.1,
+			"rate": 125,
+			"applied_price_list": "B2B Price"
+		})
+		doc = self._quotation("B2B Price", [item])
+
+		with patch.object(
+			business_pricing.frappe,
+			"get_all",
+			return_value=[frappe._dict({"new_item_code": "W0000"})]
+		):
+			service_item_ids = business_pricing.normalize_quotation_service_item_pricing(doc)
+
+		self.assertEqual(service_item_ids, set([id(item)]))
+		self.assertEqual(item.regular_price_list_rate, 0)
+		self.assertEqual(item.discount_percentage, 0)
+		self.assertEqual(item.discount_amount, 0)
+		self.assertIsNone(item.applied_price_list)
 
 	@patch.object(business_pricing, "_get_applicable_item_price")
 	@patch.object(
@@ -411,7 +455,11 @@ class TestQuotationPricingTotals(unittest.TestCase):
 		doc.conversion_rate = 1
 		doc.calculate_taxes_and_totals = MagicMock()
 
-		with patch.object(business_pricing.frappe, "db") as database:
+		with patch.object(
+			business_pricing.frappe,
+			"get_all",
+			return_value=[frappe._dict({"new_item_code": "SERVICE-ITEM"})]
+		), patch.object(business_pricing.frappe, "db") as database:
 			database.get_single_value.return_value = "Standard Selling"
 			database.get_value.side_effect = lambda doctype, name, fields, **kwargs: (
 				0 if doctype == "Item" else frappe._dict({

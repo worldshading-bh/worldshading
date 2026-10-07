@@ -1,41 +1,73 @@
-// 🔔 Smart Notification Sound & Full Message Display (final version)
-frappe.provide("worldshading");
+(function () {
+	"use strict";
 
-(function() {
-    console.log("✅ notification_sound.js loaded (full message version)");
+	// This file can be loaded through hooks or the existing Desk startup asset.
+	if (frappe._ws_notification_alert_installed) { return; }
+	frappe._ws_notification_alert_installed = true;
+	var sound;
+	var last_notification;
+	var timer;
 
-    frappe.after_ajax(() => {
-        console.log("⚡ Realtime listener attached for notifications");
+	frappe.after_ajax(function () {
+		frappe.realtime.on("notification", function (data) {
+			if (data && data.subject) {
+				show_notification(data);
+				return;
+			}
+			// Native v12 sends no payload. Coalesce bursts into one latest-message alert.
+			clearTimeout(timer);
+			timer = setTimeout(function () {
+				frappe.call({
+					method: "frappe.client.get_list",
+					args: {
+						doctype: "Notification Log",
+						filters: {for_user: frappe.session.user},
+						fields: ["name", "type", "subject", "document_type", "document_name"],
+						order_by: "creation desc",
+						limit_page_length: 1
+					},
+					callback: function (response) {
+						show_notification((response.message || [])[0] || {});
+					},
+					error: function () { show_notification({}); }
+				});
+			}, 250);
+		});
+	});
 
-        frappe.realtime.on("notification", function(data) {
-            console.log("📩 Realtime event:", data);
+	function is_assignment_removal(data) {
+		if (data.type && data.type !== "Assignment") { return false; }
+		var subject = strip_html(String(data.subject || "")).replace(/\s+/g, " ").trim();
+		var template = "Your assignment on {0} {1} has been removed by {2}";
+		return [template, __(template)].some(function (text) {
+			var pattern = text.replace(/\s+/g, " ").trim().split(/\{\d+\}/).map(function (part) {
+				return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			}).join(".+?");
+			return new RegExp("^" + pattern + "$", "i").test(subject);
+		});
+	}
 
-            // Extract the same text as shown in the notification dropdown
-            let msg = "";
-            if (data && data.subject) {
-                msg = data.subject; // this is the full message (e.g., "Manu Mohan assigned a new task ...")
-            } else {
-                msg = __("You have a new notification");
-            }
-
-            // Optionally add clickable link if document info is available
-            if (data && data.document_type && data.document_name) {
-                msg += ` <a href="/desk#Form/${data.document_type}/${data.document_name}" target="_blank" style="color:#ffd43b;">[View]</a>`;
-            }
-
-            // ✅ Play ERPNext chat notification sound
-            try {
-                const audio = new Audio("/assets/frappe/sounds/chat-notification.mp3");
-                audio.play().catch(err => console.warn("⚠️ Sound play blocked:", err));
-            } catch (e) {
-                console.error("Sound play error:", e);
-            }
-
-            // ✅ Show the same message in a green alert bar
-            frappe.show_alert({
-                message: "🔔 " + msg,
-                indicator: "green"
-            }, 10);
-        });
-    });
+	function show_notification(data) {
+		if (data.name && data.name === last_notification) { return; }
+		last_notification = data.name;
+		if (is_assignment_removal(data)) { return; }
+		var message = frappe.utils.escape_html(
+			strip_html(String(data.subject || __("You have a new notification")))
+		);
+		if (data.document_type && data.document_name) {
+			var link = "#Form/" + encodeURIComponent(data.document_type) + "/" +
+				encodeURIComponent(data.document_name);
+			message += ' <a href="' + frappe.utils.escape_html(link) + '">' +
+				frappe.utils.escape_html(__("View")) + '</a>';
+		}
+		frappe.show_alert({message: "🔔 " + message, indicator: "green"}, 10);
+		try {
+			sound = sound || new Audio("/assets/frappe/sounds/chat-notification.mp3");
+			sound.currentTime = 0;
+			var playing = sound.play();
+			if (playing && playing.catch) { playing.catch(function () {}); }
+		} catch (error) {
+			// Browser audio restrictions must never prevent the visual alert.
+		}
+	}
 })();

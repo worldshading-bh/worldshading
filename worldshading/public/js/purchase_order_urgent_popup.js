@@ -17,6 +17,10 @@
 	$(document).on("app_ready", function () {
 		if (requested) { return; }
 		requested = true;
+		// Load alerts even while this Desk session uses cached app_include_js hooks.
+		if (!frappe._ws_notification_alert_installed && frappe.require) {
+			frappe.require("/assets/worldshading/js/notification_sound.js");
+		}
 		setTimeout(load_urgent_documents, 500);
 	});
 

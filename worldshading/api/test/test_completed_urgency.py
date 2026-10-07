@@ -8,6 +8,29 @@ from worldshading.api import gl_payment_urgency as glp
 
 
 class TestCompletedUrgency(unittest.TestCase):
+	def test_cancellation_clears_urgency_without_workflow_lookup(self):
+		with patch.object(po, "get_workflow") as workflow:
+			for doctype in ("Purchase Order", "Payment Entry", "GL Payment"):
+				doc = frappe._dict(doctype=doctype, docstatus=2,
+					custom_is_urgent=1, custom_urgent_reason="Pay today")
+				po.clear_cancelled_urgency(doc, "before_cancel")
+				self.assertEqual(doc.custom_is_urgent, 0)
+				self.assertEqual(doc.custom_urgent_reason, "")
+		workflow.assert_not_called()
+
+	def test_cancellation_helper_does_not_clear_active_documents(self):
+		for status in (0, 1):
+			doc = frappe._dict(docstatus=status, custom_is_urgent=1, custom_urgent_reason="Pay today")
+			po.clear_cancelled_urgency(doc)
+			self.assertEqual(doc.custom_is_urgent, 1)
+			self.assertEqual(doc.custom_urgent_reason, "Pay today")
+
+	def test_cancellation_without_installed_fields_is_safe(self):
+		doc = frappe._dict(docstatus=2)
+		po.clear_cancelled_urgency(doc)
+		self.assertNotIn("custom_is_urgent", doc)
+		self.assertNotIn("custom_urgent_reason", doc)
+
 	def test_completion_clears_both_fields_for_draft_and_submitted_documents(self):
 		workflow = frappe._dict(workflow_state_field="approval_status")
 		with patch.object(po, "get_workflow_name", return_value="Active"):

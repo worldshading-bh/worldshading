@@ -276,20 +276,27 @@ def normalize_quotation_service_item_pricing(doc):
     if doc.get("doctype") not in ("Quotation", "Sales Order"):
         return service_item_ids
 
-    stock_item_cache = {}
+    item_codes = list(set(
+        item.get("item_code") for item in (doc.get("items") or [])
+        if item.get("item_code")
+    ))
+    dynamically_priced_items = set(["QC7026"])
+    if item_codes:
+        dynamically_priced_items.update(
+            row.new_item_code for row in frappe.get_all(
+                "Product Bundle",
+                filters={
+                    "new_item_code": ["in", item_codes],
+                    "disabled": 0,
+                    "custom_project_logic": 1
+                },
+                fields=["new_item_code"]
+            )
+        )
+
     for item in doc.get("items") or []:
         item_code = item.get("item_code")
-        if not item_code:
-            continue
-
-        if item_code not in stock_item_cache:
-            stock_item_cache[item_code] = cint(frappe.db.get_value(
-                "Item",
-                item_code,
-                "is_stock_item"
-            ))
-
-        if stock_item_cache[item_code]:
+        if not item_code or item_code not in dynamically_priced_items:
             continue
 
         service_item_ids.add(id(item))

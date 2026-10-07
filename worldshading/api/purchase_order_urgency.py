@@ -152,6 +152,16 @@ def clear_completed_urgency(doc, method=None):
 		doc.custom_urgent_reason = ""
 
 
+def clear_cancelled_urgency(doc, method=None):
+	"""Clear within the cancellation transaction and its normal Version entry."""
+	if doc.docstatus != 2:
+		return
+	if doc.get("custom_is_urgent") is not None:
+		doc.custom_is_urgent = 0
+	if doc.get("custom_urgent_reason") is not None:
+		doc.custom_urgent_reason = ""
+
+
 def _get_workflow_allowed_role(purchase_order):
 	workflow_name = get_workflow_name(purchase_order.doctype)
 	if not workflow_name:
