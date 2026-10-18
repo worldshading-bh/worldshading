@@ -91,13 +91,13 @@ class TestUrgencyNotifications(unittest.TestCase):
 		notifications.notify_urgency_change(self.doc)
 		self.log.assert_not_called()
 
-	def test_all_three_doctypes_supported(self):
+	def test_all_supported_doctypes(self):
 		for doctype in notifications.SUPPORTED_DOCTYPES:
 			self.doc.doctype = doctype
 			self.get_all.side_effect = [[frappe._dict(parent="maker@example.com")],
 				[frappe._dict(name="maker@example.com")]]
 			notifications.notify_urgency_change(self.doc)
-		self.assertEqual(self.log.call_count, 3)
+		self.assertEqual(self.log.call_count, len(notifications.SUPPORTED_DOCTYPES))
 
 
 class TestDeskOnlyDelivery(unittest.TestCase):

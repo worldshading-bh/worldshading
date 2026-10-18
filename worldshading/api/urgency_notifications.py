@@ -8,7 +8,7 @@ from frappe.desk.doctype.notification_settings.notification_settings import is_n
 from frappe.desk.doctype.notification_log.notification_log import NotificationLog, set_notifications_as_unseen
 
 
-SUPPORTED_DOCTYPES = ("Purchase Order", "Payment Entry", "GL Payment")
+SUPPORTED_DOCTYPES = ("Purchase Order", "Payment Entry", "GL Payment", "Journal Entry")
 
 
 class UrgencyNotificationLog(NotificationLog):

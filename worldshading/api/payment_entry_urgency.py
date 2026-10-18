@@ -101,12 +101,6 @@ def set_payment_entry_urgency(pe_name, urgent, reason=None):
 
 	payment_entry = frappe.get_doc("Payment Entry", pe_name)
 	payment_entry.check_permission("write")
-	allowed_role = _get_workflow_allowed_role(payment_entry)
-	user_roles = _get_user_roles()
-	if allowed_role and allowed_role not in user_roles and "Administrator" not in user_roles:
-		frappe.throw(_(
-			"Only users with the {0} role can change urgency in the current workflow state."
-		).format(frappe.bold(allowed_role)))
 
 	if payment_entry.docstatus == 2:
 		frappe.throw(_("A cancelled Payment Entry cannot be marked urgent."))

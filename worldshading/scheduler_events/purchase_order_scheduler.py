@@ -1,6 +1,20 @@
 import frappe
 from frappe.utils import nowdate, getdate, add_days
 
+
+def mark_shipment_followup_completed(doc, method=None):
+    previous_doc = getattr(doc, "_doc_before_save", None)
+
+    if (
+        previous_doc
+        and previous_doc.workflow_state == "Shipment Follow-Up"
+        and doc.workflow_state == "Shipped"
+    ):
+        doc.db_set(
+            "shipment_followup_completed", 1, update_modified=False
+        )
+
+
 def auto_update_purchase_order():
 
     today = getdate(nowdate())
@@ -88,6 +102,9 @@ def auto_update_purchase_order():
                     continue
 
                 # CASE 2: Shipment Follow-Up
+                if getattr(doc, "shipment_followup_completed", 0):
+                    continue
+
                 if midpoint <= today < pre_arrival_date:
 
                     doc.workflow_state = "Shipment Follow-Up"

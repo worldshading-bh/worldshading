@@ -117,16 +117,18 @@ class TestPaymentEntryUrgency(unittest.TestCase):
 		with self.assertRaises(frappe.ValidationError):
 			payment_entry_urgency.set_payment_entry_urgency(None, 1, "Urgent")
 
-	def test_user_must_hold_current_workflow_state_edit_role(self):
+	def test_writer_outside_current_workflow_role_can_change_urgency(self):
 		with patch.object(payment_entry_urgency, "_get_user_roles",
 				return_value=["Purchase Manager"], create=True):
 			with patch.object(frappe, "get_doc", return_value=self.payment_entry):
-				with self.assertRaises(frappe.ValidationError):
-					payment_entry_urgency.set_payment_entry_urgency(
-						"PE-0001", 1, "Urgent"
+				for urgent, reason in ((1, "Urgent"), (0, "")):
+					result = payment_entry_urgency.set_payment_entry_urgency(
+						"PE-0001", urgent, reason
 					)
-
-		self.payment_entry.db_set.assert_not_called()
+					self.assertEqual(result, {"urgent": urgent, "reason": reason})
+		self.assertEqual(self.payment_entry.db_set.call_count, 2)
+		self.assertEqual(self.payment_entry.save_version.call_count, 2)
+		self.payment_entry.check_permission.assert_called_with("write")
 
 	def test_current_workflow_state_supplies_allowed_edit_role(self):
 		self.assertTrue(hasattr(payment_entry_urgency, "_get_workflow_allowed_role"))

@@ -111,12 +111,6 @@ def set_gl_payment_urgency(glp_name, urgent, reason=None):
 
 	gl_payment = frappe.get_doc("GL Payment", glp_name)
 	gl_payment.check_permission("write")
-	allowed_role = _get_workflow_allowed_role(gl_payment)
-	user_roles = _get_user_roles()
-	if allowed_role and allowed_role not in user_roles and "Administrator" not in user_roles:
-		frappe.throw(_(
-			"Only users with the {0} role can change urgency in the current workflow state."
-		).format(frappe.bold(allowed_role)))
 
 	if gl_payment.docstatus == 2:
 		frappe.throw(_("A cancelled GL Payment cannot be marked urgent."))

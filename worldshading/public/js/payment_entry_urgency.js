@@ -25,11 +25,10 @@
 	});
 
 	function can_update(frm) {
-		var has_write_permission = Boolean(frm.perm && frm.perm[0] && frm.perm[0].write);
-		var workflow_is_read_only = frappe.workflow && frappe.workflow.is_read_only &&
-			frappe.workflow.is_read_only(frm.doc.doctype || "Payment Entry", frm.doc.name);
-
-		return has_write_permission && !workflow_is_read_only;
+		// Workflow read-only mode strips write from frm.perm. Check the document's
+		// underlying permissions, including owner, user and sharing restrictions.
+		var permissions = frappe.perm.get_perm(frm.doc.doctype || "Payment Entry", frm.doc);
+		return Boolean(permissions && permissions[0] && permissions[0].write);
 	}
 
 	function show_urgent_dialog(frm) {

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from worldshading.events.payment_entry_balance_snapshot import (
 	_is_customer_receipt,
+	_references_changed,
 	_sales_invoice_allocations,
 )
 
@@ -54,6 +55,25 @@ class TestPaymentEntryBalanceSnapshot(unittest.TestCase):
 			}),
 		]})
 		self.assertEqual(_sales_invoice_allocations(doc, 3), {"SINV-0001": 15.0})
+
+	def test_reconciliation_reference_change_is_detected(self):
+		before = AttributeDict({"references": []})
+		after = AttributeDict({"references": [AttributeDict({
+			"reference_doctype": "Sales Invoice",
+			"reference_name": "SINV-NEW",
+			"allocated_amount": 100,
+		})]})
+		self.assertTrue(_references_changed(after, before))
+
+	def test_unchanged_references_do_not_refresh_snapshot(self):
+		row = AttributeDict({
+			"reference_doctype": "Sales Invoice",
+			"reference_name": "SINV-0001",
+			"allocated_amount": 100,
+		})
+		before = AttributeDict({"references": [row]})
+		after = AttributeDict({"references": [AttributeDict(row.copy())]})
+		self.assertFalse(_references_changed(after, before))
 
 	@patch("worldshading.events.payment_entry_balance_snapshot.frappe.get_all")
 	@patch("worldshading.events.payment_entry_balance_snapshot.frappe.get_precision")

@@ -97,12 +97,6 @@ def set_purchase_order_urgency(po_name, urgent, reason=None):
 
 	purchase_order = frappe.get_doc("Purchase Order", po_name)
 	purchase_order.check_permission("write")
-	allowed_role = _get_workflow_allowed_role(purchase_order)
-	user_roles = _get_user_roles()
-	if allowed_role and allowed_role not in user_roles and "Administrator" not in user_roles:
-		frappe.throw(_(
-			"Only users with the {0} role can change urgency in the current workflow state."
-		).format(frappe.bold(allowed_role)))
 
 	if purchase_order.docstatus == 2:
 		frappe.throw(_("A cancelled Purchase Order cannot be marked urgent."))

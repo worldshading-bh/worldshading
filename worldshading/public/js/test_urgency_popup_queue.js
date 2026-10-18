@@ -51,7 +51,7 @@ function session(busy) {
 	});
 	ready.forEach(function (callback) { callback(); callback(); });
 	flush();
-	assert.strictEqual(calls.length, 3, "Only one request per document type per page load");
+	assert.strictEqual(calls.length, 4, "Only one request per document type per page load");
 	return {
 		calls, popups, dialog, classes,
 		close: function () {
@@ -67,6 +67,7 @@ const po = {name: "PO-1", supplier_name: "Supplier <One>", currency: "BHD", gran
 	workflow_state: "Pending", custom_urgent_reason: '<script>alert("x")</script>'};
 const pe = {name: "PE-1", party_name: "Party Two", paid_from_account_currency: "USD", paid_amount: 24};
 const gl = {name: "GLP-1", party_name: "Party Three", currency: "SAR", total_amount: 36};
+const je = {name: "JE-1", company: "Company Four", currency: "BHD", total_debit: 48};
 
 // Responses arrive out of order while the pricing backdrop is opening.
 const all = session(true);
@@ -74,12 +75,14 @@ all.calls[2].callback({message: [gl]});
 all.calls[0].callback({message: [po]});
 assert.strictEqual(all.popups.length, 0, "Wait for every type before showing");
 all.calls[1].callback({message: [pe]});
+all.calls[3].callback({message: [je]});
 assert.strictEqual(all.popups.length, 0, "Wait for pricing to close");
 all.close();
 assert.strictEqual(all.popups.length, 1);
-assert.strictEqual(all.popups[0].title, "Urgent Documents (3)");
+assert.strictEqual(all.popups[0].title, "Urgent Documents (4)");
 const html = all.popups[0].message;
-["Purchase Orders (1)", "Payment Entries (1)", "GL Payments (1)",
+["Purchase Orders (1)", "Payment Entries (1)", "GL Payments (1)", "Journal Entries (1)",
+	"#Form/Journal Entry/JE-1", "Company Four", "BHD 48",
 	"#Form/Purchase Order/PO-1", "#Form/Payment Entry/PE-1", "#Form/GL Payment/GLP-1",
 	"BHD 12", "USD 24", "SAR 36", "&lt;script&gt;"].forEach(function (text) {
 	assert.ok(html.includes(text), text);
@@ -97,6 +100,7 @@ const sparse = session(false);
 sparse.calls[0].callback({message: [po]});
 sparse.calls[1].callback({message: []});
 sparse.calls[2].callback({message: [gl]});
+sparse.calls[3].callback({message: []});
 assert.strictEqual(sparse.popups[0].title, "Urgent Documents (2)");
 assert.ok(!sparse.popups[0].message.includes("<h5>Payment Entries"));
 
@@ -109,6 +113,7 @@ failed.calls[0].callback({message: [po]});
 failed.calls[1].error();
 failed.calls[1].callback({exc: "Failure"}); // Some request paths invoke both callbacks.
 failed.calls[2].callback({message: [gl]});
+failed.calls[3].callback({message: []});
 assert.strictEqual(failed.popups.length, 1);
 assert.strictEqual(failed.popups[0].title, "Urgent Documents (2)");
 assert.ok(failed.popups[0].message.includes("Could not load urgent documents"));

@@ -5,12 +5,13 @@ import frappe
 from worldshading.api import purchase_order_urgency as po
 from worldshading.api import payment_entry_urgency as pe
 from worldshading.api import gl_payment_urgency as glp
+from worldshading.api import journal_entry_urgency as je
 
 
 class TestCompletedUrgency(unittest.TestCase):
 	def test_cancellation_clears_urgency_without_workflow_lookup(self):
 		with patch.object(po, "get_workflow") as workflow:
-			for doctype in ("Purchase Order", "Payment Entry", "GL Payment"):
+			for doctype in ("Purchase Order", "Payment Entry", "GL Payment", "Journal Entry"):
 				doc = frappe._dict(doctype=doctype, docstatus=2,
 					custom_is_urgent=1, custom_urgent_reason="Pay today")
 				po.clear_cancelled_urgency(doc, "before_cancel")
@@ -35,7 +36,7 @@ class TestCompletedUrgency(unittest.TestCase):
 		workflow = frappe._dict(workflow_state_field="approval_status")
 		with patch.object(po, "get_workflow_name", return_value="Active"):
 			with patch.object(po, "get_workflow", return_value=workflow):
-				for doctype in ("Purchase Order", "Payment Entry", "GL Payment"):
+				for doctype in ("Purchase Order", "Payment Entry", "GL Payment", "Journal Entry"):
 					for status in (0, 1):
 						doc = frappe._dict(doctype=doctype, docstatus=status,
 							approval_status="Completed", custom_is_urgent=1,
@@ -55,7 +56,7 @@ class TestCompletedUrgency(unittest.TestCase):
 					self.assertEqual(doc.custom_urgent_reason, "Pay today")
 
 	def test_completed_documents_cannot_be_marked_urgent_again(self):
-		for module, setter in ((po, po.set_purchase_order_urgency), (pe, pe.set_payment_entry_urgency), (glp, glp.set_gl_payment_urgency)):
+		for module, setter in ((po, po.set_purchase_order_urgency), (pe, pe.set_payment_entry_urgency), (glp, glp.set_gl_payment_urgency), (je, je.set_journal_entry_urgency)):
 			doc = MagicMock(docstatus=1)
 			with patch.object(frappe, "get_doc", return_value=doc), \
 				patch.object(module, "_get_workflow_allowed_role", return_value=None), \

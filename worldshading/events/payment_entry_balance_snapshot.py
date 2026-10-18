@@ -46,6 +46,15 @@ def set_invoice_balance_snapshot(doc, method=None):
 		})
 
 
+def refresh_invoice_balance_snapshot_after_submit(doc, method=None):
+	"""Refresh the display snapshot when reconciliation changes PE references."""
+	previous_doc = doc.get_doc_before_save()
+	if not _references_changed(doc, previous_doc):
+		return
+
+	set_invoice_balance_snapshot(doc)
+
+
 def _is_customer_receipt(doc):
 	return (
 		doc.payment_type == "Receive"
@@ -66,3 +75,20 @@ def _sales_invoice_allocations(doc, precision):
 			precision,
 		)
 	return allocations
+
+
+def _references_changed(doc, previous_doc):
+	if not previous_doc:
+		return False
+	return _reference_signature(doc) != _reference_signature(previous_doc)
+
+
+def _reference_signature(doc):
+	return sorted([
+		(
+			reference.reference_doctype or "",
+			reference.reference_name or "",
+			flt(reference.allocated_amount, 9),
+		)
+		for reference in (doc.get("references") or [])
+	])

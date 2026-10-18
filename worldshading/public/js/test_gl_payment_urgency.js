@@ -14,6 +14,10 @@ let confirmation;
 const context = {
 	__: function (value) { return value; },
 	frappe: {
+		perm: {get_perm: function (doctype, doc) {
+			assert.strictEqual(doctype, "GL Payment");
+			return [{write: doc.test_write_permission}];
+		}},
 		meta: {get_docfield: function () { return {}; }},
 		workflow: {
 			is_read_only: function () { return false; }
@@ -47,6 +51,7 @@ function makeForm(urgent) {
 	const buttons = {};
 	return {
 		doc: {
+			test_write_permission: 1,
 			name: "GLP-0001",
 			docstatus: 1,
 			custom_is_urgent: urgent ? 1 : 0,
@@ -83,13 +88,18 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(callOptions.args)),
 
 frm = makeForm(false);
 frm.perm = [{write: 0}];
+frm.doc.test_write_permission = 0;
 handlers.refresh(frm);
 assert.deepStrictEqual(Object.keys(frm.buttons), [], "Read-only users must not see urgency actions");
 
 context.frappe.workflow.is_read_only = function () { return true; };
 frm = makeForm(false);
+frm.perm = [{read: 1}]; // Actual v12 workflow read-only form permissions.
 handlers.refresh(frm);
-assert.deepStrictEqual(Object.keys(frm.buttons), [],
-	"Users outside the workflow state's Allow Edit For role must not see urgency actions");
+assert.ok(frm.buttons["Mark as Urgent"],
+	"Writers outside the workflow edit role can mark urgency");
+frm = makeForm(true);
+handlers.refresh(frm);
+assert.ok(frm.buttons["Mark as Normal"], "Writers can clear urgency after passing the document");
 
 console.log("GL Payment urgency form behavior: OK");

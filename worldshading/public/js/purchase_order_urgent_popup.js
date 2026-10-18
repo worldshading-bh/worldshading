@@ -11,7 +11,10 @@
 			party: "party", party_name: "party_name", amount: "paid_amount", currency: "paid_from_account_currency"},
 		{doctype: "GL Payment", title: "GL Payments", label: "GLP", party_label: "Party",
 			method: "worldshading.api.gl_payment_urgency.get_urgent_gl_payments",
-			party: "party", party_name: "party_name", amount: "total_amount", currency: "currency"}
+			party: "party", party_name: "party_name", amount: "total_amount", currency: "currency"},
+		{doctype: "Journal Entry", title: "Journal Entries", label: "JE", party_label: "Company",
+			method: "worldshading.api.journal_entry_urgency.get_urgent_journal_entries",
+			party: "company", party_name: "company", amount: "total_debit", currency: "currency"}
 	];
 
 	$(document).on("app_ready", function () {
