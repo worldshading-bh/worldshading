@@ -317,6 +317,24 @@ def validate_filters(filters):
 	return filters
 
 
+def prepare_filters(filters):
+	filters = validate_filters(filters)
+	if filters.get("item_group") and "_item_groups" not in filters:
+		group = frappe.db.get_value(
+			"Item Group", filters["item_group"], ["lft", "rgt"], as_dict=True
+		)
+		if group:
+			group_rows = frappe.get_all(
+				"Item Group",
+				filters={"lft": (">=", group.lft), "rgt": ("<=", group.rgt)},
+				fields=["name"], order_by="lft asc", limit_page_length=0
+			)
+			filters["_item_groups"] = tuple(row.name for row in group_rows)
+		else:
+			filters["_item_groups"] = ("",)
+	return filters
+
+
 def _invoice_conditions(filters):
 	conditions = [
 		"si.docstatus = 1",
@@ -340,7 +358,9 @@ def _item_conditions(filters, row_alias, item_alias):
 		conditions.append("{0}.item_code = %(item_code)s".format(row_alias))
 	if filters.get("item_name"):
 		conditions.append("{0}.item_name like %(item_name)s".format(item_alias))
-	if filters.get("item_group"):
+	if filters.get("_item_groups"):
+		conditions.append("{0}.item_group in %(_item_groups)s".format(item_alias))
+	elif filters.get("item_group"):
 		conditions.append("{0}.item_group = %(item_group)s".format(item_alias))
 	if filters.get("brand"):
 		conditions.append("{0}.brand = %(brand)s".format(item_alias))
@@ -493,7 +513,10 @@ def _matches_output_filters(row, filters, include_sales_basis=True):
 		needle = str(filters.get("item_name")).strip("%").lower()
 		if needle not in str(row.get("item_name") or "").lower():
 			return False
-	if filters.get("item_group") and row.get("item_group") != filters.get("item_group"):
+	if filters.get("_item_groups") and row.get("item_group") not in set(filters.get("_item_groups")):
+		return False
+	if not filters.get("_item_groups") and filters.get("item_group") \
+			and row.get("item_group") != filters.get("item_group"):
 		return False
 	if filters.get("brand") and row.get("brand") != filters.get("brand"):
 		return False
@@ -507,7 +530,7 @@ def _matches_output_filters(row, filters, include_sales_basis=True):
 
 
 def get_transaction_contributions(filters):
-	filters = validate_filters(filters)
+	filters = prepare_filters(filters)
 	direct_rows = _get_direct_rows(filters)
 	packed_rows = _get_packed_rows(filters)
 	allocation_parents = _parent_rows_from_packed(packed_rows)
@@ -528,7 +551,7 @@ def get_transaction_contributions(filters):
 
 
 def filter_transaction_rows(rows, filters):
-	filters = validate_filters(filters)
+	filters = prepare_filters(filters)
 	filtered_rows = [
 		row for row in rows
 		if _matches_output_filters(row, filters, include_sales_basis=False)
@@ -538,6 +561,7 @@ def filter_transaction_rows(rows, filters):
 
 
 def get_transaction_rows(filters):
+	filters = prepare_filters(filters)
 	return filter_transaction_rows(get_transaction_contributions(filters), filters)
 
 

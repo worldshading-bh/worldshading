@@ -133,6 +133,38 @@ class TestPackedRevenueAllocation(unittest.TestCase):
 
 
 class TestSalesReader(unittest.TestCase):
+	def test_parent_item_group_includes_all_descendants(self):
+		group = type("Group", (object,), {"lft": 10, "rgt": 20})()
+		group_rows = [
+			type("GroupRow", (object,), {"name": "Parent"})(),
+			type("GroupRow", (object,), {"name": "Child A"})(),
+			type("GroupRow", (object,), {"name": "Child B"})()
+		]
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.get_value.return_value = group
+			frappe_mock.get_all.return_value = group_rows
+			filters = report.prepare_filters(self.filters(
+				item_group="Parent", item_code=None, item_name=None, brand=None,
+				customer=None, warehouse=None, project=None
+			))
+
+		self.assertEqual(filters["_item_groups"], ("Parent", "Child A", "Child B"))
+		self.assertIn(
+			"item.item_group in %(_item_groups)s",
+			report._item_conditions(filters, "sii", "item")
+		)
+		rows = report.filter_transaction_rows([
+			{"invoice": "SINV-1", "item_code": "A", "item_group": "Child A",
+			 "stock_qty": Decimal("1"), "direct_qty": Decimal("1"),
+			 "packed_qty": Decimal("0"), "net_amount": Decimal("10"),
+			 "direct_net_amount": Decimal("10"), "sales_basis": "Direct"},
+			{"invoice": "SINV-2", "item_code": "B", "item_group": "Sibling",
+			 "stock_qty": Decimal("1"), "direct_qty": Decimal("1"),
+			 "packed_qty": Decimal("0"), "net_amount": Decimal("10"),
+			 "direct_net_amount": Decimal("10"), "sales_basis": "Direct"}
+		], filters)
+		self.assertEqual([row["item_group"] for row in rows], ["Child A"])
+
 	def test_sales_basis_filter_accepts_user_facing_item_labels(self):
 		self.assertEqual(
 			report.validate_filters(self.filters(sales_basis="Direct Items"))["sales_basis"],

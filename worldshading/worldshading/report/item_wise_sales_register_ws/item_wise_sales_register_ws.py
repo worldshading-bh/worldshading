@@ -11,6 +11,7 @@ from worldshading.reporting.item_wise_sales import (
 	append_warning,
 	filter_transaction_rows,
 	get_transaction_contributions,
+	prepare_filters,
 	quantize_money,
 	to_decimal,
 )
@@ -28,7 +29,7 @@ WARNING_LABELS = {
 
 
 def execute(filters=None):
-	filters = dict(filters or {})
+	filters = prepare_filters(filters or {})
 	contributions = get_transaction_contributions(filters)
 	tax_context = get_tax_context(contributions)
 	apply_tax_values(contributions, tax_context)
