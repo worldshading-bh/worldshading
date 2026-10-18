@@ -120,6 +120,10 @@ class TestPackedRevenueAllocation(unittest.TestCase):
 		self.assertEqual(item_a["packed_qty"], Decimal("4"))
 		self.assertEqual(item_a["stock_qty"], Decimal("6"))
 		self.assertEqual(item_a["net_amount"], Decimal("130.000"))
+		self.assertEqual(
+			sum(row["net_amount"] for row in rows),
+			Decimal("130.000")
+		)
 
 	def test_direct_only_row_is_preserved(self):
 		rows = normalize_transaction_rows([self.parent("25", item_code="A", qty="2")], [])
@@ -171,15 +175,15 @@ class TestSalesReader(unittest.TestCase):
 			self.assertIn("si.customer = %(customer)s", lowered)
 			self.assertIn("si.project = %(project)s", lowered)
 		self.assertIn("sii.item_code = %(item_code)s", direct_query)
-		self.assertIn("packed.item_code = %(item_code)s", packed_query)
+		self.assertIn("pi.item_code = %(item_code)s", packed_query)
 		self.assertIn("item.item_name like %(item_name)s", direct_query)
-		self.assertIn("packed_item.item_group = %(item_group)s", packed_query)
-		self.assertIn("packed_item.brand = %(brand)s", packed_query)
+		self.assertIn("item.item_group = %(item_group)s", packed_query)
+		self.assertIn("item.brand = %(brand)s", packed_query)
 		self.assertIn("sii.warehouse = %(warehouse)s", direct_query)
-		self.assertIn("packed.warehouse = %(warehouse)s", packed_query)
-		self.assertNotIn("parent_line", packed_query)
+		self.assertIn("pi.warehouse = %(warehouse)s", packed_query)
+		self.assertIn("parent_line", packed_query)
 
-	def test_reader_uses_selected_packed_item_amount_directly(self):
+	def test_reader_scales_selected_packed_item_to_parent_total(self):
 		packed_rows = [
 			{"invoice": "SINV-1", "item_code": "A", "parent_item": "BUNDLE", "qty": 1,
 			 "amount": 60, "rate": 60, "posting_date": "2026-09-01", "parent_base_net_amount": 80,
@@ -197,7 +201,7 @@ class TestSalesReader(unittest.TestCase):
 			))
 
 		self.assertEqual([row["item_code"] for row in rows], ["A"])
-		self.assertEqual(rows[0]["net_amount"], Decimal("60.000"))
+		self.assertEqual(rows[0]["net_amount"], Decimal("48.000"))
 
 	def test_sales_basis_and_warehouse_are_output_filters(self):
 		packed_rows = [{
@@ -253,7 +257,7 @@ class TestSalesReader(unittest.TestCase):
 		self.assertEqual(result["last_sale_date"], "2026-09-03")
 		self.assertEqual(result["last_sold_rate"], Decimal("20.000"))
 
-	def test_reader_does_not_require_packed_parent_row_link(self):
+	def test_reader_falls_back_when_packed_parent_row_link_is_missing(self):
 		packed_rows = [{
 			"invoice": "SINV-1", "item_code": "A", "parent_item": "BUNDLE", "qty": 1,
 			"amount": 10, "rate": 10, "posting_date": "2026-09-01",
@@ -266,8 +270,8 @@ class TestSalesReader(unittest.TestCase):
 				customer=None, warehouse=None, project=None
 			))
 		self.assertEqual(rows[0]["net_amount"], Decimal("10.000"))
-		self.assertNotIn("missing_parent_link", rows[0]["warnings"])
-		self.assertNotIn("ambiguous_parent_rows", rows[0]["warnings"])
+		self.assertIn("missing_parent_link", rows[0]["warnings"])
+		self.assertIn("ambiguous_parent_rows", rows[0]["warnings"])
 
 	def test_item_group_filter_does_not_emit_unrelated_packed_sibling(self):
 		packed_rows = [
