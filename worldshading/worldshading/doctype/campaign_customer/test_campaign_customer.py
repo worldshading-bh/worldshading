@@ -4,6 +4,11 @@ from __future__ import unicode_literals
 import json
 import os
 import unittest
+from unittest.mock import patch
+
+import frappe
+
+from worldshading.worldshading.doctype.campaign_customer import campaign_customer
 
 
 class TestCampaignCustomerSchema(unittest.TestCase):
@@ -103,6 +108,149 @@ class TestCampaignCustomerSchema(unittest.TestCase):
 			"No Answer\nBusy\nCall Back Later\nMessage Sent\nReplied\nInterested\n"
 			"Not Interested\nWrong Number\nVisit Scheduled\nOrder Confirmed\nOther")
 		self.assertEqual(fields["call_log"].get("options"), "Call Log")
+
+
+class TestCampaignCustomerControllerContract(unittest.TestCase):
+
+	def test_controller_exposes_approved_validation_api(self):
+		for name in (
+			"validate_unique_campaign_customer", "update_interaction_summary",
+			"validate_opportunity_customer"
+		):
+			self.assertTrue(hasattr(campaign_customer, name), "Missing controller helper: {0}".format(name))
+		self.assertIn("validate", campaign_customer.CampaignCustomer.__dict__)
+
+
+@unittest.skipUnless(
+	all(hasattr(campaign_customer, name) for name in (
+		"validate_unique_campaign_customer", "update_interaction_summary",
+		"validate_opportunity_customer"
+	)) and "validate" in campaign_customer.CampaignCustomer.__dict__,
+	"Campaign Customer validation API is not implemented"
+)
+class TestCampaignCustomerController(unittest.TestCase):
+
+	def _doc(self, **values):
+		data = {
+			"name": None,
+			"campaign": "SAL-CAM-2026-00001",
+			"customer": "CUST-0001",
+			"opportunity": None,
+			"interactions": [],
+			"next_follow_up": "2026-10-25 09:00:00",
+			"last_contact_on": None,
+			"last_outcome": None,
+			"number_of_interactions": 0
+		}
+		data.update(values)
+		return frappe._dict(data)
+
+	def _throw(self, message, *args, **kwargs):
+		raise frappe.ValidationError(message)
+
+	def test_new_duplicate_is_rejected_without_empty_name_filter(self):
+		doc = self._doc()
+		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+			db.get_value.return_value = "CC-2026-00001"
+			with patch.object(campaign_customer.frappe, "throw", side_effect=self._throw):
+				with self.assertRaisesRegex(frappe.ValidationError, "CUST-0001.*SAL-CAM"):
+					campaign_customer.validate_unique_campaign_customer(doc)
+		filters = db.get_value.call_args[0][1]
+		self.assertEqual(filters, {
+			"campaign": "SAL-CAM-2026-00001",
+			"customer": "CUST-0001"
+		})
+
+	def test_saved_record_excludes_itself_from_duplicate_lookup(self):
+		doc = self._doc(name="CC-2026-00001")
+		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+			db.get_value.return_value = None
+			campaign_customer.validate_unique_campaign_customer(doc)
+		filters = db.get_value.call_args[0][1]
+		self.assertEqual(filters["name"], ["!=", "CC-2026-00001"])
+
+	def test_empty_history_preserves_manually_planned_follow_up(self):
+		doc = self._doc()
+		campaign_customer.update_interaction_summary(doc)
+		self.assertEqual(doc.number_of_interactions, 0)
+		self.assertIsNone(doc.last_contact_on)
+		self.assertIsNone(doc.last_outcome)
+		self.assertEqual(doc.next_follow_up, "2026-10-25 09:00:00")
+
+	def test_summary_uses_latest_dated_interaction_and_latest_nonempty_follow_up(self):
+		doc = self._doc(interactions=[
+			frappe._dict({
+				"interaction_on": "2026-10-18 09:00:00", "outcome": "Busy",
+				"next_follow_up": "2026-10-22 09:00:00"
+			}),
+			frappe._dict({
+				"interaction_on": "2026-10-20 11:00:00", "outcome": "Interested",
+				"next_follow_up": None
+			}),
+			frappe._dict({
+				"interaction_on": "", "outcome": "Other",
+				"next_follow_up": "2026-10-30 09:00:00"
+			}),
+			frappe._dict({
+				"interaction_on": "2026-10-19 10:00:00", "outcome": "Call Back Later",
+				"next_follow_up": "2026-10-25 10:00:00"
+			})
+		])
+		campaign_customer.update_interaction_summary(doc)
+		self.assertEqual(doc.number_of_interactions, 4)
+		self.assertEqual(doc.last_contact_on, "2026-10-20 11:00:00")
+		self.assertEqual(doc.last_outcome, "Interested")
+		self.assertEqual(doc.next_follow_up, "2026-10-25 10:00:00")
+
+	def test_invalid_nonblank_interaction_date_is_rejected(self):
+		doc = self._doc(interactions=[frappe._dict({
+			"interaction_on": "not-a-date", "outcome": "Other", "next_follow_up": None
+		})])
+		with self.assertRaises((TypeError, ValueError)):
+			campaign_customer.update_interaction_summary(doc)
+
+	def test_opportunity_must_exist_and_belong_to_the_same_customer(self):
+		doc = self._doc(opportunity="OPTY-0001")
+		invalid_values = [
+			None,
+			frappe._dict({"opportunity_from": "Lead", "party_name": "LEAD-0001"}),
+			frappe._dict({"opportunity_from": "Customer", "party_name": "CUST-0002"})
+		]
+		for values in invalid_values:
+			with self.subTest(values=values):
+				with patch.object(campaign_customer.frappe, "db", create=True) as db:
+					db.get_value.return_value = values
+					with patch.object(campaign_customer.frappe, "throw", side_effect=self._throw):
+						with self.assertRaises(frappe.ValidationError):
+							campaign_customer.validate_opportunity_customer(doc)
+
+	def test_matching_customer_opportunity_is_accepted(self):
+		doc = self._doc(opportunity="OPTY-0001")
+		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+			db.get_value.return_value = frappe._dict({
+				"opportunity_from": "Customer", "party_name": "CUST-0001"
+			})
+			campaign_customer.validate_opportunity_customer(doc)
+
+	def test_document_validate_applies_all_rules(self):
+		doc = self._doc(
+			opportunity="OPTY-0001",
+			interactions=[frappe._dict({
+				"interaction_on": "2026-10-20 11:00:00",
+				"outcome": "Interested",
+				"next_follow_up": "2026-10-22 09:00:00"
+			})]
+		)
+		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+			db.get_value.side_effect = [
+				None,
+				frappe._dict({
+					"opportunity_from": "Customer", "party_name": "CUST-0001"
+				})
+			]
+			campaign_customer.CampaignCustomer.validate(doc)
+		self.assertEqual(doc.number_of_interactions, 1)
+		self.assertEqual(doc.last_outcome, "Interested")
 
 
 if __name__ == "__main__":
