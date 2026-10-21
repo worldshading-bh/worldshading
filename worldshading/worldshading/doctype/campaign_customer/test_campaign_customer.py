@@ -36,7 +36,7 @@ class TestCampaignCustomerSchema(unittest.TestCase):
 		self.assertEqual(definition.get("autoname"), "naming_series:")
 		self.assertEqual(fields["naming_series"].get("options"), "CC-.YYYY.-.#####")
 		self.assertEqual(definition.get("field_order"), [
-			"naming_series", "campaign_schedule_section", "campaign", "status",
+			"naming_series", "campaign_customer_key", "campaign_schedule_section", "campaign", "status",
 			"priority", "schedule_column", "caller", "planned_contact_date",
 			"planned_contact_time", "customer_section", "customer", "customer_name",
 			"customer_group", "territory", "contact_column", "contact_person",
@@ -65,6 +65,8 @@ class TestCampaignCustomerSchema(unittest.TestCase):
 		self.assertEqual(fields["priority"].get("options"), "Standard\nTop 20")
 		self.assertEqual(fields["next_action"].get("options"),
 			"\nCall\nWhatsApp\nSMS\nEmail\nVisit\nNone")
+		for property_name in ("hidden", "read_only", "unique", "no_copy"):
+			self.assertEqual(fields["campaign_customer_key"].get(property_name), 1)
 
 	def test_parent_list_filters_and_summaries_match_daily_work(self):
 		fields = self._fields(self._parent())
@@ -114,7 +116,7 @@ class TestCampaignCustomerControllerContract(unittest.TestCase):
 
 	def test_controller_exposes_approved_validation_api(self):
 		for name in (
-			"validate_unique_campaign_customer", "update_interaction_summary",
+			"set_campaign_customer_key", "validate_unique_campaign_customer", "update_interaction_summary",
 			"validate_opportunity_customer"
 		):
 			self.assertTrue(hasattr(campaign_customer, name), "Missing controller helper: {0}".format(name))
@@ -123,7 +125,7 @@ class TestCampaignCustomerControllerContract(unittest.TestCase):
 
 @unittest.skipUnless(
 	all(hasattr(campaign_customer, name) for name in (
-		"validate_unique_campaign_customer", "update_interaction_summary",
+		"set_campaign_customer_key", "validate_unique_campaign_customer", "update_interaction_summary",
 		"validate_opportunity_customer"
 	)) and "validate" in campaign_customer.CampaignCustomer.__dict__,
 	"Campaign Customer validation API is not implemented"
@@ -160,6 +162,17 @@ class TestCampaignCustomerController(unittest.TestCase):
 			"campaign": "SAL-CAM-2026-00001",
 			"customer": "CUST-0001"
 		})
+
+	def test_campaign_customer_key_is_stable_and_distinguishes_customer(self):
+		doc = self._doc()
+		campaign_customer.set_campaign_customer_key(doc)
+		self.assertEqual(
+			doc.campaign_customer_key,
+			"bc37b210f1b88e1e7fb8c6a68003efd8786e0da38fde319552a0b30717b68524"
+		)
+		other_customer = self._doc(customer="CUST-0002")
+		campaign_customer.set_campaign_customer_key(other_customer)
+		self.assertNotEqual(other_customer.campaign_customer_key, doc.campaign_customer_key)
 
 	def test_saved_record_excludes_itself_from_duplicate_lookup(self):
 		doc = self._doc(name="CC-2026-00001")
@@ -251,6 +264,10 @@ class TestCampaignCustomerController(unittest.TestCase):
 			campaign_customer.CampaignCustomer.validate(doc)
 		self.assertEqual(doc.number_of_interactions, 1)
 		self.assertEqual(doc.last_outcome, "Interested")
+		self.assertEqual(
+			doc.campaign_customer_key,
+			"bc37b210f1b88e1e7fb8c6a68003efd8786e0da38fde319552a0b30717b68524"
+		)
 
 
 class TestCampaignCustomerCRMNavigation(unittest.TestCase):

@@ -98,6 +98,30 @@ assert.strictEqual(customerForm.doc.territory, "Bahrain");
 assert.strictEqual(customerForm.doc.mobile_number, "39999999");
 assert.strictEqual(customerForm.doc.email_address, "customer@example.com");
 
+const switchedCustomerForm = makeForm({
+    customer: "CUST-0001",
+    contact_person: "",
+    mobile_number: "",
+    email_address: ""
+});
+handlers.customer(switchedCustomerForm);
+assert.strictEqual(switchedCustomerForm.doc.mobile_number, "39000000");
+assert.strictEqual(switchedCustomerForm.doc.email_address, "customer@example.com");
+responses.Customer.mobile_no = "39222222";
+responses.Customer.email_id = "second@example.com";
+switchedCustomerForm.doc.customer = "CUST-0002";
+handlers.customer(switchedCustomerForm);
+assert.strictEqual(switchedCustomerForm.doc.mobile_number, "39222222");
+assert.strictEqual(switchedCustomerForm.doc.email_address, "second@example.com");
+
+switchedCustomerForm.doc.mobile_number = "manual-number";
+responses.Customer.mobile_no = "39333333";
+responses.Customer.email_id = "third@example.com";
+switchedCustomerForm.doc.customer = "CUST-0003";
+handlers.customer(switchedCustomerForm);
+assert.strictEqual(switchedCustomerForm.doc.mobile_number, "manual-number");
+assert.strictEqual(switchedCustomerForm.doc.email_address, "third@example.com");
+
 const contactForm = makeForm({
     contact_person: "CONTACT-0001",
     mobile_number: "39999999",
@@ -113,6 +137,20 @@ assert.deepStrictEqual(plain(lastRead), {
 assert.strictEqual(contactForm.doc.mobile_number, "39999999");
 assert.strictEqual(contactForm.doc.whatsapp_number, "39111111");
 assert.strictEqual(contactForm.doc.email_address, "contact@example.com");
+
+const contactSwitchForm = makeForm({
+    customer: "CUST-0001",
+    contact_person: "CONTACT-0001",
+    mobile_number: "",
+    whatsapp_number: "",
+    email_address: ""
+});
+handlers.contact_person(contactSwitchForm);
+contactSwitchForm.doc.customer = "CUST-0004";
+handlers.customer(contactSwitchForm);
+assert.strictEqual(contactSwitchForm.doc.mobile_number, "39333333");
+assert.strictEqual(contactSwitchForm.doc.whatsapp_number, "");
+assert.strictEqual(contactSwitchForm.doc.email_address, "third@example.com");
 
 responses.Contact.mobile_no = "";
 const fallbackForm = makeForm({

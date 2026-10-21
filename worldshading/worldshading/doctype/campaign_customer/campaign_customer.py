@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+import hashlib
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -10,9 +12,15 @@ from frappe.utils import get_datetime
 class CampaignCustomer(Document):
 
 	def validate(self):
+		set_campaign_customer_key(self)
 		validate_unique_campaign_customer(self)
 		update_interaction_summary(self)
 		validate_opportunity_customer(self)
+
+
+def set_campaign_customer_key(doc):
+	value = "{0}\n{1}".format(doc.campaign, doc.customer)
+	doc.campaign_customer_key = hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def validate_unique_campaign_customer(doc):

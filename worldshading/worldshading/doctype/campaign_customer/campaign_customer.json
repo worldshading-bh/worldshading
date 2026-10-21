@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "naming_series",
+  "campaign_customer_key",
   "campaign_schedule_section",
   "campaign",
   "status",
@@ -49,6 +50,15 @@
    "options": "CC-.YYYY.-.#####",
    "reqd": 1,
    "set_only_once": 1
+  },
+  {
+   "fieldname": "campaign_customer_key",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Campaign Customer Key",
+   "no_copy": 1,
+   "read_only": 1,
+   "unique": 1
   },
   {
    "fieldname": "campaign_schedule_section",

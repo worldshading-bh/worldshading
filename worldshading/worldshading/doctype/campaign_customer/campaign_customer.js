@@ -1,3 +1,23 @@
+(function() {
+function clear_customer_autofill(frm) {
+    var values = frm.__campaign_customer_autofill || {};
+    ["mobile_number", "whatsapp_number", "email_address"].forEach(function(fieldname) {
+        if (values[fieldname] && frm.doc[fieldname] === values[fieldname]) {
+            frm.set_value(fieldname, "");
+        }
+    });
+    frm.__campaign_customer_autofill = {};
+}
+
+function set_customer_autofill(frm, fieldname, value) {
+    if (!value) {
+        return;
+    }
+    frm.set_value(fieldname, value);
+    frm.__campaign_customer_autofill = frm.__campaign_customer_autofill || {};
+    frm.__campaign_customer_autofill[fieldname] = value;
+}
+
 frappe.ui.form.on("Campaign Customer", {
     setup: function(frm) {
         frm.set_query("contact_person", function() {
@@ -16,6 +36,7 @@ frappe.ui.form.on("Campaign Customer", {
 
     customer: function(frm) {
         var customer = frm.doc.customer;
+        clear_customer_autofill(frm);
         frm.set_value("contact_person", "");
 
         if (!customer) {
@@ -36,10 +57,10 @@ frappe.ui.form.on("Campaign Customer", {
             frm.set_value("customer_group", r.message.customer_group || "");
             frm.set_value("territory", r.message.territory || "");
             if (!frm.doc.mobile_number && r.message.mobile_no) {
-                frm.set_value("mobile_number", r.message.mobile_no);
+                set_customer_autofill(frm, "mobile_number", r.message.mobile_no);
             }
             if (!frm.doc.email_address && r.message.email_id) {
-                frm.set_value("email_address", r.message.email_id);
+                set_customer_autofill(frm, "email_address", r.message.email_id);
             }
         });
     },
@@ -58,14 +79,17 @@ frappe.ui.form.on("Campaign Customer", {
             }
 
             if (!frm.doc.mobile_number && (r.message.mobile_no || r.message.phone)) {
-                frm.set_value("mobile_number", r.message.mobile_no || r.message.phone);
+                set_customer_autofill(
+                    frm, "mobile_number", r.message.mobile_no || r.message.phone
+                );
             }
             if (!frm.doc.whatsapp_number && r.message.mobile_no) {
-                frm.set_value("whatsapp_number", r.message.mobile_no);
+                set_customer_autofill(frm, "whatsapp_number", r.message.mobile_no);
             }
             if (!frm.doc.email_address && r.message.email_id) {
-                frm.set_value("email_address", r.message.email_id);
+                set_customer_autofill(frm, "email_address", r.message.email_id);
             }
         });
     }
 });
+})();
