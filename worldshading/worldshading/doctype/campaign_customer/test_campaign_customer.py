@@ -253,5 +253,25 @@ class TestCampaignCustomerController(unittest.TestCase):
 		self.assertEqual(doc.last_outcome, "Interested")
 
 
+class TestCampaignCustomerCRMNavigation(unittest.TestCase):
+
+	def test_crm_module_exposes_campaign_management(self):
+		config_path = os.path.abspath(os.path.join(
+			os.path.dirname(__file__), "..", "..", "..", "config", "crm.py"
+		))
+		self.assertTrue(os.path.exists(config_path),
+			"Missing CRM module configuration: {0}".format(config_path))
+		from worldshading.config import crm
+		sections = crm.get_data()
+		campaign_section = next(
+			section for section in sections
+			if section.get("label") == "Campaign Management"
+		)
+		items = dict((item["name"], item) for item in campaign_section["items"])
+		self.assertEqual(set(items), set(["Campaign Customer", "Campaign"]))
+		self.assertEqual(items["Campaign Customer"]["type"], "doctype")
+		self.assertEqual(items["Campaign"]["type"], "doctype")
+
+
 if __name__ == "__main__":
 	unittest.main()
