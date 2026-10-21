@@ -1,0 +1,301 @@
+{
+ "allow_import": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-10-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "campaign_schedule_section",
+  "campaign",
+  "status",
+  "priority",
+  "schedule_column",
+  "caller",
+  "planned_contact_date",
+  "planned_contact_time",
+  "customer_section",
+  "customer",
+  "customer_name",
+  "customer_group",
+  "territory",
+  "contact_column",
+  "contact_person",
+  "mobile_number",
+  "whatsapp_number",
+  "email_address",
+  "follow_up_section",
+  "next_action",
+  "next_follow_up",
+  "visit_required",
+  "conversion_column",
+  "opportunity",
+  "last_contact_on",
+  "last_outcome",
+  "number_of_interactions",
+  "interactions_section",
+  "interactions",
+  "notes_section",
+  "general_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "no_copy": 1,
+   "options": "CC-.YYYY.-.#####",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "campaign_schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Campaign and Schedule"
+  },
+  {
+   "fieldname": "campaign",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Campaign",
+   "options": "Campaign",
+   "reqd": 1
+  },
+  {
+   "default": "Planned",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Planned\nFollow Up\nInterested\nNot Interested\nConverted\nClosed",
+   "reqd": 1
+  },
+  {
+   "default": "Standard",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Priority",
+   "options": "Standard\nTop 20",
+   "reqd": 1
+  },
+  {
+   "fieldname": "schedule_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "__user",
+   "fieldname": "caller",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Caller",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "planned_contact_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Planned Contact Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "planned_contact_time",
+   "fieldtype": "Time",
+   "label": "Planned Contact Time"
+  },
+  {
+   "fieldname": "customer_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Details"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "customer.customer_name",
+   "fetch_if_empty": 1,
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "label": "Customer Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "customer.customer_group",
+   "fetch_if_empty": 1,
+   "fieldname": "customer_group",
+   "fieldtype": "Link",
+   "label": "Customer Group",
+   "options": "Customer Group",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "customer.territory",
+   "fetch_if_empty": 1,
+   "fieldname": "territory",
+   "fieldtype": "Link",
+   "label": "Territory",
+   "options": "Territory",
+   "read_only": 1
+  },
+  {
+   "fieldname": "contact_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_person",
+   "fieldtype": "Link",
+   "label": "Contact Person",
+   "options": "Contact"
+  },
+  {
+   "fieldname": "mobile_number",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "label": "Mobile Number",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "whatsapp_number",
+   "fieldtype": "Data",
+   "label": "WhatsApp Number",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "email_address",
+   "fieldtype": "Data",
+   "label": "Email Address",
+   "options": "Email"
+  },
+  {
+   "fieldname": "follow_up_section",
+   "fieldtype": "Section Break",
+   "label": "Follow-up and Conversion"
+  },
+  {
+   "fieldname": "next_action",
+   "fieldtype": "Select",
+   "label": "Next Action",
+   "options": "\nCall\nWhatsApp\nSMS\nEmail\nVisit\nNone"
+  },
+  {
+   "fieldname": "next_follow_up",
+   "fieldtype": "Datetime",
+   "label": "Next Follow-up"
+  },
+  {
+   "default": "0",
+   "fieldname": "visit_required",
+   "fieldtype": "Check",
+   "label": "Visit Required"
+  },
+  {
+   "fieldname": "conversion_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "opportunity",
+   "fieldtype": "Link",
+   "label": "Opportunity",
+   "options": "Opportunity"
+  },
+  {
+   "fieldname": "last_contact_on",
+   "fieldtype": "Datetime",
+   "label": "Last Contact On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_outcome",
+   "fieldtype": "Data",
+   "label": "Last Outcome",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "number_of_interactions",
+   "fieldtype": "Int",
+   "label": "Number of Interactions",
+   "read_only": 1
+  },
+  {
+   "fieldname": "interactions_section",
+   "fieldtype": "Section Break",
+   "label": "Interaction History"
+  },
+  {
+   "fieldname": "interactions",
+   "fieldtype": "Table",
+   "label": "Interactions",
+   "options": "Campaign Interaction Log"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Internal Notes"
+  },
+  {
+   "fieldname": "general_notes",
+   "fieldtype": "Text Editor",
+   "label": "General Notes"
+  }
+ ],
+ "modified": "2026-10-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Campaign Customer",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cashier",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "campaign,customer,customer_name,mobile_number,contact_person",
+ "sort_field": "planned_contact_date",
+ "sort_order": "ASC",
+ "title_field": "customer_name",
+ "track_changes": 1
+}

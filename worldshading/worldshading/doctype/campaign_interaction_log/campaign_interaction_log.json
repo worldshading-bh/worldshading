@@ -1,0 +1,72 @@
+{
+ "creation": "2026-10-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "interaction_on",
+  "channel",
+  "handled_by",
+  "outcome",
+  "notes",
+  "next_follow_up",
+  "call_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "interaction_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Interaction On",
+   "reqd": 1
+  },
+  {
+   "fieldname": "channel",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Channel",
+   "options": "Call\nWhatsApp\nSMS\nEmail\nVisit",
+   "reqd": 1
+  },
+  {
+   "default": "__user",
+   "fieldname": "handled_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Handled By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "outcome",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Outcome",
+   "options": "No Answer\nBusy\nCall Back Later\nMessage Sent\nReplied\nInterested\nNot Interested\nWrong Number\nVisit Scheduled\nOrder Confirmed\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes",
+   "reqd": 1
+  },
+  {
+   "fieldname": "next_follow_up",
+   "fieldtype": "Datetime",
+   "label": "Next Follow-up"
+  },
+  {
+   "fieldname": "call_log",
+   "fieldtype": "Link",
+   "label": "Call Log",
+   "options": "Call Log"
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-10-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Campaign Interaction Log",
+ "owner": "Administrator"
+}
