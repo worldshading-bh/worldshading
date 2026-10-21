@@ -297,9 +297,14 @@ source demand     = target demand * conversion ratio
 ```
 
 Direct target sales and their estimated out-of-stock sales are propagated recursively
-to source Items. Cycles, duplicate target mappings and invalid quantities are rejected.
-Converted demand is rounded to a whole purchasing unit using half-up rounding (`.5`
-rounds upward). **Repack From** retains an explanatory trace with the unrounded values.
+to source Items. Invalid quantities and cycles are rejected. When multiple rules produce
+the same target Item, Purchase Plan uses the oldest-created rule; the rule name breaks a
+creation-time tie. The other rules remain available to operational Stock Entry validation
+but do not divide or duplicate Purchase Plan demand. Converted demand is rounded to a
+whole purchasing unit using half-up rounding (`.5` rounds upward). **Repack From** retains
+an explanatory trace with the unrounded values. Its value is amber with a dotted underline
+when another rule can produce the same target; hovering shows the selected oldest rule and
+the alternative rule sources.
 
 Target/repacked Items are removed from the purchasing rows when they lead to source
 Items; the report displays the source Items that can actually be bought.

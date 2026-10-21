@@ -355,6 +355,24 @@ def build_template_payload(mobile, template_name, template_language,
 
 def handle_whatsapp_event(doc, method):
 
+    # Skip system + internal doctypes before loading WhatsApp Settings.
+    # This prevents recursive Error Log creation if settings cannot be loaded.
+    skip_doctypes = [
+        "Activity Log",
+        "Version",
+        "Comment",
+        "Communication",
+        "ToDo",
+        "Email Queue",
+        "Notification Log",
+        "Error Log",
+        "WhatsApp Log",
+        "WhatsApp Notification"
+    ]
+
+    if doc.doctype in skip_doctypes:
+        return
+
     try:
         # Global WhatsApp OFF
         settings = frappe.get_single("WhatsApp Settings")
@@ -363,23 +381,6 @@ def handle_whatsapp_event(doc, method):
         
         # Skip bulk import
         if frappe.flags.in_import:
-            return
-        
-        # Skip system + internal doctypes
-        skip_doctypes = [
-            "Activity Log",
-            "Version",
-            "Comment",
-            "Communication",
-            "ToDo",
-            "Email Queue",
-            "Notification Log",
-            "Error Log",
-            "WhatsApp Log",
-            "WhatsApp Notification"
-        ]
-
-        if doc.doctype in skip_doctypes:
             return
 
         # Skip child table doctypes

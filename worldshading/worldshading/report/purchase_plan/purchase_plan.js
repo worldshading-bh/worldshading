@@ -2174,6 +2174,13 @@ frappe.query_reports["Purchase Plan"] = {
 			value = '<span title="' + frappe.utils.escape_html(combined_tooltip) +
 				'">' + value + '</span>';
 		}
+		if (column.fieldname == "repack_demand_from" && data &&
+				data.repack_alternative_details) {
+			value = '<span title="' +
+				frappe.utils.escape_html(data.repack_alternative_details) +
+				'" style="color:#b7791f;font-weight:600;border-bottom:1px dotted #b7791f;' +
+				'cursor:help">' + value + '</span>';
+		}
 		if (column.fieldname == "expected_order_quantity" && data && data.expected_order_quantity < 0) {
 			value = "<span style='color:red'>" + value + "</span>";
 		}

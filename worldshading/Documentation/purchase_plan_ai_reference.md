@@ -239,6 +239,8 @@ When repack is included:
 
 - sales of all relevant target/repacked Items are converted back to the source Item;
 - demand from multiple targets is added together;
+- if multiple rules produce one target, the oldest-created rule (then rule name as a
+  tie-breaker) drives planning, while the other rules are shown in the Repack From tooltip;
 - usable target stock may also be converted back to the source Item;
 - purchasing rows show the source Item rather than a target that can be produced; and
 - Repack From explains which target Items contributed to the source requirement.

@@ -1062,7 +1062,8 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 
 	def _run_with_common_patches(self, payload=None, targets=None,
 			create_permission=True, new_doc=None, old_doc=None, selected_rows=None,
-			notification=None, cache=None, note_permission=True):
+			notification=None, cache=None, note_permission=True, old_uom="Nos",
+			price_not_uom_dependent=0):
 		payload = payload if payload is not None else self._payload()
 		targets = targets if targets is not None else [
 			{"name": None, "rate": None, "modified": None, "uom": "Nos", "duplicate_count": 0},
@@ -1081,10 +1082,12 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 		old_doc.item_name = "Item B"
 		old_doc.price_list = "Regular"
 		old_doc.currency = "BHD"
-		old_doc.uom = "Nos"
+		old_doc.uom = old_uom
 		old_doc.workflow_state = "Pending Final Price Approval"
 		old_doc.get.side_effect = lambda field: getattr(old_doc, field, None)
 		new_doc.get.side_effect = lambda field: getattr(new_doc, field, None)
+		price_lists = self._price_lists()
+		price_lists[0].price_not_uom_dependent = price_not_uom_dependent
 		with ExitStack() as stack:
 			stack.enter_context(patch.object(report, "create_pricing_update_note",
 				new=notification or MagicMock(return_value="NOTE-1"), create=True))
@@ -1092,7 +1095,7 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 			stack.enter_context(patch.object(report, "_get_prepared_pricing_report", return_value=self._prepared()))
 			stack.enter_context(patch.object(report, "_get_prepared_pricing_rows", return_value=self._rows()))
 			stack.enter_context(patch.object(report, "_get_update_items", return_value=self._items()))
-			stack.enter_context(patch.object(report, "_get_update_price_lists", return_value=self._price_lists()))
+			stack.enter_context(patch.object(report, "_get_update_price_lists", return_value=price_lists))
 			stack.enter_context(patch.object(report, "_resolve_item_price_target", side_effect=targets))
 			stack.enter_context(patch.object(report.frappe, "has_permission",
 				side_effect=lambda doctype, *args: note_permission if doctype == "Note" else create_permission))
@@ -1100,6 +1103,28 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 			stack.enter_context(patch.object(report.frappe, "new_doc", return_value=new_doc))
 			result = report.execute_item_price_update("TOKEN-1", selected_rows)
 		return result, cache, new_doc, old_doc
+
+	def test_price_update_fills_blank_uom_before_save_and_in_announcement(self):
+		for blank in (None, ""):
+			with self.subTest(uom=blank):
+				old_doc = MagicMock()
+				old_doc.save.side_effect = lambda: self.assertEqual(old_doc.uom, "Nos")
+				notification = MagicMock(return_value="NOTE-1")
+				result, cache, new_doc, old_doc = self._run_with_common_patches(
+					old_doc=old_doc, old_uom=blank, notification=notification)
+				self.assertEqual(old_doc.uom, "Nos")
+				changes = notification.call_args[0][2]
+				self.assertEqual(changes[1]["uom"], "Nos")
+				self.assertEqual(result["updated"], 1)
+
+	def test_price_update_preserves_nonblank_uom(self):
+		result, cache, new_doc, old_doc = self._run_with_common_patches(old_uom="Box")
+		self.assertEqual(old_doc.uom, "Box")
+
+	def test_price_update_leaves_independent_price_list_uom_blank(self):
+		result, cache, new_doc, old_doc = self._run_with_common_patches(
+			old_uom=None, price_not_uom_dependent=1)
+		self.assertIsNone(old_doc.uom)
 
 	def test_notification_contains_only_changed_prices_and_saved_status(self):
 		notification = MagicMock(return_value="NOTE-1")

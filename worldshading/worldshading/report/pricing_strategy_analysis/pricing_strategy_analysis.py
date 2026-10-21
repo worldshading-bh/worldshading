@@ -1262,6 +1262,9 @@ def execute_item_price_update(preview_token=None, selected_rows=None):
 			item_price = update_docs[(entry["item_code"], entry["price_list"])]
 			previous_rate = entry.get("current_rate")
 			item_price.price_list_rate = new_rate
+			if not item_price.uom and not cint(
+					price_lists_by_name[entry["price_list"]].price_not_uom_dependent):
+				item_price.uom = items[entry["item_code"]].stock_uom
 			item_price.pricing_prepared_report = prepared_report.name
 			item_price.save()
 			updated += 1

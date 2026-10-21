@@ -312,6 +312,8 @@ Safeguards include:
 
 Each saved Item Price receives the Prepared Report link and an audit comment.
 
+When updating an existing price's rate, a blank UOM is filled from the Item's Stock UOM, unless the Price List is UOM-independent. Existing nonblank UOMs are preserved. Matching and duplicate handling are unchanged; rows with unchanged rates are not saved solely to fill their UOM.
+
 For a complete Pricing Group, every member uses the shared group price for the applicable Regular or B2B Price List. The preview shows the member recommendation and the shared group price. Keeping or removing grouped rows must be done for the complete group; the server rechecks group membership before saving.
 
 ## 12. Updating Pricing Rules

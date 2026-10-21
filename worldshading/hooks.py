@@ -327,6 +327,9 @@ doctype_list_js = {
 
 
 doc_events = {
+    "Item Price": {
+        "validate": "worldshading.api.item_price_validation.validate_new_item_price"
+    },
     "GL Payment": {
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change",
         "before_cancel": "worldshading.api.purchase_order_urgency.clear_cancelled_urgency",

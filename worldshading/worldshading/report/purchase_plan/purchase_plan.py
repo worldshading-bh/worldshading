@@ -748,6 +748,12 @@ def get_columns(filters, pricing_context):
 				'label': _('Repack From'),
 				'fieldtype': 'Data',
 				'width': 260
+			},
+			{
+				'fieldname': 'repack_alternative_details',
+				'label': _('Repack Alternatives'),
+				'fieldtype': 'Data',
+				'hidden': 1
 			}
 		])
 	columns.extend([
@@ -1188,7 +1194,8 @@ def get_data(filters, pricing_context):
 			'calculation_item_codes': filtered_item_codes,
 			'purchase_item_codes': filtered_item_codes,
 			'target_to_sources': {},
-			'repack_rules': []
+			'repack_rules': [],
+			'repack_alternatives_by_source': {}
 		}
 	)
 	item_codes = repack_context.get('calculation_item_codes')
@@ -1246,6 +1253,9 @@ def get_data(filters, pricing_context):
 		).get(item.item_code, 0)
 		repack_demand_from = converted_repack_values.get(
 			'detail_by_source', {}
+		).get(item.item_code, '')
+		repack_alternative_details = repack_context.get(
+			'repack_alternatives_by_source', {}
 		).get(item.item_code, '')
 		stock = stock_by_item.get(item.item_code, {})
 		on_purchase = stock.get('ordered_qty', 0)
@@ -1325,7 +1335,8 @@ def get_data(filters, pricing_context):
 		if filters.get('include_repack_to_parent'):
 			row.extend([
 				converted_repack_demand,
-				repack_demand_from
+				repack_demand_from,
+				repack_alternative_details
 			])
 		row.extend([
 			float(filters.percentage), expected_sales,
@@ -1412,7 +1423,8 @@ def get_repack_context(filtered_item_codes):
 	rules = frappe.get_all(
 		'Repack Production Rule',
 		filters={'type': 'Repack'},
-		fields=['name']
+		fields=['name', 'creation'],
+		order_by='creation asc, name asc'
 	)
 	rule_names = [row.name for row in rules]
 	if not rule_names:
@@ -1420,7 +1432,8 @@ def get_repack_context(filtered_item_codes):
 			'calculation_item_codes': list(filtered_item_codes),
 			'purchase_item_codes': list(filtered_item_codes),
 			'target_to_sources': {},
-			'repack_rules': []
+			'repack_rules': [],
+			'repack_alternatives_by_source': {}
 		}
 
 	source_rows = frappe.get_all(
@@ -1440,9 +1453,7 @@ def get_repack_context(filtered_item_codes):
 	for row in target_rows:
 		targets_by_rule.setdefault(row.parent, []).append(row)
 
-	target_to_sources = {}
-	source_to_targets = {}
-	repack_rules = []
+	all_repack_rules = []
 	for rule_name in rule_names:
 		sources = sources_by_rule.get(rule_name, [])
 		targets = targets_by_rule.get(rule_name, [])
@@ -1465,31 +1476,48 @@ def get_repack_context(filtered_item_codes):
 		for target in targets:
 			if not target.item_code or flt(target.qty) <= 0:
 				frappe.throw(_('Repack Production Rule {0} has an invalid target quantity.').format(rule_name))
-			if target.item_code in target_to_sources:
-				frappe.throw(_(
-					'Repack target Item {0} is used in more than one Repack Production Rule.'
-				).format(target.item_code))
 			mapped_targets.append({
 				'item_code': target.item_code,
 				'qty': flt(target.qty)
 			})
-			target_to_sources[target.item_code] = [
-				{
-					'item_code': source.get('item_code'),
-					'ratio': source.get('qty') / flt(target.qty),
-					'rule': rule_name
-				}
-				for source in mapped_sources
-			]
-			for source in mapped_sources:
-				source_to_targets.setdefault(
-					source.get('item_code'), []).append(target.item_code)
 
-		repack_rules.append({
+		all_repack_rules.append({
 			'name': rule_name,
 			'sources': mapped_sources,
 			'targets': mapped_targets
 		})
+
+	target_to_sources = {}
+	source_to_targets = {}
+	primary_rule_by_target = {}
+	alternative_rules_by_target = {}
+	repack_rules = []
+	for rule in all_repack_rules:
+		selected_targets = []
+		for target in rule.get('targets', []):
+			target_item = target.get('item_code')
+			if target_item in primary_rule_by_target:
+				alternative_rules_by_target.setdefault(target_item, []).append(rule)
+				continue
+			primary_rule_by_target[target_item] = rule
+			selected_targets.append(target)
+			target_to_sources[target_item] = [
+				{
+					'item_code': source.get('item_code'),
+					'ratio': source.get('qty') / flt(target.get('qty')),
+					'rule': rule.get('name')
+				}
+				for source in rule.get('sources', [])
+			]
+			for source in rule.get('sources', []):
+				source_to_targets.setdefault(
+					source.get('item_code'), []).append(target_item)
+		if selected_targets:
+			repack_rules.append({
+				'name': rule.get('name'),
+				'sources': rule.get('sources', []),
+				'targets': selected_targets
+			})
 
 	connected_items = set(filtered_item_codes)
 	items_to_check = list(filtered_item_codes)
@@ -1510,6 +1538,11 @@ def get_repack_context(filtered_item_codes):
 	)
 	if not purchase_item_codes:
 		frappe.throw(_('The selected Repack rules do not lead to a purchase/source Item.'))
+	repack_alternatives_by_source = get_repack_alternatives_by_source(
+		alternative_rules_by_target,
+		primary_rule_by_target,
+		target_to_sources
+	)
 	relevant_rules = [
 		rule for rule in repack_rules
 		if any(
@@ -1522,8 +1555,65 @@ def get_repack_context(filtered_item_codes):
 		'calculation_item_codes': sorted(connected_items),
 		'purchase_item_codes': purchase_item_codes,
 		'target_to_sources': target_to_sources,
-		'repack_rules': relevant_rules
+		'repack_rules': relevant_rules,
+		'repack_alternatives_by_source': repack_alternatives_by_source
 	}
+
+
+def get_repack_alternatives_by_source(alternative_rules_by_target,
+		primary_rule_by_target, target_to_sources):
+	alternative_details = {}
+	for target_item in sorted(alternative_rules_by_target):
+		primary_rule = primary_rule_by_target.get(target_item)
+		if not primary_rule:
+			continue
+		primary_sources = sorted(set(
+			source.get('item_code')
+			for source in primary_rule.get('sources', [])
+			if source.get('item_code')
+		))
+		purchase_sources = set()
+		for source_item in primary_sources:
+			purchase_sources.update(get_repack_purchase_sources(
+				source_item, target_to_sources))
+		for alternative_rule in alternative_rules_by_target.get(target_item, []):
+			alternative_sources = sorted(set(
+				source.get('item_code')
+				for source in alternative_rule.get('sources', [])
+				if source.get('item_code')
+			))
+			detail = _(
+				'{0}: oldest rule {1} uses {2}. Alternative rule {3} uses {4}.'
+			).format(
+				target_item,
+				primary_rule.get('name'),
+				', '.join(primary_sources),
+				alternative_rule.get('name'),
+				', '.join(alternative_sources)
+			)
+			for purchase_source in purchase_sources:
+				alternative_details.setdefault(purchase_source, []).append(detail)
+	return dict(
+		(item_code, '\n'.join(details))
+		for item_code, details in alternative_details.items()
+	)
+
+
+def get_repack_purchase_sources(item_code, target_to_sources, path=None):
+	path = set(path or [])
+	if item_code in path:
+		return set()
+	path.add(item_code)
+	sources = target_to_sources.get(item_code, [])
+	if not sources:
+		return set([item_code])
+	purchase_sources = set()
+	for source in sources:
+		source_item = source.get('item_code')
+		if source_item:
+			purchase_sources.update(get_repack_purchase_sources(
+				source_item, target_to_sources, path))
+	return purchase_sources
 
 
 def propagate_repack_value(item_code, value, target_to_sources, values_by_source,
