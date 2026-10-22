@@ -332,8 +332,102 @@ def index_sales_activity(rows):
 	return indexed
 
 
-def enrich_rows(rows, filters):
+def get_item_group_context(filters, customers):
+	if not customers:
+		return {}
+	start_date, end_date = get_period_bounds(filters)
+	rows = frappe.db.sql("""
+		select
+			si.customer,
+			item.item_group,
+			sum(sii.base_net_amount) as net_amount
+		from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		inner join `tabItem` item on item.name = sii.item_code
+		where si.company = %(company)s
+			and si.docstatus = 1
+			and si.posting_date between %(start_date)s and %(end_date)s
+			and si.customer in %(customers)s
+		group by si.customer, item.item_group
+	""", {
+		"company": filters.company,
+		"start_date": start_date,
+		"end_date": end_date,
+		"customers": tuple(customers),
+	}, as_dict=True)
+
+	grouped = {}
+	for row in rows:
+		if not row.get("item_group") or flt(row.get("net_amount")) <= 0:
+			continue
+		grouped.setdefault(row["customer"], []).append({
+			"item_group": row["item_group"],
+			"net_amount": flt(row["net_amount"]),
+		})
+
+	context = {}
+	for customer, customer_groups in grouped.items():
+		customer_groups.sort(key=lambda row: row["item_group"])
+		customer_groups.sort(key=lambda row: row["net_amount"], reverse=True)
+		context[customer] = [row["item_group"] for row in customer_groups[:3]]
+	return context
+
+
+def get_campaign_context(customers):
+	if not customers:
+		return {}
+	if not frappe.has_permission("Campaign Customer", "read"):
+		return {}
+	rows = frappe.db.sql("""
+		select
+			customer,
+			name as campaign_customer,
+			campaign,
+			status as outreach_status,
+			priority,
+			planned_contact_date,
+			next_follow_up,
+			number_of_interactions
+		from `tabCampaign Customer`
+		where customer in %(customers)s
+		order by customer, modified desc, name desc
+	""", {"customers": tuple(customers)}, as_dict=True)
+
+	context = {}
+	fields = (
+		"campaign_customer", "campaign", "outreach_status", "priority",
+		"planned_contact_date", "next_follow_up", "number_of_interactions",
+	)
+	for row in rows:
+		if row["customer"] not in context:
+			context[row["customer"]] = dict(
+				(fieldname, row.get(fieldname)) for fieldname in fields
+			)
+	return context
+
+
+def apply_customer_context(rows, item_group_context, campaign_context):
+	campaign_fields = (
+		"campaign_customer", "campaign", "outreach_status", "priority",
+		"planned_contact_date", "next_follow_up", "number_of_interactions",
+	)
+	for row in rows:
+		groups = item_group_context.get(row["customer"], [])
+		for index in range(3):
+			row["top_item_group_{0}".format(index + 1)] = (
+				groups[index] if index < len(groups) else None
+			)
+		campaign = campaign_context.get(row["customer"], {})
+		for fieldname in campaign_fields:
+			row[fieldname] = campaign.get(fieldname)
 	return rows
+
+
+def enrich_rows(rows, filters):
+	customers = [row["customer"] for row in rows]
+	item_group_context = get_item_group_context(filters, customers)
+	campaign_context = get_campaign_context(customers)
+	return apply_customer_context(rows, item_group_context, campaign_context)
 
 
 def get_report_summary(rows, currency):

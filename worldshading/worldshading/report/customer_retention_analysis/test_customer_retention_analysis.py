@@ -373,6 +373,113 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		last_dates.assert_not_called()
 		enrich.assert_not_called()
 
+	def test_item_group_context_uses_limited_customers_and_positive_top_three(self):
+		filters = report.normalize_filters(
+			self.valid_filters(previous_years=2), current_year=2026
+		)
+		query_rows = [
+			{"customer": "CUST-1", "item_group": "Blinds", "net_amount": 100},
+			{"customer": "CUST-1", "item_group": "Awnings", "net_amount": 100},
+			{"customer": "CUST-1", "item_group": "Outdoor", "net_amount": 80},
+			{"customer": "CUST-1", "item_group": "Fabric", "net_amount": 70},
+			{"customer": "CUST-1", "item_group": "Returns", "net_amount": -5},
+			{"customer": "CUST-1", "item_group": "", "net_amount": 20},
+			{"customer": "CUST-2", "item_group": "Outdoor", "net_amount": 0},
+		]
+		captured = {}
+
+		def fake_sql(query, values=None, as_dict=False):
+			captured.update({"query": query, "values": values, "as_dict": as_dict})
+			return query_rows
+
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = fake_sql
+			self.assertEqual(report.get_item_group_context(filters, []), {})
+			context = report.get_item_group_context(filters, ["CUST-1", "CUST-2"])
+
+		query = " ".join(captured["query"].lower().split())
+		self.assertIn("`tabsales invoice item`", query)
+		self.assertIn("inner join `tabsales invoice`", query)
+		self.assertIn("inner join `tabitem`", query)
+		self.assertIn("si.docstatus = 1", query)
+		self.assertIn("sum(sii.base_net_amount)", query)
+		self.assertIn("group by si.customer, item.item_group", query)
+		self.assertEqual(captured["values"]["company"], "World Shading")
+		self.assertEqual(captured["values"]["start_date"], date(2024, 1, 1))
+		self.assertEqual(captured["values"]["end_date"], date(2026, 12, 31))
+		self.assertEqual(captured["values"]["customers"], ("CUST-1", "CUST-2"))
+		self.assertEqual(context, {"CUST-1": ["Awnings", "Blinds", "Outdoor"]})
+
+	def test_campaign_context_denies_without_query_when_user_lacks_permission(self):
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.has_permission.return_value = False
+			context = report.get_campaign_context(["CUST-1"])
+
+		self.assertEqual(context, {})
+		frappe_mock.has_permission.assert_called_once_with("Campaign Customer", "read")
+		frappe_mock.db.sql.assert_not_called()
+
+	def test_campaign_context_keeps_latest_ordered_record_per_customer(self):
+		query_rows = [
+			{"customer": "CUST-1", "campaign_customer": "CC-NEW", "campaign": "Winter",
+			 "outreach_status": "Interested", "priority": "Top 20",
+			 "planned_contact_date": date(2026, 10, 25), "next_follow_up": "2026-10-26 10:00:00",
+			 "number_of_interactions": 3},
+			{"customer": "CUST-1", "campaign_customer": "CC-OLD", "campaign": "Summer",
+			 "outreach_status": "Closed", "priority": "Standard",
+			 "planned_contact_date": date(2026, 6, 1), "next_follow_up": None,
+			 "number_of_interactions": 1},
+			{"customer": "CUST-2", "campaign_customer": "CC-2", "campaign": "Winter",
+			 "outreach_status": "Planned", "priority": "Standard",
+			 "planned_contact_date": date(2026, 10, 27), "next_follow_up": None,
+			 "number_of_interactions": 0},
+		]
+		captured = {}
+
+		def fake_sql(query, values=None, as_dict=False):
+			captured.update({"query": query, "values": values, "as_dict": as_dict})
+			return query_rows
+
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.has_permission.return_value = True
+			frappe_mock.db.sql.side_effect = fake_sql
+			context = report.get_campaign_context(["CUST-1", "CUST-2"])
+
+		query = " ".join(captured["query"].lower().split())
+		self.assertIn("customer in %(customers)s", query)
+		self.assertIn("order by customer, modified desc, name desc", query)
+		self.assertEqual(captured["values"]["customers"], ("CUST-1", "CUST-2"))
+		self.assertEqual(context["CUST-1"]["campaign_customer"], "CC-NEW")
+		self.assertEqual(context["CUST-1"]["outreach_status"], "Interested")
+		self.assertEqual(context["CUST-1"]["number_of_interactions"], 3)
+		self.assertEqual(context["CUST-2"]["campaign_customer"], "CC-2")
+
+	def test_apply_and_enrich_context_keep_blanks_and_existing_rank_order(self):
+		rows = [
+			{"rank": 1, "customer": "CUST-2"},
+			{"rank": 2, "customer": "CUST-1"},
+		]
+		campaign = {"CUST-2": {
+			"campaign_customer": "CC-2", "campaign": "Winter", "outreach_status": "Planned",
+			"priority": "Standard", "planned_contact_date": date(2026, 10, 27),
+			"next_follow_up": None, "number_of_interactions": 0,
+		}}
+		applied = report.apply_customer_context(rows, {"CUST-2": ["Outdoor"]}, campaign)
+
+		self.assertEqual([row["customer"] for row in applied], ["CUST-2", "CUST-1"])
+		self.assertEqual(applied[0]["top_item_group_1"], "Outdoor")
+		self.assertEqual(applied[0]["campaign_customer"], "CC-2")
+		self.assertIsNone(applied[0]["top_item_group_2"])
+		self.assertIsNone(applied[1]["top_item_group_1"])
+		self.assertIsNone(applied[1]["campaign_customer"])
+		self.assertIsNone(applied[1]["number_of_interactions"])
+
+		with patch.object(report, "get_item_group_context", return_value={}) as item_groups, \
+				patch.object(report, "get_campaign_context", return_value={}) as campaigns:
+			report.enrich_rows(rows, self.valid_filters())
+		item_groups.assert_called_once_with(self.valid_filters(), ["CUST-2", "CUST-1"])
+		campaigns.assert_called_once_with(["CUST-2", "CUST-1"])
+
 
 if __name__ == "__main__":
 	unittest.main()
