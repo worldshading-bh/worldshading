@@ -241,3 +241,199 @@ def filter_sort_and_limit(rows, filters):
 	for index, row in enumerate(filtered_rows):
 		row["rank"] = index + 1
 	return filtered_rows
+
+
+def get_company_context(company):
+	company_doc = frappe.get_doc("Company", company)
+	company_doc.check_permission("read")
+	return company_doc.default_currency
+
+
+def get_sales_activity(filters):
+	start_date, end_date = get_period_bounds(filters)
+	conditions = [
+		"si.company = %(company)s",
+		"si.docstatus = 1",
+		"si.posting_date between %(start_date)s and %(end_date)s",
+	]
+	values = {
+		"company": filters.company,
+		"start_date": start_date,
+		"end_date": end_date,
+	}
+	for fieldname, sql_field in (
+		("customer", "si.customer"),
+		("customer_group", "customer.customer_group"),
+		("territory", "customer.territory"),
+	):
+		if filters.get(fieldname):
+			conditions.append("{0} = %({1})s".format(sql_field, fieldname))
+			values[fieldname] = filters.get(fieldname)
+
+	# Aggregate SQL is required here to process several calendar years in one
+	# database pass and avoid one query per Customer.
+	return frappe.db.sql("""
+		select
+			si.customer,
+			customer.customer_name,
+			customer.customer_group,
+			customer.territory,
+			year(si.posting_date) as sales_year,
+			sum(si.base_net_total) as sales,
+			count(distinct case
+				when ifnull(si.is_return, 0) = 0 then si.name
+			end) as invoice_count
+		from `tabSales Invoice` si
+		inner join `tabCustomer` customer on customer.name = si.customer
+		where {conditions}
+		group by si.customer, year(si.posting_date), customer.customer_name,
+			customer.customer_group, customer.territory
+	""".format(conditions=" and ".join(conditions)), values, as_dict=True)
+
+
+def get_last_invoice_dates(filters, customers):
+	if not customers:
+		return {}
+	unused_start_date, end_date = get_period_bounds(filters)
+	rows = frappe.db.sql("""
+		select si.customer, max(si.posting_date) as last_invoice_date
+		from `tabSales Invoice` si
+		where si.company = %(company)s
+			and si.docstatus = 1
+			and ifnull(si.is_return, 0) = 0
+			and si.posting_date <= %(end_date)s
+			and si.customer in %(customers)s
+		group by si.customer
+	""", {
+		"company": filters.company,
+		"end_date": end_date,
+		"customers": tuple(customers),
+	}, as_dict=True)
+	return dict((row["customer"], row["last_invoice_date"]) for row in rows)
+
+
+def index_sales_activity(rows):
+	indexed = {}
+	for row in rows:
+		customer = row["customer"]
+		if customer not in indexed:
+			indexed[customer] = {
+				"context": {
+					"customer_name": row.get("customer_name"),
+					"customer_group": row.get("customer_group"),
+					"territory": row.get("territory"),
+				},
+				"years": {},
+			}
+		indexed[customer]["years"][cint(row["sales_year"])] = {
+			"sales": flt(row.get("sales")),
+			"invoice_count": cint(row.get("invoice_count")),
+		}
+	return indexed
+
+
+def enrich_rows(rows, filters):
+	return rows
+
+
+def get_report_summary(rows, currency):
+	indicators = {
+		"Lost": "red",
+		"Decreased": "orange",
+		"Stable": "gray",
+		"Increased": "green",
+		"New": "blue",
+		"Reactivated": "purple",
+	}
+	summary = []
+	for status in ("Lost", "Decreased", "Stable", "Increased", "New", "Reactivated"):
+		summary.append({
+			"label": status,
+			"value": sum(1 for row in rows if row.get("retention_status") == status),
+			"indicator": indicators[status],
+			"datatype": "Int",
+		})
+	at_risk = sum(
+		flt(row.get("previous_sales")) for row in rows
+		if row.get("retention_status") in ("Lost", "Decreased")
+	)
+	summary.append({
+		"label": "At-risk Previous Sales",
+		"value": at_risk,
+		"indicator": "red" if at_risk else "gray",
+		"datatype": "Currency",
+		"currency": currency,
+	})
+	return summary
+
+
+def get_chart(rows):
+	declines = [row for row in rows if flt(row.get("decrease_amount")) > 0][:10]
+	if not declines:
+		return None
+	return {
+		"data": {
+			"labels": [row.get("customer_name") or row.get("customer") for row in declines],
+			"datasets": [{
+				"name": "Sales Decrease",
+				"values": [flt(row.get("decrease_amount")) for row in declines],
+			}],
+		},
+		"type": "bar",
+		"title": "Largest Sales Decreases",
+		"colors": ["#e74c3c"],
+	}
+
+
+def get_message(filters, current_date=None):
+	current_date = getdate(current_date or today())
+	if (filters.analysis_year == current_date.year and
+			current_date < date(current_date.year, 12, 31)):
+		return (
+			"The selected Analysis Year is in progress. Status uses year-to-date "
+			"transactions compared with the complete previous calendar year; values "
+			"are not annualized."
+		)
+	return None
+
+
+def execute(filters=None):
+	filters = normalize_filters(filters)
+	currency = get_company_context(filters.company)
+	columns = get_columns(filters, currency)
+	sales_rows = get_sales_activity(filters)
+	if not sales_rows:
+		return (
+			columns, [], "No customers matched the selected filters.", None,
+			get_report_summary([], currency), 1,
+		)
+
+	activity = index_sales_activity(sales_rows)
+	customers = sorted(activity.keys())
+	last_invoice_dates = get_last_invoice_dates(filters, customers)
+	rows = []
+	for customer in customers:
+		customer_activity = activity[customer]
+		rows.append(build_customer_row(
+			customer,
+			customer_activity["context"],
+			customer_activity["years"],
+			last_invoice_dates.get(customer),
+			filters,
+			getdate(today()),
+		))
+
+	rows = filter_sort_and_limit(rows, filters)
+	if rows:
+		rows = enrich_rows(rows, filters)
+	message = get_message(filters)
+	if not rows:
+		message = "No customers matched the selected filters."
+	return (
+		columns,
+		rows,
+		message,
+		get_chart(rows),
+		get_report_summary(rows, currency),
+		1,
+	)

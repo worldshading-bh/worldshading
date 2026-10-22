@@ -4,7 +4,7 @@ import json
 import os
 import unittest
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from worldshading.worldshading.report.customer_retention_analysis import (
 	customer_retention_analysis as report,
@@ -230,6 +230,148 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(ranked[0]["customer"], "CUST-24")
 		self.assertEqual(ranked[-1]["customer"], "CUST-05")
 		self.assertTrue(all(row["retention_status"] == "Decreased" for row in ranked))
+
+	def test_sales_query_uses_bound_scope_and_return_safe_activity_count(self):
+		filters = report.normalize_filters(self.valid_filters(
+			previous_years=3, customer="CUST-'quoted", customer_group="Retail",
+			territory="Bahrain",
+		), current_year=2026)
+		captured = {}
+
+		def fake_sql(query, values=None, as_dict=False):
+			captured.update({"query": query, "values": values, "as_dict": as_dict})
+			return []
+
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = fake_sql
+			report.get_sales_activity(filters)
+
+		query = " ".join(captured["query"].lower().split())
+		self.assertEqual(captured["values"]["company"], "World Shading")
+		self.assertEqual(captured["values"]["start_date"], date(2023, 1, 1))
+		self.assertEqual(captured["values"]["end_date"], date(2026, 12, 31))
+		self.assertEqual(captured["values"]["customer"], "CUST-'quoted")
+		self.assertEqual(captured["values"]["customer_group"], "Retail")
+		self.assertEqual(captured["values"]["territory"], "Bahrain")
+		self.assertIn("si.docstatus = 1", query)
+		self.assertIn("year(si.posting_date)", query)
+		self.assertIn("sum(si.base_net_total)", query)
+		self.assertIn("case when ifnull(si.is_return, 0) = 0 then si.name", query)
+		self.assertIn("group by si.customer, year(si.posting_date)", query)
+		self.assertNotIn("disabled", query)
+		self.assertNotIn("cust-'quoted", query)
+		self.assertTrue(captured["as_dict"])
+
+	def test_last_invoice_query_uses_full_history_and_skips_empty_customers(self):
+		filters = report.normalize_filters(
+			self.valid_filters(previous_years=2), current_year=2026
+		)
+		calls = []
+
+		def fake_sql(query, values=None, as_dict=False):
+			calls.append((query, values, as_dict))
+			return []
+
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = fake_sql
+			self.assertEqual(report.get_last_invoice_dates(filters, []), {})
+			result = report.get_last_invoice_dates(filters, ["CUST-1", "CUST-2"])
+
+		self.assertEqual(result, {})
+		self.assertEqual(len(calls), 1)
+		query = " ".join(calls[0][0].lower().split())
+		values = calls[0][1]
+		self.assertIn("si.customer in %(customers)s", query)
+		self.assertIn("si.docstatus = 1", query)
+		self.assertIn("ifnull(si.is_return, 0) = 0", query)
+		self.assertIn("si.posting_date <= %(end_date)s", query)
+		self.assertNotIn("start_date", query)
+		self.assertEqual(values["company"], "World Shading")
+		self.assertEqual(values["customers"], ("CUST-1", "CUST-2"))
+		self.assertEqual(values["end_date"], date(2026, 12, 31))
+
+	def test_company_context_checks_read_permission_and_returns_currency(self):
+		company = type("Company", (object,), {
+			"default_currency": "BHD",
+			"check_permission": Mock(),
+		})()
+		with patch.object(report.frappe, "get_doc", return_value=company) as get_doc:
+			currency = report.get_company_context("World Shading")
+
+		self.assertEqual(currency, "BHD")
+		get_doc.assert_called_once_with("Company", "World Shading")
+		company.check_permission.assert_called_once_with("read")
+
+	def test_execute_builds_limits_then_enriches_and_returns_v12_contract(self):
+		sales_rows = [
+			{"customer": "CUST-1", "customer_name": "Alpha", "customer_group": "Retail",
+			 "territory": "Bahrain", "sales_year": 2026, "sales": 80, "invoice_count": 2},
+			{"customer": "CUST-1", "customer_name": "Alpha", "customer_group": "Retail",
+			 "territory": "Bahrain", "sales_year": 2025, "sales": 100, "invoice_count": 4},
+		]
+		captured = {}
+
+		def enrich(displayed, filters):
+			captured["customers"] = [row["customer"] for row in displayed]
+			displayed[0]["top_item_group_1"] = "Outdoor"
+			return displayed
+
+		with patch.object(report, "get_company_context", return_value="BHD"), \
+				patch.object(report, "get_sales_activity", return_value=sales_rows), \
+				patch.object(report, "get_last_invoice_dates", return_value={"CUST-1": date(2026, 1, 1)}), \
+				patch.object(report, "today", return_value="2026-10-22"), \
+				patch.object(report, "enrich_rows", side_effect=enrich):
+			result = report.execute(self.valid_filters())
+
+		columns, rows, message, chart, summary, skip_total_row = result
+		self.assertEqual(captured["customers"], ["CUST-1"])
+		self.assertEqual(rows[0]["rank"], 1)
+		self.assertEqual(rows[0]["top_item_group_1"], "Outdoor")
+		self.assertEqual(rows[0]["retention_status"], "Decreased")
+		self.assertTrue(any(column["options"] == "BHD" for column in columns if column["fieldtype"] == "Currency"))
+		self.assertIn("year-to-date", message.lower())
+		self.assertEqual(chart["data"]["labels"], ["Alpha"])
+		self.assertTrue(any(item["label"] == "At-risk Previous Sales" for item in summary))
+		self.assertEqual(skip_total_row, 1)
+
+	def test_execute_preserves_return_only_value_without_purchase_activity(self):
+		sales_rows = [{
+			"customer": "RETURN-ONLY", "customer_name": "Returns", "customer_group": "Retail",
+			"territory": "Bahrain", "sales_year": 2026, "sales": -50, "invoice_count": 0,
+		}]
+		with patch.object(report, "get_company_context", return_value="BHD"), \
+				patch.object(report, "get_sales_activity", return_value=sales_rows), \
+				patch.object(report, "get_last_invoice_dates", return_value={}), \
+				patch.object(report, "today", return_value="2026-10-22"), \
+				patch.object(report, "enrich_rows", side_effect=lambda rows, filters: rows):
+			unused_columns, rows, unused_message, unused_chart, unused_summary, unused_skip = report.execute(
+				self.valid_filters()
+			)
+
+		self.assertEqual(rows[0]["current_sales"], -50.0)
+		self.assertEqual(rows[0]["current_invoice_count"], 0)
+		self.assertEqual(rows[0]["total_invoice_count"], 0)
+		self.assertIsNone(rows[0]["last_invoice_date"])
+		self.assertIsNone(rows[0]["inactive_days"])
+
+	def test_execute_returns_empty_contract_without_enrichment(self):
+		with patch.object(report, "get_company_context", return_value="BHD"), \
+				patch.object(report, "get_sales_activity", return_value=[]), \
+				patch.object(report, "get_last_invoice_dates") as last_dates, \
+				patch.object(report, "today", return_value="2026-10-22"), \
+				patch.object(report, "enrich_rows") as enrich:
+			columns, rows, message, chart, summary, skip_total_row = report.execute(
+				self.valid_filters()
+			)
+
+		self.assertTrue(columns)
+		self.assertEqual(rows, [])
+		self.assertIn("No customers", message)
+		self.assertIsNone(chart)
+		self.assertTrue(all(item["value"] == 0 for item in summary))
+		self.assertEqual(skip_total_row, 1)
+		last_dates.assert_not_called()
+		enrich.assert_not_called()
 
 
 if __name__ == "__main__":
