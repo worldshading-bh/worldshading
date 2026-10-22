@@ -268,11 +268,8 @@ function get_pricing_group_summary_tooltip(fieldname, data) {
 			String(data.group_reference_sales_contribution_percent || 0)
 		]);
 	}
-	var gross_fieldname = /_net$/.test(fieldname || "") ?
-		fieldname.replace(/_net$/, "_gross") : "";
-	var gross_value = gross_fieldname ? data[gross_fieldname] : null;
-	return gross_value === null || gross_value === undefined ? explanation :
-		__("Price including VAT") + ": " + format_currency(gross_value) + "\n" + explanation;
+	var price_explanation = get_recommended_price_tooltip(fieldname, data);
+	return price_explanation ? price_explanation + "\n" + explanation : explanation;
 }
 
 function get_pricing_group_reference_row_indexes(rows) {
@@ -328,9 +325,14 @@ function get_recommended_price_tooltip(fieldname, data) {
 	};
 	if (current_fields[fieldname] && data) {
 		var current_gross = data[current_fields[fieldname].gross];
+		var current_explanation = current_fields[fieldname].explanation;
+		if (fieldname === "current_normal_price" &&
+			is_current_regular_anchor_basis(data.price_calculation_basis)) {
+			current_explanation = "Calculation anchor: B2B and tier prices are derived from this Current Regular Price.";
+		}
 		return current_gross === null || current_gross === undefined ? "" :
 			__("Price including VAT") + ": " + format_currency(current_gross) + "\n" +
-			__(current_fields[fieldname].explanation);
+			__(current_explanation);
 	}
 	var match = (fieldname || "").match(/^(recommended_regular|recommended_b2b|tier_\d+)_net$/);
 	if (!match || !data) {
@@ -340,7 +342,23 @@ function get_recommended_price_tooltip(fieldname, data) {
 	if (gross_value === null || gross_value === undefined) {
 		return "";
 	}
-	return __("Price including VAT") + ": " + format_currency(gross_value);
+	var lines = [__("Price including VAT") + ": " + format_currency(gross_value)];
+	if (data.price_calculation_basis === "Current Regular Price") {
+		var target_markup = match[1] === "recommended_regular"
+			? data.regular_strategy_markup
+			: (match[1] === "recommended_b2b"
+				? data.b2b_strategy_markup
+				: data[match[1] + "_strategy_markup"]);
+		if (data.current_normal_price !== null && data.current_normal_price !== undefined &&
+			data.regular_strategy_markup !== null && data.regular_strategy_markup !== undefined &&
+			target_markup !== null && target_markup !== undefined) {
+			lines.push(__(
+				"Calculated from Current Regular Price {0} using Regular Markup {1}% and Target Markup {2}%.",
+				[format_currency(data.current_normal_price), data.regular_strategy_markup, target_markup]
+			));
+		}
+	}
+	return lines.join("\n");
 }
 
 function get_pricing_strategy_simple_view_fields(columns) {
@@ -388,6 +406,15 @@ function is_pricing_strategy_key_price_field(fieldname) {
 		fieldname === "recommended_b2b_net" || /^tier_\d+_net$/.test(fieldname || "");
 }
 
+function is_current_regular_anchor_basis(price_calculation_basis) {
+	return price_calculation_basis === "Current Regular Price";
+}
+
+function get_price_calculation_anchor_field(price_calculation_basis) {
+	return is_current_regular_anchor_basis(price_calculation_basis)
+		? "current_normal_price" : "selected_base_cost";
+}
+
 function apply_pricing_strategy_column_colors(datatable) {
 	var wrapper = datatable && datatable.wrapper;
 	if (!wrapper) {
@@ -395,6 +422,18 @@ function apply_pricing_strategy_column_colors(datatable) {
 	}
 
 	$(wrapper).addClass("pricing-strategy-result-columns");
+	var price_calculation_basis = (
+		frappe.query_report && frappe.query_report.get_filter_value
+			? frappe.query_report.get_filter_value("price_calculation_basis") : ""
+	);
+	var current_regular_anchor = is_current_regular_anchor_basis(price_calculation_basis);
+	var anchor_field = get_price_calculation_anchor_field(price_calculation_basis);
+	$(wrapper).toggleClass(
+		"pricing-strategy-current-regular-anchor", current_regular_anchor
+	);
+	$(wrapper).toggleClass(
+		"pricing-strategy-cost-based-anchor", !current_regular_anchor
+	);
 	var regular_fields = [
 		"recommended_regular_net", "recommended_regular_gross_margin_percent",
 		"change_from_current_normal_percent"
@@ -424,7 +463,9 @@ function apply_pricing_strategy_column_colors(datatable) {
 			$(this).attr("title", tooltip);
 		}
 		var background_color = utility_field_colors[fieldname];
-		if (regular_fields.indexOf(fieldname) !== -1) {
+		if (fieldname === anchor_field) {
+			background_color = "#fff2b2";
+		} else if (regular_fields.indexOf(fieldname) !== -1) {
 			background_color = "#e8f5e9";
 		} else if (b2b_fields.indexOf(fieldname) !== -1) {
 			background_color = "#eaf4ff";
@@ -439,6 +480,9 @@ function apply_pricing_strategy_column_colors(datatable) {
 		var column_class = (this.className.match(/dt-cell--col-\d+/) || [])[0];
 		if (is_pricing_strategy_key_price_field(fieldname)) {
 			$(this).addClass("pricing-strategy-key-price-header");
+		}
+		if (fieldname === anchor_field) {
+			$(this).addClass("pricing-strategy-calculation-anchor-header");
 		}
 		if (background_color && column_class) {
 			column_rules.push(
@@ -455,6 +499,11 @@ function apply_pricing_strategy_column_colors(datatable) {
 	style.text(column_rules.join("") +
 		".pricing-strategy-result-columns .dt-row-header " +
 		".pricing-strategy-key-price-header .dt-cell__content{" +
+		"font-weight:700 !important;color:#000 !important;}" +
+		".pricing-strategy-current-regular-anchor .dt-row-header " +
+		".pricing-strategy-calculation-anchor-header .dt-cell__content," +
+		".pricing-strategy-cost-based-anchor .dt-row-header " +
+		".pricing-strategy-calculation-anchor-header .dt-cell__content{" +
 		"font-weight:700 !important;color:#000 !important;}");
 }
 
@@ -881,18 +930,23 @@ function show_item_price_update_dialog(report) {
 						selection.total_count
 					]) + '</strong></p>'
 				: "";
-			var summary = '<p><strong>' + __("Prepared Report") + ':</strong> ' +
-				frappe.utils.escape_html(prepared_report_name) + '</p>' + limit_notice +
-				'<p>' + __("Create: {0}, Update: {1}, Unchanged: {2}", [
-					preview.counts.create, preview.counts.update, preview.counts.unchanged
-				]) + '</p>' + get_skipped_update_notice(preview.skipped);
-			var price_update_rows = make_mutable_preview_rows(
-				preview.entries, "item-price-preview"
-			);
+			var scope_configuration = get_item_price_scope_configuration(preview.entries);
+			var scope_options = scope_configuration.options;
+			var default_scope = scope_configuration.default_scope;
 			var dialog = new frappe.ui.Dialog({
 				title: __("Update Item Price"),
 				fields: [
-					{fieldtype: "HTML", options: summary + '<p>' +
+					{fieldname: "preview_summary", fieldtype: "HTML"},
+					{fieldname: "price_list_scope", fieldtype: "Select",
+						label: __("Price Lists to Update"), options: scope_options,
+						default: default_scope, reqd: 1,
+						description: __("Choose whether this update applies to both price lists or only one. Changing this selection resets the preview rows."),
+						onchange: function () {
+							refresh_item_price_scope_preview(
+								dialog, preview, prepared_report_name, limit_notice
+							);
+						}},
+					{fieldtype: "HTML", options: '<p>' +
 						__("To remove price rows, tick their left-side row boxes and click Delete. Only rows remaining in the table will be updated.") + '</p>'},
 					{
 						fieldname: "price_updates",
@@ -901,7 +955,7 @@ function show_item_price_update_dialog(report) {
 						cannot_add_rows: true,
 						cannot_delete_rows: false,
 						in_place_edit: true,
-						data: price_update_rows,
+						data: [],
 						fields: [
 							{fieldname: "item_code", fieldtype: "Data", label: __("Item Code"),
 								in_list_view: 1, read_only: 1, columns: 2},
@@ -924,9 +978,12 @@ function show_item_price_update_dialog(report) {
 				],
 				primary_action_label: __("Continue"),
 				primary_action: function () {
+					var scope_entries = filter_item_price_preview_rows(
+						preview.entries || [], dialog.get_value("price_list_scope")
+					);
 					var remaining_rows = dialog.get_value("price_updates") || [];
 					var incomplete_groups = get_incomplete_item_price_groups(
-						preview.entries || [], remaining_rows
+						scope_entries, remaining_rows
 					);
 					if (incomplete_groups.length) {
 						frappe.msgprint(__(
@@ -971,6 +1028,9 @@ function show_item_price_update_dialog(report) {
 			});
 			dialog.show();
 			dialog.$wrapper.find(".modal-dialog").css({width: "1200px", "max-width": "96vw"});
+			refresh_item_price_scope_preview(
+				dialog, preview, prepared_report_name, limit_notice
+			);
 			var price_grid = dialog.fields_dict.price_updates.grid;
 			disable_preview_grid_row_forms(price_grid);
 			price_grid.wrapper.off("change.item_price_preview")
@@ -983,6 +1043,31 @@ function show_item_price_update_dialog(report) {
 	});
 }
 
+function refresh_item_price_scope_preview(dialog, preview, prepared_report_name, limit_notice) {
+	if (!dialog || !dialog.fields_dict.price_updates) {
+		return;
+	}
+	var scope = dialog.get_value("price_list_scope") || "Regular and B2B";
+	var scoped_rows = filter_item_price_preview_rows(preview.entries || [], scope);
+	var counts = count_item_price_preview_actions(scoped_rows);
+	var scoped_skipped = (preview.skipped || []).filter(function (row) {
+		return !row.price_kind || scope === "Regular and B2B" ||
+			(scope === "Regular Only" && row.price_kind === "Regular") ||
+			(scope === "B2B Only" && row.price_kind === "B2B");
+	});
+	dialog.fields_dict.preview_summary.$wrapper.html(
+		'<p><strong>' + __("Prepared Report") + ':</strong> ' +
+		frappe.utils.escape_html(prepared_report_name) + '</p>' + (limit_notice || "") +
+		'<p>' + __("Create: {0}, Update: {1}, Unchanged: {2}", [
+			counts.create, counts.update, counts.unchanged
+		]) + '</p>' + get_skipped_update_notice(scoped_skipped)
+	);
+	var preview_rows = make_mutable_preview_rows(scoped_rows, "item-price-preview");
+	dialog.fields_dict.price_updates.df.data = preview_rows;
+	dialog.fields_dict.price_updates.grid.refresh();
+	disable_preview_grid_row_forms(dialog.fields_dict.price_updates.grid);
+}
+
 function get_remaining_item_price_keys(rows) {
 	return (rows || []).map(function (row) {
 		if (!row || !row.item_code || !row.price_list) {
@@ -992,22 +1077,66 @@ function get_remaining_item_price_keys(rows) {
 	}).filter(function (key) { return Boolean(key); });
 }
 
+function filter_item_price_preview_rows(rows, scope) {
+	if (scope === "Regular Only") {
+		return (rows || []).filter(function (row) { return row.price_kind === "Regular"; });
+	}
+	if (scope === "B2B Only") {
+		return (rows || []).filter(function (row) { return row.price_kind === "B2B"; });
+	}
+	return (rows || []).slice();
+}
+
+function get_item_price_scope_configuration(rows) {
+	var has_regular = (rows || []).some(function (row) { return row.price_kind === "Regular"; });
+	var has_b2b = (rows || []).some(function (row) { return row.price_kind === "B2B"; });
+	if (has_regular && has_b2b) {
+		return {
+			options: "Regular and B2B\nRegular Only\nB2B Only",
+			default_scope: "Regular and B2B"
+		};
+	}
+	if (has_b2b) {
+		return {options: "B2B Only", default_scope: "B2B Only"};
+	}
+	return {options: "Regular Only", default_scope: "Regular Only"};
+}
+
+function count_item_price_preview_actions(rows) {
+	var counts = {create: 0, update: 0, unchanged: 0};
+	(rows || []).forEach(function (row) {
+		var action = String(row.action || "").toLowerCase();
+		if (Object.prototype.hasOwnProperty.call(counts, action)) {
+			counts[action] += 1;
+		}
+	});
+	return counts;
+}
+
 function get_incomplete_item_price_groups(all_rows, remaining_rows) {
 	var expected = {};
 	var remaining = {};
+	var groups = {};
 	(all_rows || []).forEach(function (row) {
 		if (row && row.group_key) {
-			expected[row.group_key] = (expected[row.group_key] || 0) + 1;
+			var scope_key = row.group_key + "|" + (row.price_kind || row.price_list || "");
+			expected[scope_key] = (expected[scope_key] || 0) + 1;
+			groups[scope_key] = row.group_key;
 		}
 	});
 	(remaining_rows || []).forEach(function (row) {
 		if (row && row.group_key) {
-			remaining[row.group_key] = (remaining[row.group_key] || 0) + 1;
+			var scope_key = row.group_key + "|" + (row.price_kind || row.price_list || "");
+			remaining[scope_key] = (remaining[scope_key] || 0) + 1;
 		}
 	});
-	return Object.keys(remaining).filter(function (group_key) {
-		return remaining[group_key] !== expected[group_key];
-	}).sort();
+	var incomplete = {};
+	Object.keys(remaining).forEach(function (scope_key) {
+		if (remaining[scope_key] !== expected[scope_key]) {
+			incomplete[groups[scope_key]] = true;
+		}
+	});
+	return Object.keys(incomplete).sort();
 }
 
 function make_mutable_preview_rows(rows, prefix) {
@@ -1425,6 +1554,13 @@ frappe.query_reports["Pricing Strategy Analysis"] = {
 			"fieldname": "cost_source", "label": __("Cost Basis"), "fieldtype": "Select", "reqd": 1,
 			"options": "Current Valuation Rate\nLatest Valuation Rate",
 			"default": "Latest Valuation Rate"
+		},
+		{
+			"fieldname": "price_calculation_basis", "label": __("Price Calculation Basis"),
+			"fieldtype": "Select", "reqd": 1,
+			"options": "Cost Based\nCurrent Regular Price",
+			"default": "Cost Based",
+			"description": __("Cost Based uses the selected valuation cost and follows the strategy's expense treatment. Current Regular Price keeps Regular unchanged and derives B2B and tier prices from it.")
 		},
 		{
 			"fieldname": "regular_price_list", "label": __("Regular Price List"),

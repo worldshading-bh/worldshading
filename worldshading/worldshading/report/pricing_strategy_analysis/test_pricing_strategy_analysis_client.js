@@ -109,12 +109,37 @@ assert.strictEqual(
 	"Price including VAT: 108"
 );
 assert.strictEqual(
+	get_recommended_price_tooltip("tier_2_net", {
+		tier_2_gross: 108,
+		price_calculation_basis: "Current Regular Price",
+		current_normal_price: 100,
+		regular_strategy_markup: 31,
+		tier_2_strategy_markup: 25
+	}),
+	"Price including VAT: 108\nCalculated from Current Regular Price 100 using Regular Markup 31% and Target Markup 25%."
+);
+assert.strictEqual(
 	get_recommended_price_tooltip("current_normal_price", {current_normal_gross: 65}),
 	"Price including VAT: 65\nCurrent Item Price in the Regular Price List."
 );
 assert.strictEqual(
+	get_recommended_price_tooltip("current_normal_price", {
+		current_normal_gross: 65,
+		price_calculation_basis: "Current Regular Price"
+	}),
+	"Price including VAT: 65\nCalculation anchor: B2B and tier prices are derived from this Current Regular Price."
+);
+assert.strictEqual(
 	get_recommended_price_tooltip("current_b2b_price", {current_b2b_gross: 60}),
 	"Price including VAT: 60\nCurrent Item Price in the B2B Price List."
+);
+assert.ok(
+	implementationSource.indexOf('"fieldname": "price_calculation_basis"') !== -1,
+	"the report must expose the Price Calculation Basis filter"
+);
+assert.ok(
+	implementationSource.indexOf('"options": "Cost Based\\nCurrent Regular Price"') !== -1,
+	"the filter must use the clear Cost Based label"
 );
 assert.strictEqual(
 	get_pricing_group_summary_tooltip("recommended_b2b_net", {
@@ -130,6 +155,22 @@ assert.strictEqual(
 assert.strictEqual(get_pricing_group_summary_tooltip("recommended_regular_net", {
 	item_code: "KSA0001"
 }), "");
+assert.strictEqual(
+	get_pricing_group_summary_tooltip("tier_2_net", {
+		is_pricing_group_summary: 1,
+		group_reference_item_code: "KSA0002",
+		group_selection_reason: "Highest Sales Qty",
+		group_reference_sales_qty: 80,
+		group_reference_sales_contribution_percent: 80,
+		tier_2_gross: 108,
+		price_calculation_basis: "Current Regular Price",
+		current_normal_price: 100,
+		regular_strategy_markup: 31,
+		tier_2_strategy_markup: 25
+	}),
+	"Price including VAT: 108\nCalculated from Current Regular Price 100 using Regular Markup 31% and Target Markup 25%.\n" +
+	"Shared group price follows KSA0002 because it has the highest Sales Qty among Items with valid pricing. Sales Qty: 80; group contribution: 80%."
+);
 assert.deepStrictEqual(
 	get_pricing_group_reference_row_indexes([
 		{item_code: "A"},
@@ -243,10 +284,25 @@ assert.strictEqual(is_pricing_strategy_key_price_field("recommended_b2b_net"), t
 assert.strictEqual(is_pricing_strategy_key_price_field("tier_1_net"), true);
 assert.strictEqual(is_pricing_strategy_key_price_field("tier_4_net"), true);
 assert.strictEqual(is_pricing_strategy_key_price_field("current_normal_price"), false);
+assert.strictEqual(is_current_regular_anchor_basis("Current Regular Price"), true);
+assert.strictEqual(is_current_regular_anchor_basis("Cost Based"), false);
+assert.strictEqual(
+	get_price_calculation_anchor_field("Current Regular Price"),
+	"current_normal_price"
+);
+assert.strictEqual(get_price_calculation_anchor_field("Cost Based"), "selected_base_cost");
 assert.strictEqual(is_pricing_strategy_key_price_field("tier_1_gross_margin_percent"), false);
 assert.ok(
 	implementationSource.indexOf("color:#000 !important;") !== -1,
 	"key strategy-price headers must use black text"
+);
+assert.ok(
+	implementationSource.indexOf("pricing-strategy-current-regular-anchor") !== -1,
+	"the active Current Regular anchor column must have dedicated styling"
+);
+assert.strictEqual(
+	implementationSource.indexOf("#d6a800"), -1,
+	"calculation anchor highlighting must not add gold side borders"
 );
 const pricingGroupFilter = frappe.query_reports["Pricing Strategy Analysis"].filters.filter(function (field) {
 	return field.fieldname === "pricing_group";
@@ -287,13 +343,56 @@ assert.deepStrictEqual(
 );
 assert.deepStrictEqual(
 	get_incomplete_item_price_groups([
-		{item_code: "A", price_list: "Regular", group_key: "Colours"},
-		{item_code: "B", price_list: "Regular", group_key: "Colours"}
+		{item_code: "A", price_list: "Regular", price_kind: "Regular", group_key: "Colours"},
+		{item_code: "B", price_list: "Regular", price_kind: "Regular", group_key: "Colours"}
 	], [
-		{item_code: "A", price_list: "Regular", group_key: "Colours"}
+		{item_code: "A", price_list: "Regular", price_kind: "Regular", group_key: "Colours"}
 	]),
 	["Colours"],
 	"partial Item Price group selections must be detected before confirmation"
+);
+const scopedItemPriceRows = [
+	{item_code: "A", price_kind: "Regular", action: "Update", group_key: "Colours"},
+	{item_code: "B", price_kind: "Regular", action: "Create", group_key: "Colours"},
+	{item_code: "A", price_kind: "B2B", action: "Unchanged", group_key: "Colours"},
+	{item_code: "B", price_kind: "B2B", action: "Update", group_key: "Colours"}
+];
+assert.deepStrictEqual(
+	get_item_price_scope_configuration([
+		{price_kind: "B2B"}, {price_kind: "B2B"}
+	]),
+	{options: "B2B Only", default_scope: "B2B Only"},
+	"an anchored-price report must not offer Regular updates"
+);
+assert.deepStrictEqual(
+	get_item_price_scope_configuration(scopedItemPriceRows),
+	{
+		options: "Regular and B2B\nRegular Only\nB2B Only",
+		default_scope: "Regular and B2B"
+	}
+);
+assert.deepStrictEqual(
+	filter_item_price_preview_rows(scopedItemPriceRows, "Regular Only").map(function (row) {
+		return row.item_code + "|" + row.price_kind;
+	}),
+	["A|Regular", "B|Regular"]
+);
+assert.deepStrictEqual(
+	filter_item_price_preview_rows(scopedItemPriceRows, "B2B Only").map(function (row) {
+		return row.item_code + "|" + row.price_kind;
+	}),
+	["A|B2B", "B|B2B"]
+);
+assert.deepStrictEqual(
+	count_item_price_preview_actions(
+		filter_item_price_preview_rows(scopedItemPriceRows, "Regular Only")
+	),
+	{create: 1, update: 1, unchanged: 0}
+);
+assert.deepStrictEqual(
+	get_incomplete_item_price_groups(scopedItemPriceRows, scopedItemPriceRows.slice(0, 2)),
+	[],
+	"a complete Regular group scope must not require the group's B2B rows"
 );
 const originalPreviewRows = [{item_code: "A"}, {item_code: "B"}, {item_code: "C"}];
 const mutablePreviewRows = make_mutable_preview_rows(originalPreviewRows, "pricing-rule-item");

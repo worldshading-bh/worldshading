@@ -61,6 +61,17 @@ Cost Basis is selected directly in the report and defaults to **Latest Valuation
 
 These are intentionally the only two cost options. A raw Purchase Invoice rate is not used as a substitute for landed cost because it may omit freight, duty, and other landed-cost adjustments.
 
+### Price calculation basis
+
+**Price Calculation Basis** is selected in the report and defaults to **Cost Based**:
+
+| Calculation basis | Behaviour |
+|---|---|
+| Cost Based | Calculates Regular, B2B and tier prices from the selected valuation cost. Allocated expense affects pricing only when the strategy is configured to include expense; otherwise it is displayed for analysis only. This is the original report behaviour. |
+| Current Regular Price | Keeps the current Regular Item Price unchanged and derives only B2B and tier prices from it. Cost and expense remain visible for margin analysis but do not control the proposed prices. |
+
+Current Regular Price mode requires a valid current Regular Item Price. An Item without one is skipped from price recommendations.
+
 ### Pricing Group setup on Item
 
 Pricing Group membership is stored on Item as the single source of truth. Create this Custom Field manually before using grouped pricing:
@@ -84,9 +95,9 @@ Visible report filters are arranged as follows:
 
 1. Pricing Group, Company, Pricing Strategy, From Date, To Date
 2. Purchase Receipt, Item Group, Item, Stock UOM, Brand
-3. Warehouse, Cost Basis, Exclude Items Without Sales
+3. Warehouse, Cost Basis, Price Calculation Basis, Exclude Items Without Sales
 
-Choosing a configured Pricing Group automatically fills its Company, Item Group and Pricing Strategy. Choosing the Pricing Strategy directly still supports standalone analysis without a Pricing Group. Cost Basis remains independently editable and is stored with the Prepared Report. Other strategy-controlled settings are also stored with the Prepared Report even though they are not shown as separate editable filters.
+Choosing a configured Pricing Group automatically fills its Company, Item Group and Pricing Strategy. Choosing the Pricing Strategy directly still supports standalone analysis without a Pricing Group. Cost Basis and Price Calculation Basis remain independently editable and are stored with the Prepared Report. Other strategy-controlled settings are also stored with the Prepared Report even though they are not shown as separate editable filters.
 
 The report is a Prepared Report. Each result therefore represents a saved snapshot of:
 
@@ -174,6 +185,8 @@ When the strategy excludes expense, the report may still display the expense ana
 
 ## 8. Price calculation and rounding
 
+### Cost Based mode
+
 For each Regular, B2B, or tier level:
 
 ```text
@@ -206,6 +219,17 @@ Strategy Regular Net        = 65.000 / 1.10 = BHD 59.091
 
 This explains why the recommended net price can differ slightly from simply multiplying cost by the template markup. Rounding is applied to the VAT-inclusive price and the final net price is then derived from it.
 
+### Current Regular Price mode
+
+The current Regular net price is the fixed anchor and is never changed:
+
+```text
+Target Raw Net = Current Regular Net × (1 + Target Markup % / 100)
+                 / (1 + Regular Markup % / 100)
+```
+
+The target VAT-inclusive price is then rounded upward using the same increments shown above, and its final net price is derived from the rounded gross price. B2B uses the strategy B2B markup; each tier uses its own strategy markup. Tier discounts in this mode are measured directly from the unchanged Current Regular Price.
+
 ## 9. Markup, margin, discount, and averages
 
 These terms are not interchangeable:
@@ -219,7 +243,8 @@ Discount %      = (Reference Price - Lower Price) / Reference Price × 100
 - Markup measures profit relative to cost.
 - Gross margin measures profit relative to the selling price.
 - B2B discount compares B2B net price with Regular net price.
-- Tier discount compares the tier net price with B2B net price when B2B is configured; otherwise it compares with Regular net price.
+- In Cost Based mode, tier discount compares the tier net price with B2B net price when B2B is configured; otherwise it compares with Regular net price.
+- In Current Regular Price mode, every tier discount compares the tier net price directly with the unchanged Current Regular Price.
 
 Average Actual Markup, Average Gross Margin, and Average Discount are simple arithmetic averages of the configured Regular, B2B, and tier levels that apply to the row. They summarize the proposed price structure; they are not weighted by historical sales.
 
@@ -237,9 +262,10 @@ Average Actual Markup, Average Gross Margin, and Average Discount are simple ari
 The report also provides:
 
 - related column groups with consistent colors;
+- a gold Base Cost anchor column in Cost Based mode, or a gold Current Regular Price anchor column in Current Regular Price mode;
 - sticky Item Code and Item Name columns;
 - the same row-highlight color used in Purchase Plan; and
-- tooltips for calculation-heavy columns. Recommended-price tooltips include the VAT-inclusive gross price.
+- tooltips for calculation-heavy columns. Recommended-price tooltips include the VAT-inclusive gross price and, in Current Regular Price mode, the Regular anchor and markup relationship.
 
 ### Pricing Groups
 
@@ -295,9 +321,12 @@ Workflow:
 1. The first 50 eligible items from the report result are considered.
 2. Rows without a valid recommended price are skipped and summarized by count.
 3. A preview displays the proposed Regular and, when configured, B2B changes.
-4. The user may remove exact rows from the preview.
-5. The user confirms the remaining changes.
-6. Existing Item Prices are updated; missing Item Prices are created.
+4. **Price Lists to Update** lets the user choose **Regular and B2B**, **Regular Only**, or **B2B Only**. The preview rows and Create/Update/Unchanged counts refresh immediately; the Prepared Report does not need to be regenerated.
+5. The user may remove exact rows from the filtered preview.
+6. The user confirms the remaining changes.
+7. Existing Item Prices are updated; missing Item Prices are created.
+
+In **Current Regular Price** mode, Regular is intentionally excluded from the Item Price preview. Only B2B can be created or updated. Quantity-tier results are applied through **Update Pricing Rule**.
 
 The limit is **50 items**, not 50 Item Price records. With both Regular and B2B enabled, 50 items can produce up to 100 Item Price creates/updates.
 
@@ -314,7 +343,7 @@ Each saved Item Price receives the Prepared Report link and an audit comment.
 
 When updating an existing price's rate, a blank UOM is filled from the Item's Stock UOM, unless the Price List is UOM-independent. Existing nonblank UOMs are preserved. Matching and duplicate handling are unchanged; rows with unchanged rates are not saved solely to fill their UOM.
 
-For a complete Pricing Group, every member uses the shared group price for the applicable Regular or B2B Price List. The preview shows the member recommendation and the shared group price. Keeping or removing grouped rows must be done for the complete group; the server rechecks group membership before saving.
+For a complete Pricing Group, every member uses the shared group price for the applicable Regular or B2B Price List. The preview shows the member recommendation and the shared group price. Keeping or removing grouped rows must be done for the complete group within each selected price list. For example, **Regular Only** requires every Regular row in the group but does not require its B2B rows. The server rechecks group membership before saving.
 
 ## 12. Updating Pricing Rules
 

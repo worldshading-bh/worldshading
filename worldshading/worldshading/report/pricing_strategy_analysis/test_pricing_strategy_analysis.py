@@ -121,6 +121,24 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		self.assertEqual(result[-1]["group_reference_item_code"], "B")
 		self.assertEqual(result[-1]["group_selection_reason"], "No Sales - Highest Price")
 
+	def test_group_summary_keeps_current_regular_calculation_context(self):
+		summary = report._pricing_group_summary_row(
+			"Colours", "Ready", {
+				"item_code": "A", "sales_qty": 20,
+				"sales_contribution_percent": Decimal("80"),
+				"current_normal_price": Decimal("100"),
+				"price_calculation_basis": "Current Regular Price",
+				"regular_strategy_markup": Decimal("31"),
+				"tier_1_strategy_markup": Decimal("25"),
+				"tier_1_net": Decimal("95.455"),
+				"tier_1_gross": Decimal("105")
+			}, ["tier_1_net"], "Highest Sales Qty"
+		)
+		self.assertEqual(summary["current_normal_price"], Decimal("100"))
+		self.assertEqual(summary["price_calculation_basis"], "Current Regular Price")
+		self.assertEqual(summary["regular_strategy_markup"], Decimal("31"))
+		self.assertEqual(summary["tier_1_strategy_markup"], Decimal("25"))
+
 	def test_pricing_group_skips_missing_cost_member_when_selecting_reference(self):
 		rows = [
 			{"item_code": "A", "item_name": "Highest seller without cost",
@@ -273,6 +291,43 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		self.assertEqual(row["fully_loaded_cost"], Decimal("105.000"))
 		self.assertEqual(row["current_normal_gross"], Decimal("132.000"))
 		self.assertEqual(row["suggested_action"], "Increase Price")
+
+	def test_current_regular_basis_keeps_regular_and_derives_lower_prices(self):
+		filters = self._valid_filters()
+		filters.update({
+			"price_calculation_basis": "Current Regular Price",
+			"regular_markup": 31,
+			"b2b_price_list": "B2B",
+			"b2b_markup": 29
+		})
+		normalized = report.validate_and_normalize_filters(filters)
+		row = report.calculate_item_row({
+			"item_code": "A",
+			"selected_base_cost": None,
+			"expense_per_unit": None,
+			"current_normal_price": Decimal("100"),
+			"warnings": []
+		}, normalized)
+		self.assertEqual(row["recommended_regular_net"], Decimal("100.000"))
+		self.assertEqual(row["recommended_b2b_net"], Decimal("99.091"))
+		self.assertEqual(row["tier_1_net"], Decimal("100.000"))
+		self.assertEqual(row["tier_4_net"], Decimal("95.455"))
+		self.assertEqual(row["suggested_action"], "Keep Price")
+		self.assertIsNone(row["recommended_b2b_gross_margin_percent"])
+		self.assertNotIn("Missing cost", row["warnings"])
+
+	def test_current_regular_basis_requires_current_regular_price(self):
+		filters = self._valid_filters()
+		filters["price_calculation_basis"] = "Current Regular Price"
+		normalized = report.validate_and_normalize_filters(filters)
+		row = report.calculate_item_row({
+			"item_code": "A", "selected_base_cost": Decimal("100"),
+			"expense_per_unit": Decimal("5"), "current_normal_price": None,
+			"warnings": []
+		}, normalized)
+		self.assertIsNone(row["recommended_regular_net"])
+		self.assertIsNone(row["tier_1_net"])
+		self.assertIn("Missing current Regular price", row["warnings"])
 
 	def test_strategy_averages_use_all_active_price_levels(self):
 		filters = self._valid_filters()
@@ -490,6 +545,31 @@ class TestPricingStrategyCalculation(unittest.TestCase):
 		filters.pop("cost_source")
 		normalized = report.validate_and_normalize_filters(filters)
 		self.assertEqual(normalized["cost_source"], "Latest Valuation Rate")
+
+	def test_price_calculation_basis_defaults_to_cost_based(self):
+		normalized = report.validate_and_normalize_filters(self._valid_filters())
+		self.assertEqual(normalized["price_calculation_basis"], "Cost Based")
+
+	def test_legacy_cost_and_expense_basis_is_normalized_to_cost_based(self):
+		filters = self._valid_filters()
+		filters["price_calculation_basis"] = "Cost + Expense"
+		normalized = report.validate_and_normalize_filters(filters)
+		self.assertEqual(normalized["price_calculation_basis"], "Cost Based")
+
+	def test_current_regular_basis_excludes_regular_from_item_price_targets(self):
+		frappe.local.db = MagicMock()
+		filters = self._valid_filters()
+		filters.update({
+			"price_calculation_basis": "Current Regular Price",
+			"b2b_price_list": "B2B"
+		})
+		with patch.object(report.frappe, "has_permission", return_value=True):
+			with patch.object(report.frappe.db, "get_value", return_value={
+				"name": "B2B", "enabled": 1, "selling": 1,
+				"currency": "BHD", "price_not_uom_dependent": 0
+			}):
+				price_lists = report._get_update_price_lists(filters)
+		self.assertEqual([row.kind for row in price_lists], ["B2B"])
 
 	def test_execute_returns_friendly_empty_receipt_result_without_data_queries(self):
 		filters = self._valid_filters()
@@ -1039,6 +1119,22 @@ class TestPricingStrategyItemPriceExecution(unittest.TestCase):
 		with patch.object(report.frappe, "throw", side_effect=frappe.ValidationError):
 			with self.assertRaises(frappe.ValidationError):
 				report._filter_item_price_preview_entries(entries, ["A|Regular"])
+
+	def test_grouped_item_price_selection_can_keep_complete_regular_scope_only(self):
+		entries = [
+			{"item_code": "A", "price_list": "Regular", "price_kind": "Regular",
+			 "group_key": "Colours"},
+			{"item_code": "B", "price_list": "Regular", "price_kind": "Regular",
+			 "group_key": "Colours"},
+			{"item_code": "A", "price_list": "B2B", "price_kind": "B2B",
+			 "group_key": "Colours"},
+			{"item_code": "B", "price_list": "B2B", "price_kind": "B2B",
+			 "group_key": "Colours"}
+		]
+		selected = report._filter_item_price_preview_entries(
+			entries, ["A|Regular", "B|Regular"]
+		)
+		self.assertEqual([row["price_kind"] for row in selected], ["Regular", "Regular"])
 
 	def test_live_pricing_group_membership_change_is_rejected(self):
 		entries = [
@@ -2018,7 +2114,8 @@ class TestPricingStrategyReportFiles(unittest.TestCase):
 			"warehouse", "cost_source"
 		])
 		self.assertEqual(filter_order[-1], "exclude_items_without_sales")
-		self.assertEqual(filter_order[12:16], [
+		self.assertEqual(filter_order[12], "price_calculation_basis")
+		self.assertEqual(filter_order[13:17], [
 			"regular_price_list", "regular_markup", "b2b_price_list",
 			"b2b_markup"
 		])

@@ -35,7 +35,7 @@
 		});
 		var previous_width = widen_pricing_popup;
 		widen_pricing_popup = visible.some(function (note) {
-			return is_pricing_note(note) && note.title.indexOf("Prices Updated") === 0;
+			return is_pricing_note(note);
 		});
 		var titles = [];
 		// Native v12 repeats all login Notes when its shared dialog is dismissed.

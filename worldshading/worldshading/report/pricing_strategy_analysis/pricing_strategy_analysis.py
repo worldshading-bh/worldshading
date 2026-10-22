@@ -26,6 +26,11 @@ COST_SOURCES = (
 	"Latest Valuation Rate"
 )
 COST_SOURCE_ALIASES = {"Latest Purchase Rate": "Latest Valuation Rate"}
+PRICE_CALCULATION_BASES = (
+	"Cost Based",
+	"Current Regular Price"
+)
+PRICE_CALCULATION_BASIS_ALIASES = {"Cost + Expense": "Cost Based"}
 
 
 def _normalize_update_item_codes(item_codes):
@@ -883,9 +888,11 @@ def _get_update_price_lists(filters):
 		frappe.throw("Regular Price List is required")
 	if b2b_price_list and b2b_price_list == regular_price_list:
 		frappe.throw("Regular and B2B Price Lists must be different")
-	definitions = [
-		(regular_price_list, "Regular", "recommended_regular_net")
-	]
+	definitions = []
+	if filters.get("price_calculation_basis") != "Current Regular Price":
+		definitions.append(
+			(regular_price_list, "Regular", "recommended_regular_net")
+		)
 	if b2b_price_list:
 		definitions.append((b2b_price_list, "B2B", "recommended_b2b_net"))
 	result = []
@@ -1105,19 +1112,28 @@ def _filter_item_price_preview_entries(entries, selected_rows=None):
 	if not requested or any(key not in available for key in requested):
 		frappe.throw("Select at least one valid Item Price row")
 	selected = [available[key] for key in requested]
-	selected_groups = set(entry.get("group_key") for entry in selected if entry.get("group_key"))
-	for group_key in selected_groups:
+	selected_group_scopes = set(
+		(entry.get("group_key"), entry.get("price_kind") or entry.get("price_list"))
+		for entry in selected if entry.get("group_key")
+	)
+	for group_key, price_kind in selected_group_scopes:
 		available_keys = set(
 			"{0}|{1}".format(entry.get("item_code"), entry.get("price_list"))
-			for entry in entries if entry.get("group_key") == group_key
+			for entry in entries
+			if entry.get("group_key") == group_key and
+				(entry.get("price_kind") or entry.get("price_list")) == price_kind
 		)
 		selected_keys = set(
 			"{0}|{1}".format(entry.get("item_code"), entry.get("price_list"))
-			for entry in selected if entry.get("group_key") == group_key
+			for entry in selected
+			if entry.get("group_key") == group_key and
+				(entry.get("price_kind") or entry.get("price_list")) == price_kind
 		)
 		if available_keys != selected_keys:
 			frappe.throw(
-				"Keep or remove every Item Price row for Pricing Group {0}.".format(group_key)
+				"Keep or remove every {0} Item Price row for Pricing Group {1}.".format(
+					price_kind, group_key
+				)
 			)
 	return selected
 
@@ -1408,6 +1424,44 @@ def calculate_price(loaded_cost, markup_percent, vat_percent):
 	}
 
 
+def calculate_price_from_regular(current_regular_price, regular_markup,
+		target_markup, vat_percent, pricing_cost=None, preserve_anchor=False):
+	current_regular_price = to_decimal(current_regular_price)
+	regular_factor = Decimal("1") + to_decimal(regular_markup) / Decimal("100")
+	vat_factor = Decimal("1") + to_decimal(vat_percent) / Decimal("100")
+	if current_regular_price <= 0 or regular_factor <= 0 or vat_factor <= 0:
+		return None
+	target_factor = Decimal("1") + to_decimal(target_markup) / Decimal("100")
+	raw_net_price = current_regular_price * target_factor / regular_factor
+	raw_gross_price = raw_net_price * vat_factor
+	increment = get_rounding_increment(raw_gross_price)
+	if preserve_anchor:
+		net_price = current_regular_price
+		gross_price = current_regular_price * vat_factor
+	else:
+		gross_price = round_to_increment(raw_gross_price, increment)
+		net_price = gross_price / vat_factor
+	pricing_cost = to_decimal(pricing_cost)
+	profit = None
+	actual_markup = None
+	gross_margin = None
+	if pricing_cost > 0:
+		profit = net_price - pricing_cost
+		actual_markup = profit / pricing_cost * Decimal("100")
+		gross_margin = profit / net_price * Decimal("100") if net_price else Decimal("0")
+	return {
+		"net_price": quantize_money(net_price),
+		"gross_price": quantize_money(gross_price),
+		"profit": quantize_money(profit) if profit is not None else None,
+		"actual_markup_percent": quantize_percent(actual_markup)
+			if actual_markup is not None else None,
+		"gross_margin_percent": quantize_percent(gross_margin)
+			if gross_margin is not None else None,
+		"rounding_increment": increment,
+		"net_rounding_increment": quantize_money(increment / vat_factor)
+	}
+
+
 def compose_warnings(values):
 	result = []
 	seen = set()
@@ -1506,6 +1560,14 @@ def validate_and_normalize_filters(filters, apply_strategy=True):
 	) or "Latest Valuation Rate"
 	if result["cost_source"] not in COST_SOURCES:
 		frappe.throw("Unsupported Cost Source: {0}".format(result["cost_source"]))
+	price_calculation_basis = filters.get("price_calculation_basis") or "Cost Based"
+	result["price_calculation_basis"] = PRICE_CALCULATION_BASIS_ALIASES.get(
+		price_calculation_basis, price_calculation_basis
+	)
+	if result["price_calculation_basis"] not in PRICE_CALCULATION_BASES:
+		frappe.throw("Unsupported Price Calculation Basis: {0}".format(
+			result["price_calculation_basis"]
+		))
 
 	numeric_defaults = {
 		"vat_percent": "10",
@@ -1649,6 +1711,16 @@ def _format_decimal(value):
 def calculate_item_row(item, context):
 	row = dict(item)
 	warnings = list(row.get("warnings") or [])
+	current_regular_basis = (
+		context.get("price_calculation_basis") == "Current Regular Price"
+	)
+	row["price_calculation_basis"] = context.get(
+		"price_calculation_basis", "Cost Based"
+	)
+	row["regular_strategy_markup"] = context.get("regular_markup")
+	row["b2b_strategy_markup"] = context.get("b2b_markup")
+	for index, tier in enumerate(context.get("tiers") or [], 1):
+		row["tier_{0}_strategy_markup".format(index)] = tier.get("markup")
 	vat_factor = Decimal("1") + to_decimal(context.get("vat_percent")) / Decimal("100")
 	for net_fieldname, gross_fieldname in (
 		("current_normal_price", "current_normal_gross"),
@@ -1660,7 +1732,7 @@ def calculate_item_row(item, context):
 			if current_price is not None else None
 		)
 	base_cost = to_decimal(row.get("selected_base_cost"))
-	if base_cost <= 0:
+	if base_cost <= 0 and not current_regular_basis:
 		row.update({
 			"selected_base_cost": None,
 			"expense_per_unit": row.get("expense_per_unit"),
@@ -1682,26 +1754,61 @@ def calculate_item_row(item, context):
 		for index in range(1, len(context["tiers"]) + 1):
 			row["tier_{0}_discount_percent".format(index)] = None
 		return row
+	if current_regular_basis and to_decimal(row.get("current_normal_price")) <= 0:
+		row.update({
+			"selected_base_cost": quantize_money(base_cost) if base_cost > 0 else None,
+			"expense_per_unit": row.get("expense_per_unit"),
+			"fully_loaded_cost": None,
+			"suggested_action": "",
+			"warnings": compose_warnings(warnings + ["Missing current Regular price"])
+		})
+		for prefix in ["recommended_regular", "recommended_b2b"] + [
+			"tier_{0}".format(index) for index in range(1, len(context["tiers"]) + 1)
+		]:
+			for suffix in ("net", "gross", "profit", "actual_markup_percent", "gross_margin_percent"):
+				row[prefix + "_" + suffix] = None
+		row["b2b_discount_percent"] = None
+		row["average_actual_markup_percent"] = None
+		row["average_gross_margin_percent"] = None
+		row["average_discount_percent"] = None
+		row["change_from_current_normal"] = None
+		row["change_from_current_normal_percent"] = None
+		for index in range(1, len(context["tiers"]) + 1):
+			row["tier_{0}_discount_percent".format(index)] = None
+		return row
 
 	expense_per_unit = row.get("expense_per_unit")
 	loaded_cost = base_cost + to_decimal(expense_per_unit)
-	row["selected_base_cost"] = quantize_money(base_cost)
+	row["selected_base_cost"] = quantize_money(base_cost) if base_cost > 0 else None
 	row["expense_per_unit"] = quantize_money(expense_per_unit) if expense_per_unit is not None else None
-	row["fully_loaded_cost"] = quantize_money(loaded_cost)
+	row["fully_loaded_cost"] = quantize_money(loaded_cost) if base_cost > 0 else None
 	pricing_cost = loaded_cost
 	if context.get("exclude_expense_from_pricing"):
 		pricing_cost = base_cost
 		warnings.append("Expense excluded from price calculation")
 
-	regular = calculate_price(
-		pricing_cost, context["regular_markup"], context["vat_percent"]
-	)
+	if current_regular_basis:
+		regular = calculate_price_from_regular(
+			row.get("current_normal_price"), context["regular_markup"],
+			context["regular_markup"], context["vat_percent"], pricing_cost,
+			preserve_anchor=True
+		)
+	else:
+		regular = calculate_price(
+			pricing_cost, context["regular_markup"], context["vat_percent"]
+		)
 	_apply_price_result(row, "recommended_regular", regular)
 	b2b = None
 	if context.get("enable_b2b_pricing"):
-		b2b = calculate_price(
-			pricing_cost, context["b2b_markup"], context["vat_percent"]
-		)
+		if current_regular_basis:
+			b2b = calculate_price_from_regular(
+				row.get("current_normal_price"), context["regular_markup"],
+				context["b2b_markup"], context["vat_percent"], pricing_cost
+			)
+		else:
+			b2b = calculate_price(
+				pricing_cost, context["b2b_markup"], context["vat_percent"]
+			)
 		_apply_price_result(row, "recommended_b2b", b2b)
 		row["b2b_discount_percent"] = _percentage_difference(
 			regular["net_price"], b2b["net_price"]
@@ -1712,11 +1819,18 @@ def calculate_item_row(item, context):
 		row["b2b_discount_percent"] = None
 
 	for index, tier in enumerate(context["tiers"], 1):
-		tier_result = calculate_price(
-			pricing_cost, tier["markup"], context["vat_percent"]
-		)
+		if current_regular_basis:
+			tier_result = calculate_price_from_regular(
+				row.get("current_normal_price"), context["regular_markup"],
+				tier["markup"], context["vat_percent"], pricing_cost
+			)
+		else:
+			tier_result = calculate_price(
+				pricing_cost, tier["markup"], context["vat_percent"]
+			)
 		_apply_price_result(row, "tier_{0}".format(index), tier_result)
-		discount_base = b2b["net_price"] if b2b else regular["net_price"]
+		discount_base = regular["net_price"] \
+			if current_regular_basis else (b2b["net_price"] if b2b else regular["net_price"])
 		row["tier_{0}_discount_percent".format(index)] = _percentage_difference(
 			discount_base, tier_result["net_price"]
 		)
@@ -1868,8 +1982,16 @@ def _pricing_group_summary_row(group_name, status, reference_row, price_fields,
 		),
 		"group_selection_reason": selection_reason,
 		"selected_base_cost": reference_row.get("selected_base_cost"),
-		"cost_source_detail": reference_row.get("cost_source_detail")
+		"cost_source_detail": reference_row.get("cost_source_detail"),
+		"price_calculation_basis": reference_row.get("price_calculation_basis"),
+		"regular_strategy_markup": reference_row.get("regular_strategy_markup"),
+		"b2b_strategy_markup": reference_row.get("b2b_strategy_markup")
 	}
+	if reference_row.get("price_calculation_basis") == "Current Regular Price":
+		summary["current_normal_price"] = reference_row.get("current_normal_price")
+	for fieldname, value in reference_row.items():
+		if fieldname.startswith("tier_") and fieldname.endswith("_strategy_markup"):
+			summary[fieldname] = value
 	for fieldname in price_fields:
 		summary[fieldname] = (
 			quantize_money(reference_row.get(fieldname))

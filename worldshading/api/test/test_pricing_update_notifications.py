@@ -87,15 +87,28 @@ class TestPricingUpdateNotifications(unittest.TestCase):
 		self.assertNotIn("<REP>", content)
 		self.assertNotIn("SECRET-COST", content)
 
-	def test_rule_note_shows_final_discount_quantity_and_status(self):
+	def test_rule_note_shows_compact_quantity_range_without_metadata(self):
 		self.notifications.create_pricing_update_note("pricing_rule", "REP-1", [{
 			"rule_name": "PSA - Fabric - Tier 1", "item_codes": ["A", "B"],
 			"minimum_qty": 5, "maximum_qty": None, "discount_percentage": 7.5,
 			"disabled": 0, "mixed_conditions": 1}])
 		note = self.documents[0]
 		self.assertTrue(note.title.startswith("Pricing Rules Updated"))
-		for text in ["PSA - Fabric - Tier 1", "A, B", "7.500%", "No maximum", "Enabled", "Yes"]:
+		for text in ["PSA - Fabric - Tier 1", "A, B", "7.500%", "5+"]:
 			self.assertIn(text, note.content)
+		self.assertEqual(html.fromstring(note.content).xpath('//th/text()'),
+			["Pricing Rule", "Items", "Qty Range", "Discount"])
+		for text in ["Updated by", "REP-1", "pricing@example.com", "Amounts are net", "Status", "Mixed Conditions", "max-height"]:
+			self.assertNotIn(text, note.content)
+
+	def test_rule_range_and_names_are_preserved_and_escaped(self):
+		content = self.notifications.render_pricing_rule_changes([{
+			"rule_name": "<Rule>", "item_codes": ["<Item>"],
+			"minimum_qty": 5.5, "maximum_qty": 9, "discount_percentage": 1.888}])
+		self.assertIn("5.5 - 9", content)
+		self.assertIn("1.888%", content)
+		self.assertIn("&lt;Rule&gt;", content)
+		self.assertIn("&lt;Item&gt;", content)
 
 	def test_note_insert_failure_propagates(self):
 		doc = self.new_note("Note")
