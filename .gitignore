@@ -8,3 +8,4 @@ worldshading/docs/current__pycache__/
 *.pyc
 *.log
 worldshading/integration/zkteco/last_sync.txt
+.worktrees/
