@@ -327,6 +327,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(captured["customers"], ["CUST-1"])
 		self.assertEqual(rows[0]["rank"], 1)
 		self.assertEqual(rows[0]["top_item_group_1"], "Outdoor")
+		self.assertEqual(rows[0]["report_currency"], "BHD")
 		self.assertEqual(rows[0]["retention_status"], "Decreased")
 		self.assertTrue(any(column["options"] == "BHD" for column in columns if column["fieldtype"] == "Currency"))
 		self.assertIn("year-to-date", message.lower())
@@ -408,7 +409,11 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(captured["values"]["start_date"], date(2024, 1, 1))
 		self.assertEqual(captured["values"]["end_date"], date(2026, 12, 31))
 		self.assertEqual(captured["values"]["customers"], ("CUST-1", "CUST-2"))
-		self.assertEqual(context, {"CUST-1": ["Awnings", "Blinds", "Outdoor"]})
+		self.assertEqual(context, {"CUST-1": [
+			{"item_group": "Awnings", "net_amount": 100.0},
+			{"item_group": "Blinds", "net_amount": 100.0},
+			{"item_group": "Outdoor", "net_amount": 80.0},
+		]})
 
 	def test_campaign_context_denies_without_query_when_user_lacks_permission(self):
 		with patch.object(report, "frappe") as frappe_mock:
@@ -464,21 +469,29 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 			"priority": "Standard", "planned_contact_date": date(2026, 10, 27),
 			"next_follow_up": None, "number_of_interactions": 0,
 		}}
-		applied = report.apply_customer_context(rows, {"CUST-2": ["Outdoor"]}, campaign)
+		applied = report.apply_customer_context(rows, {"CUST-2": [
+			{"item_group": "Outdoor", "net_amount": 4250.75},
+		]}, campaign)
 
 		self.assertEqual([row["customer"] for row in applied], ["CUST-2", "CUST-1"])
 		self.assertEqual(applied[0]["top_item_group_1"], "Outdoor")
+		self.assertEqual(applied[0]["top_item_group_1_sales"], 4250.75)
 		self.assertEqual(applied[0]["campaign_customer"], "CC-2")
 		self.assertIsNone(applied[0]["top_item_group_2"])
+		self.assertIsNone(applied[0]["top_item_group_2_sales"])
 		self.assertIsNone(applied[1]["top_item_group_1"])
+		self.assertIsNone(applied[1]["top_item_group_1_sales"])
 		self.assertIsNone(applied[1]["campaign_customer"])
 		self.assertIsNone(applied[1]["number_of_interactions"])
 
 		with patch.object(report, "get_item_group_context", return_value={}) as item_groups, \
 				patch.object(report, "get_campaign_context", return_value={}) as campaigns:
-			report.enrich_rows(rows, self.valid_filters())
-		item_groups.assert_called_once_with(self.valid_filters(), ["CUST-2", "CUST-1"])
+			enriched = report.enrich_rows(rows, self.valid_filters(previous_years=3))
+		item_groups.assert_called_once_with(
+			self.valid_filters(previous_years=3), ["CUST-2", "CUST-1"]
+		)
 		campaigns.assert_called_once_with(["CUST-2", "CUST-1"])
+		self.assertEqual(enriched[0]["item_group_sales_period"], "2023\u20132026")
 
 	def test_javascript_defines_filters_visual_contract_and_safe_read_only_behavior(self):
 		path = os.path.join(os.path.dirname(__file__), "customer_retention_analysis.js")

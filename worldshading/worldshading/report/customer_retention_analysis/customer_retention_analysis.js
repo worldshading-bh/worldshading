@@ -24,8 +24,10 @@
 		$("<style id='cra-static-style'>" +
 			".cra-filter-summary{display:flex;flex-wrap:wrap;gap:4px 18px;padding:7px 15px;border-bottom:1px solid #d1d8dd;background:#f8f9fa;font-size:12px;}" +
 			".cra-partial-year-notice{margin:8px 15px;padding:8px 12px;border-left:3px solid #f0ad4e;background:#fff8e8;color:#6f5315;font-size:12px;}" +
-			".cra-result-summary{display:flex;flex-wrap:wrap;gap:6px 16px;padding:8px 15px;border-bottom:1px solid #d1d8dd;background:#fff;font-size:12px;}" +
-			".cra-result-summary .indicator{white-space:nowrap;}" +
+			".cra-result-summary{display:flex;flex-wrap:wrap;gap:7px;padding:9px 15px;border-bottom:1px solid #d1d8dd;background:#fff;font-size:12px;}" +
+			".cra-summary-chip{display:inline-flex;align-items:center;min-height:26px;padding:3px 9px;border:1px solid #dfe3e6;border-radius:13px;background:#f8f9fa;white-space:nowrap;}" +
+			".cra-summary-chip.indicator{padding-left:21px;}" +
+			".cra-summary-risk{border-color:#f4cccc;background:#fff5f5;color:#9b2c2c;}" +
 			".cra-table .cra-sticky-header{z-index:30!important;background:#f7fafc!important;}" +
 			".cra-table .cra-sticky-header .dt-cell__content{position:relative;z-index:1;background:#f7fafc;}" +
 			".cra-table .cra-sticky-footer{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}" +
@@ -34,6 +36,8 @@
 			".cra-table .dt-row[data-row-index]:hover .dt-cell{background:#eef6ff!important;}" +
 			".cra-table .cra-selected-row .dt-cell{background:#fff3cd!important;}" +
 			".cra-table .dt-dropdown__list{z-index:60!important;}" +
+			".cra-table .cra-item-group-tooltip{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}" +
+			".cra-table .cra-item-group-heading .dt-cell__content{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}" +
 			"</style>").appendTo("head");
 	}
 
@@ -105,9 +109,8 @@
 		};
 	}
 
-	function update_result_summary(report) {
-		if (!report || !report.page) { return; }
-		var rows = report.data || [];
+	function build_result_summary_html(rows) {
+		rows = rows || [];
 		var statuses = ["Lost", "Decreased", "Stable", "Increased", "New", "Reactivated"];
 		var counts = {};
 		statuses.forEach(function (status) { counts[status] = 0; });
@@ -120,12 +123,20 @@
 			}
 		});
 		var parts = statuses.map(function (status) {
-			return "<span class='indicator " + STATUS_COLORS[status] + "'>" +
+			return "<span class='cra-summary-chip indicator " + STATUS_COLORS[status] + "'>" +
 				frappe.utils.escape_html(__(status)) + ": " + counts[status] + "</span>";
 		});
-		var formatted_risk = frappe.format(at_risk, {fieldtype: "Currency"});
-		parts.push("<span><strong>" + frappe.utils.escape_html(__("At-risk Previous Sales")) +
+		var currency = rows.length ? rows[0].report_currency : null;
+		var formatted_risk = format_currency(at_risk, currency);
+		parts.push("<span class='cra-summary-chip cra-summary-risk'><strong>" +
+			frappe.utils.escape_html(__("At-risk Previous Sales")) +
 			":</strong> " + frappe.utils.escape_html(String(formatted_risk)) + "</span>");
+		return parts.join("");
+	}
+
+	function update_result_summary(report) {
+		if (!report || !report.page) { return; }
+		var rows = report.data || [];
 		var summary = report.page.main.find(".cra-result-summary");
 		if (!summary.length) {
 			summary = $("<div class='cra-result-summary'></div>");
@@ -133,7 +144,7 @@
 			if (!anchor.length) { anchor = report.page.main.find(".cra-filter-summary"); }
 			summary.insertAfter(anchor);
 		}
-		summary.html(parts.join(""));
+		summary.html(build_result_summary_html(rows));
 	}
 
 	function restore_prepared_filters(report) {
@@ -385,7 +396,10 @@
 			"previous_sales": "#f5f0ff",
 			"change_amount": "#fff7e6",
 			"change_percent": "#fff7e6",
-			"inactive_days": "#fffbe6"
+			"inactive_days": "#fffbe6",
+			"top_item_group_1": "#f3fbf7",
+			"top_item_group_2": "#f3fbf7",
+			"top_item_group_3": "#f3fbf7"
 		};
 		var important_rules = [];
 		(datatable.datamanager.getColumns() || []).forEach(function (column) {
@@ -403,6 +417,18 @@
 				.appendTo("head");
 		}
 		important_style.text(important_rules.join(""));
+
+		var report_rows = frappe.query_report && frappe.query_report.data || [];
+		var item_group_period = report_rows.length && report_rows[0].item_group_sales_period;
+		var item_group_heading = __("Ranked by net sales across the selected comparison period");
+		if (item_group_period) { item_group_heading += " (" + item_group_period + ")"; }
+		["top_item_group_1", "top_item_group_2", "top_item_group_3"].forEach(function (fieldname) {
+			var column = get_column(fieldname);
+			if (!column) { return; }
+			wrapper.find(".dt-row-header .dt-cell--col-" + column.colIndex)
+				.addClass("cra-item-group-heading")
+				.attr("title", item_group_heading);
+		});
 	}
 
 	frappe.query_reports["Customer Retention Analysis"] = {
@@ -422,6 +448,16 @@
 		formatter: function (value, row, column, data, default_formatter) {
 			var formatted = default_formatter(value, row, column, data);
 			var fieldname = column && column.fieldname;
+			if (/^top_item_group_[123]$/.test(fieldname || "") && data) {
+				var amount = data[fieldname + "_sales"];
+				if (amount !== undefined && amount !== null && value) {
+					var period = data.item_group_sales_period || __("Selected Period");
+					var tooltip = String(value) + "\n" + __("Net Sales") + " (" + period + "): " +
+						format_currency(amount, data.report_currency);
+					return "<span class='cra-item-group-tooltip' title=\"" +
+						frappe.utils.escape_html(tooltip) + "\">" + formatted + "</span>";
+				}
+			}
 			if (fieldname === "retention_status" && STATUS_COLORS[value]) {
 				return "<span class='indicator " + STATUS_COLORS[value] + "'>" +
 					frappe.utils.escape_html(String(value)) + "</span>";

@@ -370,7 +370,7 @@ def get_item_group_context(filters, customers):
 	for customer, customer_groups in grouped.items():
 		customer_groups.sort(key=lambda row: row["item_group"])
 		customer_groups.sort(key=lambda row: row["net_amount"], reverse=True)
-		context[customer] = [row["item_group"] for row in customer_groups[:3]]
+		context[customer] = customer_groups[:3]
 	return context
 
 
@@ -415,9 +415,9 @@ def apply_customer_context(rows, item_group_context, campaign_context):
 	for row in rows:
 		groups = item_group_context.get(row["customer"], [])
 		for index in range(3):
-			row["top_item_group_{0}".format(index + 1)] = (
-				groups[index] if index < len(groups) else None
-			)
+			group = groups[index] if index < len(groups) else {}
+			row["top_item_group_{0}".format(index + 1)] = group.get("item_group")
+			row["top_item_group_{0}_sales".format(index + 1)] = group.get("net_amount")
 		campaign = campaign_context.get(row["customer"], {})
 		for fieldname in campaign_fields:
 			row[fieldname] = campaign.get(fieldname)
@@ -425,10 +425,16 @@ def apply_customer_context(rows, item_group_context, campaign_context):
 
 
 def enrich_rows(rows, filters):
+	filters = frappe._dict(filters or {})
 	customers = [row["customer"] for row in rows]
 	item_group_context = get_item_group_context(filters, customers)
 	campaign_context = get_campaign_context(customers)
-	return apply_customer_context(rows, item_group_context, campaign_context)
+	rows = apply_customer_context(rows, item_group_context, campaign_context)
+	start_date, end_date = get_period_bounds(filters)
+	period = "{0}\u2013{1}".format(start_date.year, end_date.year)
+	for row in rows:
+		row["item_group_sales_period"] = period
+	return rows
 
 
 def get_report_summary(rows, currency):
@@ -523,6 +529,8 @@ def execute(filters=None):
 
 	rows = filter_sort_and_limit(rows, filters)
 	if rows:
+		for row in rows:
+			row["report_currency"] = currency
 		rows = enrich_rows(rows, filters)
 	message = get_message(filters)
 	if not rows:
