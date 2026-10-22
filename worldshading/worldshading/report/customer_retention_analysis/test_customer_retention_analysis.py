@@ -602,6 +602,34 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertIn("cra-result-summary", script)
 		self.assertIn("At-risk Previous Sales", script)
 
+	def test_client_uses_purchase_plan_sticky_and_highlight_safeguards(self):
+		path = os.path.join(os.path.dirname(__file__), "customer_retention_analysis.js")
+		with open(path) as source:
+			script = source.read()
+
+		self.assertIn("--cra-row-index-width", script)
+		self.assertIn(".dt-cell--col-0", script)
+		self.assertIn("cra-selected-row", script)
+		self.assertIn("MutationObserver", script)
+		self.assertIn("requestAnimationFrame(restore_selected_row)", script)
+		self.assertIn(".dt-scrollable__no-data", script)
+		self.assertIn("datatable.bodyRenderer.renderFooter()", script)
+		self.assertIn("cra_last_scroll_left", script)
+		self.assertIn("scroll.cra_sticky_columns", script)
+		self.assertIn("mousedown.cra_sticky_resize", script)
+		self.assertIn("dblclick.cra_sticky_resize", script)
+		for event_name in ("onSortColumn", "onSwitchColumn", "onRemoveColumn"):
+			self.assertIn('"{0}"'.format(event_name), script)
+		self.assertIn('sortable.option("disabled", true)', script)
+		self.assertIn("cra-important-columns-style", script)
+		for fieldname in (
+			"retention_status", "current_sales", "previous_sales", "change_amount",
+			"change_percent", "inactive_days",
+		):
+			self.assertIn('"{0}"'.format(fieldname), script)
+		self.assertIn("cursor:pointer", script)
+		self.assertIn(":hover .dt-cell", script)
+
 
 if __name__ == "__main__":
 	unittest.main()
