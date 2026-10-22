@@ -114,7 +114,7 @@ def get_columns(filters, currency):
 		_column("Outreach Status", "outreach_status", width=120),
 		_column("Priority", "priority", width=90),
 		_column("Planned Contact Date", "planned_contact_date", "Date", 125),
-		_column("Next Follow-up", "next_follow_up", "Date", 115),
+		_column("Next Follow-up", "next_follow_up", "Datetime", 145),
 		_column("Number of Interactions", "number_of_interactions", "Int", 130),
 	])
 	return columns
@@ -463,7 +463,10 @@ def get_report_summary(rows, currency):
 
 
 def get_chart(rows):
-	declines = [row for row in rows if flt(row.get("decrease_amount")) > 0][:10]
+	declines = [row for row in rows if flt(row.get("decrease_amount")) > 0]
+	declines.sort(key=lambda row: row.get("customer") or "")
+	declines.sort(key=lambda row: flt(row.get("decrease_amount")), reverse=True)
+	declines = declines[:10]
 	if not declines:
 		return None
 	return {

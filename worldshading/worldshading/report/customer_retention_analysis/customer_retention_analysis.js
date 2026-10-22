@@ -24,6 +24,8 @@
 		$("<style id='cra-static-style'>" +
 			".cra-filter-summary{display:flex;flex-wrap:wrap;gap:4px 18px;padding:7px 15px;border-bottom:1px solid #d1d8dd;background:#f8f9fa;font-size:12px;}" +
 			".cra-partial-year-notice{margin:8px 15px;padding:8px 12px;border-left:3px solid #f0ad4e;background:#fff8e8;color:#6f5315;font-size:12px;}" +
+			".cra-result-summary{display:flex;flex-wrap:wrap;gap:6px 16px;padding:8px 15px;border-bottom:1px solid #d1d8dd;background:#fff;font-size:12px;}" +
+			".cra-result-summary .indicator{white-space:nowrap;}" +
 			".cra-table .cra-sticky-header{z-index:30!important;background:#f7fafc!important;}" +
 			".cra-table .cra-sticky-edge{box-shadow:2px 0 2px rgba(0,0,0,.08);}" +
 			"</style>").appendTo("head");
@@ -69,6 +71,63 @@
 				.insertAfter(report.page.main.find(".cra-filter-summary"));
 		}
 		if (notice.length) { notice.toggle(show); }
+	}
+
+	function build_decline_chart(columns, rows) {
+		var declines = (rows || []).filter(function (row) {
+			return parseFloat(row.decrease_amount || 0) > 0;
+		}).slice();
+		declines.sort(function (left, right) {
+			var difference = parseFloat(right.decrease_amount || 0) -
+				parseFloat(left.decrease_amount || 0);
+			if (difference) { return difference; }
+			return String(left.customer || "").localeCompare(String(right.customer || ""));
+		});
+		declines = declines.slice(0, 10);
+		if (!declines.length) { return; }
+		return {
+			data: {
+				labels: declines.map(function (row) { return row.customer_name || row.customer; }),
+				datasets: [{
+					name: __("Sales Decrease"),
+					values: declines.map(function (row) { return parseFloat(row.decrease_amount || 0); })
+				}]
+			},
+			type: "bar",
+			title: __("Largest Sales Decreases"),
+			colors: ["#e74c3c"]
+		};
+	}
+
+	function update_result_summary(report) {
+		if (!report || !report.page) { return; }
+		var rows = report.data || [];
+		var statuses = ["Lost", "Decreased", "Stable", "Increased", "New", "Reactivated"];
+		var counts = {};
+		statuses.forEach(function (status) { counts[status] = 0; });
+		var at_risk = 0;
+		rows.forEach(function (row) {
+			var status = row.retention_status;
+			if (Object.prototype.hasOwnProperty.call(counts, status)) { counts[status] += 1; }
+			if (status === "Lost" || status === "Decreased") {
+				at_risk += parseFloat(row.previous_sales || 0);
+			}
+		});
+		var parts = statuses.map(function (status) {
+			return "<span class='indicator " + STATUS_COLORS[status] + "'>" +
+				frappe.utils.escape_html(__(status)) + ": " + counts[status] + "</span>";
+		});
+		var formatted_risk = frappe.format(at_risk, {fieldtype: "Currency"});
+		parts.push("<span><strong>" + frappe.utils.escape_html(__("At-risk Previous Sales")) +
+			":</strong> " + frappe.utils.escape_html(String(formatted_risk)) + "</span>");
+		var summary = report.page.main.find(".cra-result-summary");
+		if (!summary.length) {
+			summary = $("<div class='cra-result-summary'></div>");
+			var anchor = report.page.main.find(".cra-partial-year-notice");
+			if (!anchor.length) { anchor = report.page.main.find(".cra-filter-summary"); }
+			summary.insertAfter(anchor);
+		}
+		summary.html(parts.join(""));
 	}
 
 	function restore_prepared_filters(report) {
@@ -174,16 +233,21 @@
 			}
 			return formatted;
 		},
+		get_chart_data: function (columns, result) {
+			return build_decline_chart(columns, result);
+		},
 		onload: function (report) {
 			install_styles();
 			update_filter_summary(report);
 			update_partial_year_notice(report);
+			update_result_summary(report);
 			return restore_prepared_filters(report);
 		},
 		after_datatable_render: function (datatable) {
 			apply_sticky_columns(datatable);
 			update_filter_summary(frappe.query_report);
 			update_partial_year_notice(frappe.query_report);
+			update_result_summary(frappe.query_report);
 		}
 	};
 }());

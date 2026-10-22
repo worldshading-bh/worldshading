@@ -571,6 +571,37 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 			frappe_mock.parse_json.side_effect = json.loads
 			self.assertEqual(report.get_prepared_report_filters("PREP-1"), {})
 
+	def test_chart_orders_largest_decreases_independently_of_report_sort(self):
+		rows = [
+			{"customer": "C", "customer_name": "Third", "decrease_amount": 10},
+			{"customer": "A", "customer_name": "First", "decrease_amount": 80},
+			{"customer": "B", "customer_name": "Second", "decrease_amount": 40},
+		]
+
+		chart = report.get_chart(rows)
+
+		self.assertEqual(chart["data"]["labels"], ["First", "Second", "Third"])
+		self.assertEqual(chart["data"]["datasets"][0]["values"], [80.0, 40.0, 10.0])
+
+	def test_next_follow_up_column_preserves_campaign_time(self):
+		filters = report.normalize_filters(self.valid_filters(), current_year=2026)
+		columns = dict(
+			(column["fieldname"], column) for column in report.get_columns(filters, "BHD")
+		)
+
+		self.assertEqual(columns["next_follow_up"]["fieldtype"], "Datetime")
+
+	def test_client_rebuilds_chart_and_result_summary_from_prepared_rows(self):
+		path = os.path.join(os.path.dirname(__file__), "customer_retention_analysis.js")
+		with open(path) as source:
+			script = source.read()
+
+		self.assertIn("get_chart_data:", script)
+		self.assertIn("build_decline_chart", script)
+		self.assertIn("update_result_summary", script)
+		self.assertIn("cra-result-summary", script)
+		self.assertIn("At-risk Previous Sales", script)
+
 
 if __name__ == "__main__":
 	unittest.main()
