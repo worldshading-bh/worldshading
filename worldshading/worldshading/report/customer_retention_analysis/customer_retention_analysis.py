@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 from datetime import date
 
 import frappe
-from frappe.utils import cint, flt, today
+from frappe.utils import cint, flt, getdate, today
 
 
 STATUS_OPTIONS = ("", "Lost", "Decreased", "Stable", "Increased", "New", "Reactivated")
@@ -13,6 +13,7 @@ SORT_OPTIONS = (
 )
 SORT_DIRECTIONS = ("Descending", "Ascending")
 TOP_RESULT_OPTIONS = ("20", "50", "100", "250", "All")
+STATUS_CHANGE_THRESHOLD = 20.0
 
 
 def normalize_filters(filters, current_year=None):
@@ -116,3 +117,127 @@ def get_columns(filters, currency):
 		_column("Number of Interactions", "number_of_interactions", "Int", 130),
 	])
 	return columns
+
+
+def _year_metric(year_values, year, key):
+	value = year_values.get(year, 0)
+	if isinstance(value, dict):
+		return value.get(key, 0)
+	if key == "sales":
+		return value
+	return 0
+
+
+def classify_customer(year_values, analysis_year, previous_years):
+	current_sales = flt(_year_metric(year_values, analysis_year, "sales"))
+	prior_sales = [
+		flt(_year_metric(year_values, analysis_year - offset, "sales"))
+		for offset in range(1, previous_years + 1)
+	]
+	previous_sales = prior_sales[0]
+
+	if current_sales > 0 and not any(value > 0 for value in prior_sales):
+		return "New"
+	if current_sales > 0 and previous_sales <= 0 and any(value > 0 for value in prior_sales[1:]):
+		return "Reactivated"
+	if current_sales <= 0 and any(value > 0 for value in prior_sales):
+		return "Lost"
+	if current_sales > 0 and previous_sales > 0:
+		change_percent = (current_sales - previous_sales) / previous_sales * 100.0
+		if change_percent <= -STATUS_CHANGE_THRESHOLD:
+			return "Decreased"
+		if change_percent >= STATUS_CHANGE_THRESHOLD:
+			return "Increased"
+		return "Stable"
+	return ""
+
+
+def build_customer_row(customer, customer_context, year_values, last_invoice_date,
+		filters, as_of_date):
+	years = get_years(filters)
+	analysis_year = years[0]
+	previous_year = years[1]
+	current_sales = flt(_year_metric(year_values, analysis_year, "sales"))
+	previous_sales = flt(_year_metric(year_values, previous_year, "sales"))
+	current_invoice_count = cint(_year_metric(year_values, analysis_year, "invoice_count"))
+	previous_invoice_count = cint(_year_metric(year_values, previous_year, "invoice_count"))
+	historical_sales = [
+		flt(_year_metric(year_values, year, "sales")) for year in years[1:]
+	]
+	change_amount = current_sales - previous_sales
+	change_percent = None
+	if previous_sales > 0:
+		change_percent = change_amount / previous_sales * 100.0
+
+	last_invoice_date = getdate(last_invoice_date) if last_invoice_date else None
+	inactive_days = None
+	if last_invoice_date:
+		inactivity_end = min(getdate(as_of_date), date(analysis_year, 12, 31))
+		inactive_days = max((inactivity_end - last_invoice_date).days, 0)
+
+	row = {
+		"customer": customer,
+		"customer_name": customer_context.get("customer_name") or customer,
+		"customer_group": customer_context.get("customer_group"),
+		"territory": customer_context.get("territory"),
+		"retention_status": classify_customer(
+			year_values, analysis_year, filters.previous_years
+		),
+		"current_sales": current_sales,
+		"previous_sales": previous_sales,
+		"change_amount": change_amount,
+		"decrease_amount": max(previous_sales - current_sales, 0),
+		"change_percent": change_percent,
+		"average_historical_sales": sum(historical_sales) / float(len(historical_sales)),
+		"current_invoice_count": current_invoice_count,
+		"previous_invoice_count": previous_invoice_count,
+		"total_invoice_count": sum(
+			cint(_year_metric(year_values, year, "invoice_count")) for year in years
+		),
+		"last_invoice_date": last_invoice_date,
+		"inactive_days": inactive_days,
+	}
+	for year in years[1:]:
+		row["sales_{0}".format(year)] = flt(_year_metric(year_values, year, "sales"))
+	return row
+
+
+def get_sort_value(row, sort_by):
+	fieldname = {
+		"Importance": "previous_sales",
+		"Decrease Amount": "decrease_amount",
+		"Current Sales": "current_sales",
+		"Previous Sales": "previous_sales",
+		"Inactive Days": "inactive_days",
+		"Current Invoice Count": "current_invoice_count",
+	}[sort_by]
+	value = row.get(fieldname)
+	return -1 if value is None else flt(value)
+
+
+def filter_sort_and_limit(rows, filters):
+	prior_years = get_years(filters)[1:]
+	filtered_rows = []
+	for row in rows:
+		annual_sales = [flt(row.get("current_sales"))]
+		annual_sales.extend(
+			flt(row.get("sales_{0}".format(year))) for year in prior_years
+		)
+		if not any(value != 0 for value in annual_sales):
+			continue
+		if max(annual_sales[1:]) < filters.minimum_historical_sales:
+			continue
+		if filters.retention_status and row.get("retention_status") != filters.retention_status:
+			continue
+		filtered_rows.append(row)
+
+	filtered_rows.sort(key=lambda row: row.get("customer") or "")
+	filtered_rows.sort(
+		key=lambda row: get_sort_value(row, filters.sort_by),
+		reverse=filters.sort_direction == "Descending",
+	)
+	if filters.top_results != "All":
+		filtered_rows = filtered_rows[:cint(filters.top_results)]
+	for index, row in enumerate(filtered_rows):
+		row["rank"] = index + 1
+	return filtered_rows
