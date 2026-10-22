@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 from datetime import date
 
 import frappe
+from frappe import _
 from frappe.utils import cint, flt, getdate, today
 
 
@@ -531,3 +532,25 @@ def execute(filters=None):
 		get_report_summary(rows, currency),
 		1,
 	)
+
+
+@frappe.whitelist()
+def get_prepared_report_filters(prepared_report_name=None):
+	if not prepared_report_name:
+		frappe.throw(_("Prepared Report is required."))
+	prepared = frappe.db.get_value(
+		"Prepared Report", prepared_report_name,
+		["report_name", "status", "owner"], as_dict=True
+	)
+	if not prepared \
+			or prepared.report_name != "Customer Retention Analysis" \
+			or prepared.status != "Completed":
+		frappe.throw(_("The Prepared Report is invalid or incomplete."))
+	if prepared.owner != frappe.session.user and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You do not have permission to read this Prepared Report."),
+			frappe.PermissionError,
+		)
+	raw_filters = frappe.db.get_value("Prepared Report", prepared_report_name, "filters")
+	filters = frappe.parse_json(raw_filters) if isinstance(raw_filters, str) else raw_filters
+	return filters if isinstance(filters, dict) else {}

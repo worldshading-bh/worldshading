@@ -480,6 +480,97 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		item_groups.assert_called_once_with(self.valid_filters(), ["CUST-2", "CUST-1"])
 		campaigns.assert_called_once_with(["CUST-2", "CUST-1"])
 
+	def test_javascript_defines_filters_visual_contract_and_safe_read_only_behavior(self):
+		path = os.path.join(os.path.dirname(__file__), "customer_retention_analysis.js")
+		with open(path) as source:
+			script = source.read()
+
+		self.assertIn('frappe.query_reports["Customer Retention Analysis"]', script)
+		for fieldname in (
+			"company", "analysis_year", "previous_years", "customer", "customer_group",
+			"territory", "retention_status", "minimum_historical_sales", "top_results",
+			"sort_by", "sort_direction",
+		):
+			self.assertIn('fieldname: "{0}"'.format(fieldname), script)
+		self.assertIn('options: "1\\n2\\n3\\n4\\n5"', script)
+		self.assertIn('options: "20\\n50\\n100\\n250\\nAll"', script)
+		self.assertIn('options: "\\nLost\\nDecreased\\nStable\\nIncreased\\nNew\\nReactivated"', script)
+		self.assertIn('options: "Importance\\nDecrease Amount\\nCurrent Sales\\nPrevious Sales\\nInactive Days\\nCurrent Invoice Count"', script)
+		self.assertIn('options: "Descending\\nAscending"', script)
+		self.assertIn('"default": 1', script)
+		self.assertIn('"default": "100"', script)
+		self.assertIn('"default": "Importance"', script)
+		self.assertIn('"default": "Descending"', script)
+		self.assertIn("formatter:", script)
+		self.assertIn("frappe.utils.escape_html", script)
+		for color in ("red", "orange", "gray", "green", "blue", "purple"):
+			self.assertIn('"{0}"'.format(color), script)
+		self.assertIn('fieldname === "change_amount"', script)
+		self.assertIn('fieldname === "change_percent"', script)
+		self.assertIn("prepared_report_name", script)
+		self.assertIn("customer_retention_analysis.get_prepared_report_filters", script)
+		self.assertIn("update_partial_year_notice", script)
+		self.assertIn("cra-filter-summary", script)
+		self.assertIn("cra-table", script)
+		self.assertIn('text === __("Rank")', script)
+		self.assertIn('text === __("Customer")', script)
+		self.assertIn('text === __("Customer Name")', script)
+		self.assertNotIn("annualized_value", script)
+		self.assertNotIn("localStorage", script)
+		self.assertNotIn("frappe.new_doc", script)
+		self.assertNotIn("frappe.db.insert", script)
+		self.assertNotIn("bulk_actions", script)
+
+	def test_prepared_filter_reader_requires_name(self):
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.throw.side_effect = ValueError("Prepared Report is required")
+			with self.assertRaises(ValueError):
+				report.get_prepared_report_filters()
+
+	def test_prepared_filter_reader_accepts_owner_and_system_manager(self):
+		prepared = type("Prepared", (object,), {
+			"report_name": "Customer Retention Analysis",
+			"status": "Completed", "owner": "owner@example.com",
+		})()
+		for user, roles in (("owner@example.com", []), ("manager@example.com", ["System Manager"])):
+			with self.subTest(user=user):
+				with patch.object(report, "frappe") as frappe_mock:
+					frappe_mock.session.user = user
+					frappe_mock.get_roles.return_value = roles
+					frappe_mock.db.get_value.side_effect = [prepared, '{"company":"World Shading"}']
+					frappe_mock.parse_json.side_effect = json.loads
+					self.assertEqual(
+						report.get_prepared_report_filters("PREP-1"),
+						{"company": "World Shading"},
+					)
+
+	def test_prepared_filter_reader_rejects_wrong_incomplete_or_unauthorized_report(self):
+		cases = [
+			type("Prepared", (object,), {"report_name": "Other", "status": "Completed", "owner": "user@example.com"})(),
+			type("Prepared", (object,), {"report_name": "Customer Retention Analysis", "status": "Queued", "owner": "user@example.com"})(),
+			type("Prepared", (object,), {"report_name": "Customer Retention Analysis", "status": "Completed", "owner": "other@example.com"})(),
+		]
+		for prepared in cases:
+			with self.subTest(report_name=prepared.report_name, status=prepared.status, owner=prepared.owner):
+				with patch.object(report, "frappe") as frappe_mock:
+					frappe_mock.session.user = "user@example.com"
+					frappe_mock.get_roles.return_value = []
+					frappe_mock.db.get_value.return_value = prepared
+					frappe_mock.throw.side_effect = ValueError("Rejected")
+					with self.assertRaises(ValueError):
+						report.get_prepared_report_filters("PREP-1")
+
+	def test_prepared_filter_reader_returns_only_json_object(self):
+		prepared = type("Prepared", (object,), {
+			"report_name": "Customer Retention Analysis",
+			"status": "Completed", "owner": "user@example.com",
+		})()
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.session.user = "user@example.com"
+			frappe_mock.db.get_value.side_effect = [prepared, '["not", "an", "object"]']
+			frappe_mock.parse_json.side_effect = json.loads
+			self.assertEqual(report.get_prepared_report_filters("PREP-1"), {})
+
 
 if __name__ == "__main__":
 	unittest.main()
