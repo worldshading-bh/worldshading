@@ -6,6 +6,8 @@
 
 	var REPORT_NAME = "Customer Retention Analysis";
 	var METHOD = "worldshading.worldshading.report.customer_retention_analysis.customer_retention_analysis.get_prepared_report_filters";
+	var BULK_CAMPAIGN_METHOD = "worldshading.worldshading.doctype.campaign_customer." +
+		"campaign_customer.bulk_create_campaign_customers";
 	var STATUS_COLORS = {
 		"Lost": "red",
 		"Decreased": "orange",
@@ -17,6 +19,108 @@
 
 	function get_current_year() {
 		return parseInt(frappe.datetime.get_today().slice(0, 4), 10);
+	}
+
+	function get_displayed_customers(report) {
+		var customers = [];
+		var seen = {};
+		(report.data || []).some(function (row) {
+			var customer = row.customer;
+			if (!customer || seen[customer]) {
+				return false;
+			}
+			seen[customer] = true;
+			customers.push(customer);
+			return customers.length >= 250;
+		});
+		return customers;
+	}
+
+	function open_campaign_customer_dialog(report) {
+		var customers = get_displayed_customers(report);
+		if (!customers.length) {
+			frappe.msgprint(__("There are no displayed customers to add."));
+			return;
+		}
+
+		var dialog = new frappe.ui.Dialog({
+			title: __("Create Campaign Customers"),
+			fields: [
+				{
+					fieldname: "source_count", fieldtype: "Int",
+					label: __("Displayed Customers"), default: customers.length,
+					read_only: 1
+				},
+				{
+					fieldname: "campaign", fieldtype: "Link", label: __("Campaign"),
+					options: "Campaign", reqd: 1
+				},
+				{
+					fieldname: "caller", fieldtype: "Link", label: __("Caller"),
+					options: "User", default: frappe.session.user, reqd: 1
+				},
+				{
+					fieldname: "planned_contact_date", fieldtype: "Date",
+					label: __("Planned Contact Date"),
+					default: frappe.datetime.get_today(), reqd: 1
+				},
+				{
+					fieldname: "priority", fieldtype: "Select", label: __("Priority"),
+					options: "Standard\nTop 20", default: "Standard", reqd: 1
+				},
+				{
+					fieldname: "batch_size", fieldtype: "Int", label: __("Customers to Add"),
+					default: Math.min(10, customers.length), reqd: 1,
+					description: __("Existing customers are skipped, so the next customers in report order are added.")
+				}
+			],
+			primary_action_label: __("Create"),
+			primary_action: function (values) {
+				var batch_size = cint(values.batch_size);
+				if (batch_size < 1 || batch_size > 250) {
+					frappe.msgprint(__("Customers to Add must be between 1 and 250."));
+					return;
+				}
+				frappe.call({
+					method: BULK_CAMPAIGN_METHOD,
+					args: {
+						campaign: values.campaign,
+						customers: customers,
+						caller: values.caller,
+						planned_contact_date: values.planned_contact_date,
+						priority: values.priority,
+						batch_size: batch_size
+					},
+					freeze: true,
+					freeze_message: __("Creating Campaign Customers..."),
+					callback: function (r) {
+						if (r.exc) {
+							return;
+						}
+						var result = r.message || {};
+						dialog.hide();
+						frappe.msgprint({
+							title: __("Campaign Customers"),
+							message: __("Created: {0}", [result.created_count || 0]) +
+								"<br>" + __("Already in Campaign: {0}", [result.skipped_count || 0]),
+							indicator: "green"
+						});
+						report.refresh();
+					}
+				});
+			}
+		});
+		dialog.show();
+	}
+
+	function add_campaign_customer_button(report) {
+		if (report.__campaign_customer_button_added) {
+			return;
+		}
+		report.__campaign_customer_button_added = true;
+		report.page.add_inner_button(__("Create Campaign Customers"), function () {
+			open_campaign_customer_dialog(report);
+		});
 	}
 
 	function install_styles() {
@@ -457,6 +561,7 @@
 			install_styles();
 			update_filter_summary(report);
 			update_result_summary(report);
+			add_campaign_customer_button(report);
 			return restore_prepared_filters(report);
 		},
 			after_datatable_render: function (datatable) {

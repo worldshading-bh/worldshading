@@ -12,20 +12,50 @@ function escape_html(value) {
 		.replace(/'/g, "&#39;");
 }
 
-global.__ = function (value) { return value; };
+global.__ = function (value, replacements) {
+	(replacements || []).forEach(function (replacement, index) {
+		value = value.replace("{" + index + "}", replacement);
+	});
+	return value;
+};
 global.cint = function (value) { return parseInt(value, 10) || 0; };
 global.format_currency = function (value, currency) {
 	return (currency || "") + " " + Number(value || 0).toFixed(3);
 };
+let frappe_calls = [];
+let last_dialog;
+let messages = [];
 global.frappe = {
 	query_reports: {},
-	call: function () { return Promise.resolve({message: {analysis_year: 2026}}); },
+	call: function (options) {
+		frappe_calls.push(options);
+		if (options.method && options.method.indexOf("bulk_create_campaign_customers") !== -1) {
+			const response = {message: {created_count: 2, skipped_count: 1}};
+			if (options.callback) { options.callback(response); }
+			return Promise.resolve(response);
+		}
+		return Promise.resolve({message: {analysis_year: 2026}});
+	},
 	datetime: {get_today: function () { return "2026-10-22"; }},
+	session: {user: "manager@example.com"},
 	defaults: {
 		get_user_default: function () { return "World Shading"; },
 		get_default: function () { return "BHD"; }
 	},
-	utils: {escape_html: escape_html}
+	utils: {escape_html: escape_html},
+	msgprint: function (value) { messages.push(value); },
+	ui: {
+		Dialog: function (options) {
+			this.options = options;
+			this.values = {};
+			options.fields.forEach((field) => {
+				if (field.fieldname) { this.values[field.fieldname] = field.default; }
+			});
+			this.show = () => { this.shown = true; };
+			this.hide = () => { this.hidden = true; };
+			last_dialog = this;
+		}
+	}
 };
 let dom_elements = {};
 let dom_insertions = [];
@@ -110,20 +140,28 @@ function reset_dom() {
 }
 
 function make_report(prepared) {
-	return {
+	const result = {
 		data: [],
 		filters: [{
 			df: {fieldname: "analysis_year"},
 			set_input: function () {}
 		}],
-		page: {main: {find: global.$}},
+		page: {
+			main: {find: global.$},
+			buttons: [],
+			add_inner_button: function (label, action) {
+				this.buttons.push({label: label, action: action});
+			}
+		},
 		get_filter_value: function (fieldname) {
 			return fieldname === "analysis_year" ? 2026 : "";
 		},
 		get_query_params: function () {
 			return prepared ? {prepared_report_name: "PREP-1"} : {};
-		}
+		},
+		refresh: function () { this.refresh_count = (this.refresh_count || 0) + 1; }
 	};
+	return result;
 }
 
 function assert_clean_layout() {
@@ -142,6 +180,69 @@ report.onload(make_report(false)).then(function () {
 	return report.onload(make_report(true));
 }).then(function () {
 	assert_clean_layout();
+
+	const empty_report = make_report(false);
+	frappe_calls = [];
+	messages = [];
+	last_dialog = null;
+	return report.onload(empty_report).then(function () {
+		assert.strictEqual(empty_report.page.buttons.length, 1);
+		assert.strictEqual(empty_report.page.buttons[0].label, "Create Campaign Customers");
+		empty_report.page.buttons[0].action();
+		assert.strictEqual(last_dialog, null);
+		assert.strictEqual(frappe_calls.length, 0);
+		assert.strictEqual(messages[messages.length - 1], "There are no displayed customers to add.");
+
+		const populated_report = make_report(false);
+		populated_report.data = [
+			{customer: "CUST-0001"},
+			{customer: "CUST-0002"},
+			{customer: "CUST-0001"},
+			{customer: ""},
+			{customer: "CUST-0003"}
+		];
+		frappe_calls = [];
+		messages = [];
+		return report.onload(populated_report).then(function () {
+			assert.strictEqual(populated_report.page.buttons.length, 1);
+			populated_report.page.buttons[0].action();
+			assert.ok(last_dialog.shown);
+			assert.deepStrictEqual(
+				last_dialog.options.fields.filter((field) => field.fieldname).map((field) => field.fieldname),
+				["source_count", "campaign", "caller", "planned_contact_date", "priority", "batch_size"]
+			);
+			assert.strictEqual(last_dialog.values.source_count, 3);
+			assert.strictEqual(last_dialog.values.caller, "manager@example.com");
+			assert.strictEqual(last_dialog.values.planned_contact_date, "2026-10-22");
+
+			last_dialog.options.primary_action({
+				campaign: "SPRINT-2026",
+				caller: "cashier@example.com",
+				planned_contact_date: "2026-10-25",
+				priority: "Standard",
+				batch_size: 2
+			});
+			assert.strictEqual(frappe_calls.length, 1);
+			assert.strictEqual(
+				frappe_calls[0].method,
+				"worldshading.worldshading.doctype.campaign_customer.campaign_customer." +
+					"bulk_create_campaign_customers"
+			);
+			assert.deepStrictEqual(frappe_calls[0].args, {
+				campaign: "SPRINT-2026",
+				customers: ["CUST-0001", "CUST-0002", "CUST-0003"],
+				caller: "cashier@example.com",
+				planned_contact_date: "2026-10-25",
+				priority: "Standard",
+				batch_size: 2
+			});
+			assert.ok(last_dialog.hidden);
+			assert.strictEqual(populated_report.refresh_count, 1);
+			assert(messages[messages.length - 1].message.indexOf("Created: 2") !== -1);
+			assert(messages[messages.length - 1].message.indexOf("Already in Campaign: 1") !== -1);
+		});
+	});
+}).then(function () {
 	console.log("Customer Retention Analysis client tests passed");
 }).catch(function (error) {
 	console.error(error.stack || error);
