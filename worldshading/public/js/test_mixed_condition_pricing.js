@@ -8,7 +8,7 @@ const item = {
 	name: "QTN-ITEM-1",
 	parenttype: "Quotation",
 	item_code: "KSA0001",
-	qty: 4
+	qty: 10
 };
 
 const context = {
@@ -60,6 +60,7 @@ vm.runInContext(
 
 function make_form() {
 	const calls = [];
+	item.stock_qty = 9;
 	return {
 		doctype: "Quotation",
 		doc: {
@@ -69,8 +70,14 @@ function make_form() {
 		},
 		fields_dict: {},
 		cscript: {
+			conversion_factor: function () {
+				item.stock_qty = item.qty * 1;
+			},
 			apply_pricing_rule: function () {
-				calls.push(Array.prototype.slice.call(arguments));
+				calls.push({
+					arguments: Array.prototype.slice.call(arguments),
+					stock_qty: item.stock_qty
+				});
 			}
 		},
 		pricing_rule_calls: calls
@@ -79,10 +86,20 @@ function make_form() {
 
 const qty_form = make_form();
 handlers["Quotation Item"].qty(qty_form, "Quotation Item", "QTN-ITEM-1");
+assert.strictEqual(
+	qty_form.pricing_rule_calls.length,
+	1,
+	"quantity changes must recalculate the complete item table once"
+);
 assert.deepStrictEqual(
-	qty_form.pricing_rule_calls,
-	[[]],
-	"quantity changes must recalculate pricing rules for the complete quotation item table"
+	qty_form.pricing_rule_calls[0].arguments,
+	[],
+	"quantity changes must use the complete-table pricing call"
+);
+assert.strictEqual(
+	qty_form.pricing_rule_calls[0].stock_qty,
+	10,
+	"quantity changes must synchronize stock quantity before recalculating the complete item table"
 );
 
 const item_code_form = make_form();
@@ -97,7 +114,7 @@ const remove_form = make_form();
 handlers["Quotation Item"].items_remove(remove_form);
 assert.deepStrictEqual(
 	remove_form.pricing_rule_calls,
-	[[]],
+	[{arguments: [], stock_qty: 9}],
 	"item removal must recalculate pricing rules for the remaining quotation items"
 );
 

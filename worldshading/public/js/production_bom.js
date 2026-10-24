@@ -1029,6 +1029,10 @@
 			});
 		},
 		qty: function (frm, cdt, cdn) {
+			if (frm.cscript && frm.cscript.conversion_factor) {
+				frm.cscript.conversion_factor(frm.doc, cdt, cdn, true);
+			}
+
 			load_parent_bom(frm, locals[cdt][cdn], {
 				reload_existing: true
 			});
