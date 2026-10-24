@@ -19,6 +19,7 @@ global.format_currency = function (value, currency) {
 };
 global.frappe = {
 	query_reports: {},
+	call: function () { return Promise.resolve({message: {analysis_year: 2026}}); },
 	datetime: {get_today: function () { return "2026-10-22"; }},
 	defaults: {
 		get_user_default: function () { return "World Shading"; },
@@ -26,13 +27,43 @@ global.frappe = {
 	},
 	utils: {escape_html: escape_html}
 };
-global.$ = function () { return {length: 0}; };
+let dom_elements = {};
+let dom_insertions = [];
+
+function make_element(selector, length) {
+	return {
+		selector: selector,
+		length: length || 0,
+		appendTo: function () { return this; },
+		find: function (child_selector) { return make_element(child_selector, 0); },
+		html: function () { return this; },
+		text: function () { return this; },
+		toggle: function () { return this; },
+		insertAfter: function (anchor) {
+			this.length = 1;
+			dom_elements[this.selector] = this;
+			dom_insertions.push({selector: this.selector, anchor: anchor.selector});
+			return this;
+		}
+	};
+}
+
+global.$ = function (value) {
+	if (dom_elements[value]) { return dom_elements[value]; }
+	if (typeof value === "string" && value.charAt(0) === "<") {
+		const class_match = value.match(/class=['\"]([^'\"]+)/);
+		const selector = class_match ? "." + class_match[1].split(" ")[0] : value;
+		return make_element(selector, 1);
+	}
+	return make_element(value, 0);
+};
 
 const script_path = path.join(__dirname, "customer_retention_analysis.js");
 let source = fs.readFileSync(script_path, "utf8");
 source = source.replace(
 	/\}\(\)\);\s*$/,
-	"global.__cra_test = {build_result_summary_html: build_result_summary_html};}());"
+	"global.__cra_test = {build_result_summary_html: build_result_summary_html, " +
+		"update_result_summary: update_result_summary};}());"
 );
 vm.runInThisContext(source, {filename: script_path});
 
@@ -73,4 +104,46 @@ assert(summary.indexOf("cra-summary-chip") !== -1);
 assert(summary.indexOf("BHD 100.000") !== -1);
 assert(summary.indexOf("&lt;div") === -1);
 
-console.log("Customer Retention Analysis client tests passed");
+function reset_dom() {
+	dom_elements = {};
+	dom_insertions = [];
+}
+
+function make_report(prepared) {
+	return {
+		data: [],
+		filters: [{
+			df: {fieldname: "analysis_year"},
+			set_input: function () {}
+		}],
+		page: {main: {find: global.$}},
+		get_filter_value: function (fieldname) {
+			return fieldname === "analysis_year" ? 2026 : "";
+		},
+		get_query_params: function () {
+			return prepared ? {prepared_report_name: "PREP-1"} : {};
+		}
+	};
+}
+
+function assert_clean_layout() {
+	assert.strictEqual(dom_elements[".cra-partial-year-notice"], undefined);
+	const summary_insertion = dom_insertions.filter(function (entry) {
+		return entry.selector === ".cra-result-summary";
+	})[0];
+	assert(summary_insertion);
+	assert.strictEqual(summary_insertion.anchor, ".cra-filter-summary");
+}
+
+reset_dom();
+report.onload(make_report(false)).then(function () {
+	assert_clean_layout();
+	reset_dom();
+	return report.onload(make_report(true));
+}).then(function () {
+	assert_clean_layout();
+	console.log("Customer Retention Analysis client tests passed");
+}).catch(function (error) {
+	console.error(error.stack || error);
+	process.exitCode = 1;
+});

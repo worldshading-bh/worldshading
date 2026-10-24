@@ -23,7 +23,6 @@
 		if ($("#cra-static-style").length) { return; }
 		$("<style id='cra-static-style'>" +
 			".cra-filter-summary{display:flex;flex-wrap:wrap;gap:4px 18px;padding:7px 15px;border-bottom:1px solid #d1d8dd;background:#f8f9fa;font-size:12px;}" +
-			".cra-partial-year-notice{margin:8px 15px;padding:8px 12px;border-left:3px solid #f0ad4e;background:#fff8e8;color:#6f5315;font-size:12px;}" +
 			".cra-result-summary{display:flex;flex-wrap:wrap;gap:7px;padding:9px 15px;border-bottom:1px solid #d1d8dd;background:#fff;font-size:12px;}" +
 			".cra-summary-chip{display:inline-flex;align-items:center;min-height:26px;padding:3px 9px;border:1px solid #dfe3e6;border-radius:13px;background:#f8f9fa;white-space:nowrap;}" +
 			".cra-summary-chip.indicator{padding-left:21px;}" +
@@ -66,21 +65,6 @@
 				.insertAfter(report.page.main.find(".page-form"));
 		}
 		summary.html(parts.join(""));
-	}
-
-	function update_partial_year_notice(report) {
-		if (!report || !report.page) { return; }
-		var today = frappe.datetime.get_today();
-		var current_year = parseInt(today.slice(0, 4), 10);
-		var analysis_year = parseInt(report.get_filter_value("analysis_year"), 10);
-		var show = analysis_year === current_year && today < current_year + "-12-31";
-		var notice = report.page.main.find(".cra-partial-year-notice");
-		if (show && !notice.length) {
-			notice = $("<div class='cra-partial-year-notice'></div>")
-				.text(__("This is a year-to-date comparison against the complete previous calendar year; sales are not annualized."))
-				.insertAfter(report.page.main.find(".cra-filter-summary"));
-		}
-		if (notice.length) { notice.toggle(show); }
 	}
 
 	function build_decline_chart(columns, rows) {
@@ -139,10 +123,8 @@
 		var rows = report.data || [];
 		var summary = report.page.main.find(".cra-result-summary");
 		if (!summary.length) {
-			summary = $("<div class='cra-result-summary'></div>");
-			var anchor = report.page.main.find(".cra-partial-year-notice");
-			if (!anchor.length) { anchor = report.page.main.find(".cra-filter-summary"); }
-			summary.insertAfter(anchor);
+			summary = $("<div class='cra-result-summary'></div>")
+				.insertAfter(report.page.main.find(".cra-filter-summary"));
 		}
 		summary.html(build_result_summary_html(rows));
 	}
@@ -162,7 +144,6 @@
 				}
 			});
 			update_filter_summary(report);
-			update_partial_year_notice(report);
 		});
 	}
 
@@ -475,14 +456,12 @@
 		onload: function (report) {
 			install_styles();
 			update_filter_summary(report);
-			update_partial_year_notice(report);
 			update_result_summary(report);
 			return restore_prepared_filters(report);
 		},
-		after_datatable_render: function (datatable) {
+			after_datatable_render: function (datatable) {
 			apply_sticky_columns(datatable);
 			update_filter_summary(frappe.query_report);
-			update_partial_year_notice(frappe.query_report);
 			update_result_summary(frappe.query_report);
 		}
 	};

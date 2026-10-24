@@ -330,10 +330,26 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(rows[0]["report_currency"], "BHD")
 		self.assertEqual(rows[0]["retention_status"], "Decreased")
 		self.assertTrue(any(column["options"] == "BHD" for column in columns if column["fieldtype"] == "Currency"))
-		self.assertIn("year-to-date", message.lower())
+		self.assertIsNone(message)
 		self.assertEqual(chart["data"]["labels"], ["Alpha"])
 		self.assertTrue(any(item["label"] == "At-risk Previous Sales" for item in summary))
 		self.assertEqual(skip_total_row, 1)
+
+	def test_execute_returns_no_notice_for_completed_analysis_year(self):
+		sales_rows = [
+			{"customer": "CUST-1", "customer_name": "Alpha", "customer_group": "Retail",
+			 "territory": "Bahrain", "sales_year": 2025, "sales": 80, "invoice_count": 2},
+			{"customer": "CUST-1", "customer_name": "Alpha", "customer_group": "Retail",
+			 "territory": "Bahrain", "sales_year": 2024, "sales": 100, "invoice_count": 4},
+		]
+		with patch.object(report, "get_company_context", return_value="BHD"), \
+				patch.object(report, "get_sales_activity", return_value=sales_rows), \
+				patch.object(report, "get_last_invoice_dates", return_value={"CUST-1": date(2025, 1, 1)}), \
+				patch.object(report, "today", return_value="2026-10-24"), \
+				patch.object(report, "enrich_rows", side_effect=lambda rows, filters: rows):
+			result = report.execute(self.valid_filters(analysis_year=2025))
+
+		self.assertIsNone(result[2])
 
 	def test_execute_preserves_return_only_value_without_purchase_activity(self):
 		sales_rows = [{
@@ -522,7 +538,9 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertIn('fieldname === "change_percent"', script)
 		self.assertIn("prepared_report_name", script)
 		self.assertIn("customer_retention_analysis.get_prepared_report_filters", script)
-		self.assertIn("update_partial_year_notice", script)
+		self.assertNotIn("update_partial_year_notice", script)
+		self.assertNotIn("cra-partial-year-notice", script)
+		self.assertNotIn("sales are not annualized", script)
 		self.assertIn("cra-filter-summary", script)
 		self.assertIn("cra-table", script)
 		self.assertIn('text === __("Rank")', script)

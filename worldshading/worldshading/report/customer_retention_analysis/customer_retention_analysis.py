@@ -489,18 +489,6 @@ def get_chart(rows):
 	}
 
 
-def get_message(filters, current_date=None):
-	current_date = getdate(current_date or today())
-	if (filters.analysis_year == current_date.year and
-			current_date < date(current_date.year, 12, 31)):
-		return (
-			"The selected Analysis Year is in progress. Status uses year-to-date "
-			"transactions compared with the complete previous calendar year; values "
-			"are not annualized."
-		)
-	return None
-
-
 def execute(filters=None):
 	filters = normalize_filters(filters)
 	currency = get_company_context(filters.company)
@@ -532,7 +520,7 @@ def execute(filters=None):
 		for row in rows:
 			row["report_currency"] = currency
 		rows = enrich_rows(rows, filters)
-	message = get_message(filters)
+	message = None
 	if not rows:
 		message = "No customers matched the selected filters."
 	return (
