@@ -8,6 +8,9 @@ assert.ok(fs.existsSync(scriptPath), "Missing Campaign Customer form script");
 
 let handlers;
 let lastRead;
+let lastDialog;
+let lastCall;
+let message;
 const responses = {
     Customer: {
         customer_name: "Acme Trading",
@@ -24,6 +27,7 @@ const responses = {
 };
 
 const sandbox = {
+    __: function(value) { return value; },
     frappe: {
         ui: {
             form: {
@@ -31,6 +35,22 @@ const sandbox = {
                     assert.strictEqual(doctype, "Campaign Customer");
                     handlers = registeredHandlers;
                 }
+            },
+            Dialog: function(options) {
+                this.options = options;
+                this.values = {};
+                this.fields_dict = {};
+                options.fields.forEach((field) => {
+                    if (!field.fieldname) { return; }
+                    this.values[field.fieldname] = field.default || "";
+                    this.fields_dict[field.fieldname] = {
+                        set_value: (value) => { this.values[field.fieldname] = value; }
+                    };
+                });
+                this.get_value = (fieldname) => this.values[fieldname];
+                this.show = () => { this.shown = true; };
+                this.hide = () => { this.hidden = true; };
+                lastDialog = this;
             }
         },
         db: {
@@ -38,7 +58,12 @@ const sandbox = {
                 lastRead = {doctype: doctype, name: name, fields: fields};
                 callback({message: responses[doctype]});
             }
-        }
+        },
+        call: function(options) {
+            lastCall = options;
+            options.callback({message: {name: "CC-2026-00001"}});
+        },
+        msgprint: function(value) { message = value; }
     }
 };
 
@@ -53,6 +78,7 @@ function plain(value) {
 assert.ok(handlers.setup, "setup handler is required");
 assert.ok(handlers.customer, "customer handler is required");
 assert.ok(handlers.contact_person, "contact_person handler is required");
+assert.ok(handlers.refresh, "refresh handler is required");
 
 function makeForm(values) {
     const form = {
@@ -64,7 +90,13 @@ function makeForm(values) {
         set_value: function(fieldname, value) {
             this.doc[fieldname] = value;
             return Promise.resolve();
-        }
+        },
+        add_custom_button: function(label, action) {
+            this.buttons = this.buttons || {};
+            this.buttons[label] = action;
+        },
+        is_new: function() { return Boolean(this.doc.__islocal); },
+        reload_doc: function() { this.reload_count = (this.reload_count || 0) + 1; }
     };
     return form;
 }
@@ -163,5 +195,76 @@ handlers.contact_person(fallbackForm);
 assert.strictEqual(fallbackForm.doc.mobile_number, "17000000");
 assert.strictEqual(fallbackForm.doc.whatsapp_number, "");
 assert.strictEqual(fallbackForm.doc.email_address, "manual@example.com");
+
+const unsavedForm = makeForm({__islocal: true});
+handlers.refresh(unsavedForm);
+assert.deepStrictEqual(unsavedForm.buttons, undefined);
+
+const savedForm = makeForm({
+    name: "CC-2026-00001",
+    status: "Planned",
+    next_follow_up: "",
+    next_action: "Call"
+});
+handlers.refresh(savedForm);
+assert.ok(savedForm.buttons["Record Contact"]);
+savedForm.buttons["Record Contact"]();
+assert.ok(lastDialog.shown);
+assert.strictEqual(lastDialog.options.title, "Record Contact");
+assert.deepStrictEqual(
+    plain(lastDialog.options.fields.filter((field) => field.fieldname).map((field) => field.fieldname)),
+    ["channel", "outcome", "notes", "status", "next_follow_up", "next_action"]
+);
+assert.strictEqual(
+    lastDialog.options.fields.find((field) => field.fieldname === "notes").reqd,
+    1
+);
+assert.strictEqual(
+    lastDialog.options.fields.find((field) => field.fieldname === "outcome").options,
+    "No Answer\nBusy\nCall Back Later\nMessage Sent\nReplied\nInterested\n" +
+        "Not Interested\nWrong Number\nVisit Scheduled\nOrder Confirmed\nOther"
+);
+
+lastDialog.values.outcome = "Interested";
+lastDialog.options.fields.find((field) => field.fieldname === "outcome").onchange();
+assert.strictEqual(lastDialog.values.status, "Interested");
+
+lastDialog.options.primary_action({
+    channel: "Call",
+    outcome: "Interested",
+    notes: "Needs a quotation",
+    status: "Interested",
+    next_follow_up: "2026-10-26 09:00:00",
+    next_action: "Visit"
+});
+assert.strictEqual(
+    lastCall.method,
+    "worldshading.worldshading.doctype.campaign_customer.campaign_customer.record_contact"
+);
+assert.deepStrictEqual(plain(lastCall.args), {
+    name: "CC-2026-00001",
+    channel: "Call",
+    outcome: "Interested",
+    notes: "Needs a quotation",
+    status: "Interested",
+    next_follow_up: "2026-10-26 09:00:00",
+    next_action: "Visit"
+});
+assert.ok(lastDialog.hidden);
+assert.strictEqual(savedForm.reload_count, 1);
+
+savedForm.buttons["Record Contact"]();
+message = null;
+lastCall = null;
+lastDialog.options.primary_action({
+    channel: "Call",
+    outcome: "No Answer",
+    notes: "No response",
+    status: "Follow Up",
+    next_follow_up: "",
+    next_action: "Call"
+});
+assert.ok(message);
+assert.strictEqual(lastCall, null);
 
 console.log("Campaign Customer client behavior: OK");

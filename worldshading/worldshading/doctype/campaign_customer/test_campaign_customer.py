@@ -36,23 +36,27 @@ class TestCampaignCustomerSchema(unittest.TestCase):
 		self.assertEqual(definition.get("autoname"), "naming_series:")
 		self.assertEqual(fields["naming_series"].get("options"), "CC-.YYYY.-.#####")
 		self.assertEqual(definition.get("field_order"), [
-			"naming_series", "campaign_customer_key", "campaign_schedule_section", "campaign", "status",
-			"priority", "schedule_column", "caller", "planned_contact_date",
-			"planned_contact_time", "customer_section", "customer", "customer_name",
-			"customer_group", "territory", "contact_column", "contact_person",
-			"mobile_number", "whatsapp_number", "email_address", "follow_up_section",
-			"next_action", "next_follow_up", "visit_required", "conversion_column",
-			"opportunity", "last_contact_on", "last_outcome",
-			"number_of_interactions", "interactions_section", "interactions",
-			"notes_section", "general_notes"
+			"naming_series", "campaign_customer_key", "contact_section", "customer",
+			"customer_name", "contact_column", "contact_person", "mobile_number",
+			"whatsapp_number", "work_section", "campaign", "caller", "status",
+			"work_column", "priority", "planned_contact_date", "planned_contact_time",
+			"progress_section", "last_contact_on", "last_outcome", "latest_note",
+			"progress_column", "next_follow_up", "next_action", "visit_required",
+			"opportunity", "details_section", "customer_group", "territory",
+			"details_column", "email_address", "number_of_interactions",
+			"interactions_section", "interactions", "notes_section", "general_notes"
 		])
 		for fieldname in (
-			"campaign_schedule_section", "customer_section", "follow_up_section",
+			"contact_section", "work_section", "progress_section", "details_section",
 			"interactions_section", "notes_section"
 		):
 			self.assertEqual(fields[fieldname].get("fieldtype"), "Section Break")
-		for fieldname in ("schedule_column", "contact_column", "conversion_column"):
+		for fieldname in (
+			"contact_column", "work_column", "progress_column", "details_column"
+		):
 			self.assertEqual(fields[fieldname].get("fieldtype"), "Column Break")
+		for fieldname in ("details_section", "interactions_section", "notes_section"):
+			self.assertEqual(fields[fieldname].get("collapsible"), 1)
 
 	def test_parent_requires_operational_fields_and_options(self):
 		fields = self._fields(self._parent())
@@ -78,8 +82,13 @@ class TestCampaignCustomerSchema(unittest.TestCase):
 			"campaign", "customer", "caller", "planned_contact_date", "status", "priority"
 		):
 			self.assertEqual(fields[fieldname].get("in_list_view"), 1)
-		for fieldname in ("last_contact_on", "last_outcome", "number_of_interactions"):
+		for fieldname in (
+			"last_contact_on", "last_outcome", "latest_note", "number_of_interactions"
+		):
 			self.assertEqual(fields[fieldname].get("read_only"), 1)
+		for fieldname in ("next_follow_up", "last_outcome", "latest_note"):
+			self.assertEqual(fields[fieldname].get("in_list_view"), 1)
+		self.assertEqual(fields["next_follow_up"].get("in_standard_filter"), 1)
 		self.assertEqual(fields["interactions"].get("fieldtype"), "Table")
 		self.assertEqual(fields["interactions"].get("options"), "Campaign Interaction Log")
 
@@ -142,6 +151,7 @@ class TestCampaignCustomerController(unittest.TestCase):
 			"next_follow_up": "2026-10-25 09:00:00",
 			"last_contact_on": None,
 			"last_outcome": None,
+			"latest_note": None,
 			"number_of_interactions": 0
 		}
 		data.update(values)
@@ -188,32 +198,34 @@ class TestCampaignCustomerController(unittest.TestCase):
 		self.assertEqual(doc.number_of_interactions, 0)
 		self.assertIsNone(doc.last_contact_on)
 		self.assertIsNone(doc.last_outcome)
+		self.assertIsNone(doc.latest_note)
 		self.assertEqual(doc.next_follow_up, "2026-10-25 09:00:00")
 
-	def test_summary_uses_latest_dated_interaction_and_latest_nonempty_follow_up(self):
+	def test_latest_dated_interaction_owns_all_current_summary_values(self):
 		doc = self._doc(interactions=[
 			frappe._dict({
 				"interaction_on": "2026-10-18 09:00:00", "outcome": "Busy",
-				"next_follow_up": "2026-10-22 09:00:00"
+				"notes": "First attempt", "next_follow_up": "2026-10-22 09:00:00"
 			}),
 			frappe._dict({
 				"interaction_on": "2026-10-20 11:00:00", "outcome": "Interested",
-				"next_follow_up": None
+				"notes": "Customer requested a quotation", "next_follow_up": None
 			}),
 			frappe._dict({
-				"interaction_on": "", "outcome": "Other",
+				"interaction_on": "", "outcome": "Other", "notes": "Undated",
 				"next_follow_up": "2026-10-30 09:00:00"
 			}),
 			frappe._dict({
 				"interaction_on": "2026-10-19 10:00:00", "outcome": "Call Back Later",
-				"next_follow_up": "2026-10-25 10:00:00"
+				"notes": "Asked for tomorrow", "next_follow_up": "2026-10-25 10:00:00"
 			})
 		])
 		campaign_customer.update_interaction_summary(doc)
 		self.assertEqual(doc.number_of_interactions, 4)
 		self.assertEqual(doc.last_contact_on, "2026-10-20 11:00:00")
 		self.assertEqual(doc.last_outcome, "Interested")
-		self.assertEqual(doc.next_follow_up, "2026-10-25 10:00:00")
+		self.assertEqual(doc.latest_note, "Customer requested a quotation")
+		self.assertIsNone(doc.next_follow_up)
 
 	def test_invalid_nonblank_interaction_date_is_rejected(self):
 		doc = self._doc(interactions=[frappe._dict({
@@ -268,6 +280,108 @@ class TestCampaignCustomerController(unittest.TestCase):
 			doc.campaign_customer_key,
 			"bc37b210f1b88e1e7fb8c6a68003efd8786e0da38fde319552a0b30717b68524"
 		)
+
+	def _contact_doc(self):
+		class ContactDocument(frappe._dict):
+			def check_permission(inner_self, permission_type):
+				if inner_self.get("deny_write"):
+					raise frappe.ValidationError("Not permitted")
+				inner_self.checked_permission = permission_type
+
+			def append(inner_self, fieldname, values):
+				row = frappe._dict(values)
+				inner_self[fieldname].append(row)
+				return row
+
+			def save(inner_self):
+				campaign_customer.update_interaction_summary(inner_self)
+				inner_self.saved = True
+
+		return ContactDocument(self._doc(
+			name="CC-2026-00001", status="Planned", next_action="Call"
+		))
+
+	def test_record_contact_appends_audited_interaction_and_returns_current_summary(self):
+		doc = self._contact_doc()
+		with patch.object(campaign_customer.frappe, "get_doc", return_value=doc), \
+				patch.object(campaign_customer.frappe, "session", create=True) as session, \
+				patch.object(
+					campaign_customer, "now", return_value="2026-10-24 10:30:00", create=True
+				):
+			session.user = "cashier@example.com"
+			result = campaign_customer.record_contact(
+				"CC-2026-00001", "Call", "Interested", "Needs a quotation",
+				"Interested", "2026-10-26 09:00:00", "Visit"
+			)
+
+		self.assertEqual(doc.checked_permission, "write")
+		self.assertTrue(doc.saved)
+		self.assertEqual(len(doc.interactions), 1)
+		self.assertEqual(dict(doc.interactions[0]), {
+			"interaction_on": "2026-10-24 10:30:00",
+			"channel": "Call",
+			"handled_by": "cashier@example.com",
+			"outcome": "Interested",
+			"notes": "Needs a quotation",
+			"next_follow_up": "2026-10-26 09:00:00"
+		})
+		self.assertEqual(doc.status, "Interested")
+		self.assertEqual(doc.next_action, "Visit")
+		self.assertEqual(result, {
+			"name": "CC-2026-00001",
+			"status": "Interested",
+			"last_contact_on": "2026-10-24 10:30:00",
+			"last_outcome": "Interested",
+			"latest_note": "Needs a quotation",
+			"next_follow_up": "2026-10-26 09:00:00",
+			"number_of_interactions": 1
+		})
+
+	def test_record_contact_rejects_invalid_options_before_loading_document(self):
+		invalid_values = [
+			("Fax", "Interested", "Planned", "Call"),
+			("Call", "Maybe", "Planned", "Call"),
+			("Call", "Interested", "Waiting", "Call"),
+			("Call", "Interested", "Planned", "Fax")
+		]
+		for channel, outcome, status, next_action in invalid_values:
+			with self.subTest(value=(channel, outcome, status, next_action)):
+				with patch.object(campaign_customer.frappe, "get_doc") as get_doc, \
+						patch.object(campaign_customer.frappe, "throw", side_effect=self._throw):
+					with self.assertRaises(frappe.ValidationError):
+						campaign_customer.record_contact(
+							"CC-2026-00001", channel, outcome, "Note", status,
+							"2026-10-26 09:00:00", next_action
+						)
+				get_doc.assert_not_called()
+
+	def test_record_contact_requires_note_and_actionable_follow_up(self):
+		invalid_values = [
+			("   ", "Planned", None),
+			("Call again", "Follow Up", None),
+			("Send quote", "Interested", "")
+		]
+		for notes, status, next_follow_up in invalid_values:
+			with self.subTest(value=(notes, status, next_follow_up)):
+				with patch.object(campaign_customer.frappe, "get_doc") as get_doc, \
+						patch.object(campaign_customer.frappe, "throw", side_effect=self._throw):
+					with self.assertRaises(frappe.ValidationError):
+						campaign_customer.record_contact(
+							"CC-2026-00001", "Call", "No Answer", notes, status,
+							next_follow_up, "Call"
+						)
+				get_doc.assert_not_called()
+
+	def test_record_contact_stops_when_write_permission_is_denied(self):
+		doc = self._contact_doc()
+		doc.deny_write = True
+		with patch.object(campaign_customer.frappe, "get_doc", return_value=doc):
+			with self.assertRaises(frappe.ValidationError):
+				campaign_customer.record_contact(
+					"CC-2026-00001", "Call", "No Answer", "No response",
+					"Follow Up", "2026-10-25 09:00:00", "Call"
+				)
+		self.assertEqual(doc.interactions, [])
 
 
 class TestCampaignCustomerCRMNavigation(unittest.TestCase):

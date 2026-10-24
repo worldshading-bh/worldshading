@@ -9,32 +9,35 @@
  "field_order": [
   "naming_series",
   "campaign_customer_key",
-  "campaign_schedule_section",
-  "campaign",
-  "status",
-  "priority",
-  "schedule_column",
-  "caller",
-  "planned_contact_date",
-  "planned_contact_time",
-  "customer_section",
+  "contact_section",
   "customer",
   "customer_name",
-  "customer_group",
-  "territory",
   "contact_column",
   "contact_person",
   "mobile_number",
   "whatsapp_number",
-  "email_address",
-  "follow_up_section",
-  "next_action",
-  "next_follow_up",
-  "visit_required",
-  "conversion_column",
-  "opportunity",
+  "work_section",
+  "campaign",
+  "caller",
+  "status",
+  "work_column",
+  "priority",
+  "planned_contact_date",
+  "planned_contact_time",
+  "progress_section",
   "last_contact_on",
   "last_outcome",
+  "latest_note",
+  "progress_column",
+  "next_follow_up",
+  "next_action",
+  "visit_required",
+  "opportunity",
+  "details_section",
+  "customer_group",
+  "territory",
+  "details_column",
+  "email_address",
   "number_of_interactions",
   "interactions_section",
   "interactions",
@@ -61,9 +64,9 @@
    "unique": 1
   },
   {
-   "fieldname": "campaign_schedule_section",
+   "fieldname": "work_section",
    "fieldtype": "Section Break",
-   "label": "Campaign and Schedule"
+   "label": "Campaign Work"
   },
   {
    "fieldname": "campaign",
@@ -95,7 +98,7 @@
    "reqd": 1
   },
   {
-   "fieldname": "schedule_column",
+   "fieldname": "work_column",
    "fieldtype": "Column Break"
   },
   {
@@ -122,9 +125,9 @@
    "label": "Planned Contact Time"
   },
   {
-   "fieldname": "customer_section",
+   "fieldname": "contact_section",
    "fieldtype": "Section Break",
-   "label": "Customer Details"
+   "label": "Customer to Contact"
   },
   {
    "fieldname": "customer",
@@ -192,9 +195,9 @@
    "options": "Email"
   },
   {
-   "fieldname": "follow_up_section",
+   "fieldname": "progress_section",
    "fieldtype": "Section Break",
-   "label": "Follow-up and Conversion"
+   "label": "Contact Progress"
   },
   {
    "fieldname": "next_action",
@@ -205,6 +208,8 @@
   {
    "fieldname": "next_follow_up",
    "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Next Follow-up"
   },
   {
@@ -214,7 +219,7 @@
    "label": "Visit Required"
   },
   {
-   "fieldname": "conversion_column",
+   "fieldname": "progress_column",
    "fieldtype": "Column Break"
   },
   {
@@ -232,7 +237,15 @@
   {
    "fieldname": "last_outcome",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Last Outcome",
+   "read_only": 1
+  },
+  {
+   "fieldname": "latest_note",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Latest Note",
    "read_only": 1
   },
   {
@@ -243,6 +256,17 @@
    "read_only": 1
   },
   {
+   "collapsible": 1,
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Details"
+  },
+  {
+   "fieldname": "details_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
    "fieldname": "interactions_section",
    "fieldtype": "Section Break",
    "label": "Interaction History"
@@ -257,7 +281,7 @@
    "collapsible": 1,
    "fieldname": "notes_section",
    "fieldtype": "Section Break",
-   "label": "Internal Notes"
+   "label": "Background Notes"
   },
   {
    "fieldname": "general_notes",

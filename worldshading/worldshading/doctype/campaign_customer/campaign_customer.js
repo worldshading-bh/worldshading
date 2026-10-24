@@ -18,6 +18,112 @@ function set_customer_autofill(frm, fieldname, value) {
     frm.__campaign_customer_autofill[fieldname] = value;
 }
 
+function suggested_status(outcome, current_status) {
+    var suggestions = {
+        "No Answer": "Follow Up",
+        "Busy": "Follow Up",
+        "Call Back Later": "Follow Up",
+        "Message Sent": "Follow Up",
+        "Replied": "Follow Up",
+        "Interested": "Interested",
+        "Not Interested": "Not Interested",
+        "Wrong Number": "Follow Up",
+        "Visit Scheduled": "Follow Up",
+        "Order Confirmed": "Converted"
+    };
+    return suggestions[outcome] || current_status || "Planned";
+}
+
+function open_record_contact_dialog(frm) {
+    var dialog;
+    dialog = new frappe.ui.Dialog({
+        title: __("Record Contact"),
+        fields: [
+            {
+                fieldname: "channel",
+                fieldtype: "Select",
+                label: __("Channel"),
+                options: "Call\nWhatsApp\nSMS\nEmail\nVisit",
+                default: frm.doc.next_action && frm.doc.next_action !== "None"
+                    ? frm.doc.next_action : "Call",
+                reqd: 1
+            },
+            {
+                fieldname: "outcome",
+                fieldtype: "Select",
+                label: __("Outcome"),
+                options: "No Answer\nBusy\nCall Back Later\nMessage Sent\nReplied\n" +
+                    "Interested\nNot Interested\nWrong Number\nVisit Scheduled\n" +
+                    "Order Confirmed\nOther",
+                reqd: 1,
+                onchange: function() {
+                    dialog.fields_dict.status.set_value(
+                        suggested_status(dialog.get_value("outcome"), frm.doc.status)
+                    );
+                }
+            },
+            {
+                fieldname: "notes",
+                fieldtype: "Small Text",
+                label: __("Notes"),
+                reqd: 1
+            },
+            {
+                fieldname: "status",
+                fieldtype: "Select",
+                label: __("Status"),
+                options: "Planned\nFollow Up\nInterested\nNot Interested\nConverted\nClosed",
+                default: frm.doc.status || "Planned",
+                reqd: 1
+            },
+            {
+                fieldname: "next_follow_up",
+                fieldtype: "Datetime",
+                label: __("Next Follow-up"),
+                default: frm.doc.next_follow_up || ""
+            },
+            {
+                fieldname: "next_action",
+                fieldtype: "Select",
+                label: __("Next Action"),
+                options: "\nCall\nWhatsApp\nSMS\nEmail\nVisit\nNone",
+                default: frm.doc.next_action || "Call"
+            }
+        ],
+        primary_action_label: __("Save Contact"),
+        primary_action: function(values) {
+            if ((values.status === "Follow Up" || values.status === "Interested") &&
+                    !values.next_follow_up) {
+                frappe.msgprint(__("Next Follow-up is required for this status."));
+                return;
+            }
+            frappe.call({
+                method: "worldshading.worldshading.doctype.campaign_customer." +
+                    "campaign_customer.record_contact",
+                args: {
+                    name: frm.doc.name,
+                    channel: values.channel,
+                    outcome: values.outcome,
+                    notes: values.notes,
+                    status: values.status,
+                    next_follow_up: values.next_follow_up || null,
+                    next_action: values.next_action || null
+                },
+                freeze: true,
+                freeze_message: __("Saving contact..."),
+                callback: function(r) {
+                    if (r.exc) {
+                        return;
+                    }
+                    dialog.hide();
+                    frm.reload_doc();
+                }
+            });
+        }
+    });
+    dialog.show();
+}
+
 frappe.ui.form.on("Campaign Customer", {
     setup: function(frm) {
         frm.set_query("contact_person", function() {
@@ -32,6 +138,14 @@ frappe.ui.form.on("Campaign Customer", {
                 }
             };
         });
+    },
+
+    refresh: function(frm) {
+        if (!frm.is_new()) {
+            frm.add_custom_button(__("Record Contact"), function() {
+                open_record_contact_dialog(frm);
+            });
+        }
     },
 
     customer: function(frm) {
