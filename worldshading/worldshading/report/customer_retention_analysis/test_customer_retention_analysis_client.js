@@ -43,6 +43,7 @@ global.frappe = {
 		get_default: function () { return "BHD"; }
 	},
 	utils: {escape_html: escape_html},
+	model: {can_create: function () { return true; }},
 	msgprint: function (value) { messages.push(value); },
 	ui: {
 		Dialog: function (options) {
@@ -240,6 +241,13 @@ report.onload(make_report(false)).then(function () {
 			assert.strictEqual(populated_report.refresh_count, 1);
 			assert(messages[messages.length - 1].message.indexOf("Created: 2") !== -1);
 			assert(messages[messages.length - 1].message.indexOf("Already in Campaign: 1") !== -1);
+
+			const unauthorized_report = make_report(false);
+			frappe.model.can_create = function () { return false; };
+			return report.onload(unauthorized_report).then(function () {
+				assert.strictEqual(unauthorized_report.page.buttons.length, 0);
+				frappe.model.can_create = function () { return true; };
+			});
 		});
 	});
 }).then(function () {

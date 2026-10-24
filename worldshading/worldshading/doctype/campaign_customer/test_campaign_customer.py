@@ -358,6 +358,7 @@ class TestCampaignCustomerController(unittest.TestCase):
 	def test_record_contact_requires_note_and_actionable_follow_up(self):
 		invalid_values = [
 			("   ", "Planned", None),
+			(["not", "text"], "Planned", None),
 			("Call again", "Follow Up", None),
 			("Send quote", "Interested", "")
 		]
@@ -456,6 +457,9 @@ class TestCampaignCustomerController(unittest.TestCase):
 		invalid_values = [
 			dict(valid, campaign=""),
 			dict(valid, customers=[]),
+			dict(valid, customers=[""]),
+			dict(valid, customers=[{"customer": "CUST-0001"}]),
+			dict(valid, customers=[1]),
 			dict(valid, caller=""),
 			dict(valid, planned_contact_date=""),
 			dict(valid, priority="Urgent"),

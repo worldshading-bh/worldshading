@@ -114,7 +114,8 @@
 	}
 
 	function add_campaign_customer_button(report) {
-		if (report.__campaign_customer_button_added) {
+		if (!frappe.model.can_create("Campaign Customer") ||
+				report.__campaign_customer_button_added) {
 			return;
 		}
 		report.__campaign_customer_button_added = true;

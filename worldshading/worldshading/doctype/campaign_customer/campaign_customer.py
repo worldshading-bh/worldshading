@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, get_datetime, now
+from six import string_types
 
 
 CHANNEL_OPTIONS = ("Call", "WhatsApp", "SMS", "Email", "Visit")
@@ -93,9 +94,9 @@ def record_contact(name, channel, outcome, notes, status, next_follow_up=None,
 		_("Next Action"), next_action, NEXT_ACTION_OPTIONS, allow_blank=True
 	)
 
-	notes = (notes or "").strip()
-	if not notes:
+	if not isinstance(notes, string_types) or not notes.strip():
 		frappe.throw(_("Notes are required."))
+	notes = notes.strip()
 	if status in FOLLOW_UP_REQUIRED_STATUSES and not next_follow_up:
 		frappe.throw(_("Next Follow-up is required when Status is {0}.").format(status))
 
@@ -155,8 +156,8 @@ def bulk_create_campaign_customers(campaign, customers, caller,
 	ordered_customers = []
 	seen = set()
 	for customer in customers:
-		if not customer:
-			frappe.throw(_("Customer cannot be blank."))
+		if not isinstance(customer, string_types) or not customer.strip():
+			frappe.throw(_("Each Customer must be a valid Customer code."))
 		if customer in seen:
 			continue
 		seen.add(customer)
