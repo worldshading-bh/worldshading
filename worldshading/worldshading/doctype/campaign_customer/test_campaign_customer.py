@@ -383,6 +383,107 @@ class TestCampaignCustomerController(unittest.TestCase):
 				)
 		self.assertEqual(doc.interactions, [])
 
+	def test_bulk_creation_skips_existing_and_duplicates_without_consuming_batch(self):
+		inserted_values = []
+
+		class InsertDocument(object):
+			def __init__(inner_self, values):
+				inner_self.values = values
+				inner_self.name = "CC-{0}".format(values["customer"])
+
+			def insert(inner_self):
+				inserted_values.append(inner_self.values)
+				return inner_self
+
+		def get_doc(values):
+			return InsertDocument(values)
+
+		with patch.object(campaign_customer.frappe, "has_permission", return_value=True), \
+				patch.object(campaign_customer.frappe, "get_all", return_value=[
+					{"customer": "CUST-0002"}
+				]) as get_all, \
+				patch.object(campaign_customer.frappe, "get_doc", side_effect=get_doc):
+			result = campaign_customer.bulk_create_campaign_customers(
+				"SPRINT-2026", ["CUST-0001", "CUST-0002", "CUST-0001", "CUST-0003", "CUST-0004"],
+				"cashier@example.com", "2026-10-25", "Top 20", 2
+			)
+
+		get_all.assert_called_once_with(
+			"Campaign Customer",
+			filters={
+				"campaign": "SPRINT-2026",
+				"customer": ["in", ["CUST-0001", "CUST-0002", "CUST-0003", "CUST-0004"]]
+			},
+			fields=["customer"]
+		)
+		self.assertEqual(inserted_values, [
+			{
+				"doctype": "Campaign Customer", "campaign": "SPRINT-2026",
+				"customer": "CUST-0001", "caller": "cashier@example.com",
+				"planned_contact_date": "2026-10-25", "priority": "Top 20",
+				"status": "Planned"
+			},
+			{
+				"doctype": "Campaign Customer", "campaign": "SPRINT-2026",
+				"customer": "CUST-0003", "caller": "cashier@example.com",
+				"planned_contact_date": "2026-10-25", "priority": "Top 20",
+				"status": "Planned"
+			}
+		])
+		self.assertEqual(result, {
+			"created": ["CC-CUST-0001", "CC-CUST-0003"],
+			"created_count": 2,
+			"skipped": ["CUST-0002"],
+			"skipped_count": 1
+		})
+
+	def test_bulk_creation_requires_create_permission_before_data_access(self):
+		with patch.object(campaign_customer.frappe, "has_permission", return_value=False), \
+				patch.object(campaign_customer.frappe, "get_all") as get_all, \
+				patch.object(campaign_customer.frappe, "throw", side_effect=self._throw):
+			with self.assertRaises(frappe.ValidationError):
+				campaign_customer.bulk_create_campaign_customers(
+					"SPRINT-2026", ["CUST-0001"], "cashier@example.com", "2026-10-25"
+				)
+		get_all.assert_not_called()
+
+	def test_bulk_creation_rejects_missing_invalid_or_oversized_input(self):
+		valid = {
+			"campaign": "SPRINT-2026", "customers": ["CUST-0001"],
+			"caller": "cashier@example.com", "planned_contact_date": "2026-10-25",
+			"priority": "Standard", "batch_size": 1
+		}
+		invalid_values = [
+			dict(valid, campaign=""),
+			dict(valid, customers=[]),
+			dict(valid, caller=""),
+			dict(valid, planned_contact_date=""),
+			dict(valid, priority="Urgent"),
+			dict(valid, batch_size=0),
+			dict(valid, batch_size=251),
+			dict(valid, customers=["CUST-{0}".format(index) for index in range(251)])
+		]
+		for values in invalid_values:
+			with self.subTest(values=values):
+				with patch.object(campaign_customer.frappe, "has_permission", return_value=True), \
+						patch.object(campaign_customer.frappe, "get_all") as get_all, \
+						patch.object(campaign_customer.frappe, "throw", side_effect=self._throw):
+					with self.assertRaises(frappe.ValidationError):
+						campaign_customer.bulk_create_campaign_customers(**values)
+				get_all.assert_not_called()
+
+	def test_bulk_creation_does_not_hide_insert_failure(self):
+		insert_document = type("InsertDocument", (object,), {
+			"insert": lambda inner_self: (_ for _ in ()).throw(RuntimeError("insert failed"))
+		})()
+		with patch.object(campaign_customer.frappe, "has_permission", return_value=True), \
+				patch.object(campaign_customer.frappe, "get_all", return_value=[]), \
+				patch.object(campaign_customer.frappe, "get_doc", return_value=insert_document):
+			with self.assertRaisesRegex(RuntimeError, "insert failed"):
+				campaign_customer.bulk_create_campaign_customers(
+					"SPRINT-2026", ["CUST-0001"], "cashier@example.com", "2026-10-25"
+				)
+
 
 class TestCampaignCustomerCRMNavigation(unittest.TestCase):
 

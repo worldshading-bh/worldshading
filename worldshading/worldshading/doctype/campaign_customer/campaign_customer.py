@@ -6,7 +6,7 @@ import hashlib
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_datetime, now
+from frappe.utils import cint, get_datetime, now
 
 
 CHANNEL_OPTIONS = ("Call", "WhatsApp", "SMS", "Email", "Visit")
@@ -20,6 +20,8 @@ STATUS_OPTIONS = (
 )
 NEXT_ACTION_OPTIONS = ("Call", "WhatsApp", "SMS", "Email", "Visit", "None")
 FOLLOW_UP_REQUIRED_STATUSES = ("Follow Up", "Interested")
+PRIORITY_OPTIONS = ("Standard", "Top 20")
+MAX_BULK_CUSTOMERS = 250
 
 
 class CampaignCustomer(Document):
@@ -119,6 +121,81 @@ def record_contact(name, channel, outcome, notes, status, next_follow_up=None,
 		"latest_note": doc.latest_note,
 		"next_follow_up": doc.next_follow_up,
 		"number_of_interactions": doc.number_of_interactions,
+	}
+
+
+@frappe.whitelist()
+def bulk_create_campaign_customers(campaign, customers, caller,
+		planned_contact_date, priority="Standard", batch_size=10):
+	if not frappe.has_permission("Campaign Customer", "create"):
+		frappe.throw(_("You do not have permission to create Campaign Customers."))
+
+	customers = frappe.parse_json(customers) or []
+	if not campaign:
+		frappe.throw(_("Campaign is required."))
+	if not caller:
+		frappe.throw(_("Caller is required."))
+	if not planned_contact_date:
+		frappe.throw(_("Planned Contact Date is required."))
+	if priority not in PRIORITY_OPTIONS:
+		frappe.throw(_("Invalid Priority: {0}").format(priority or _("Blank")))
+	if not isinstance(customers, (list, tuple)) or not customers:
+		frappe.throw(_("At least one Customer is required."))
+	if len(customers) > MAX_BULK_CUSTOMERS:
+		frappe.throw(_("A maximum of {0} Customers can be processed at once.").format(
+			MAX_BULK_CUSTOMERS
+		))
+
+	batch_size = cint(batch_size)
+	if batch_size < 1 or batch_size > MAX_BULK_CUSTOMERS:
+		frappe.throw(_("Batch Size must be between 1 and {0}.").format(
+			MAX_BULK_CUSTOMERS
+		))
+
+	ordered_customers = []
+	seen = set()
+	for customer in customers:
+		if not customer:
+			frappe.throw(_("Customer cannot be blank."))
+		if customer in seen:
+			continue
+		seen.add(customer)
+		ordered_customers.append(customer)
+
+	existing_rows = frappe.get_all(
+		"Campaign Customer",
+		filters={
+			"campaign": campaign,
+			"customer": ["in", ordered_customers],
+		},
+		fields=["customer"]
+	)
+	existing_customers = set(row.get("customer") for row in existing_rows)
+	created = []
+	skipped = []
+	for customer in ordered_customers:
+		if customer in existing_customers:
+			skipped.append(customer)
+			continue
+		if len(created) >= batch_size:
+			break
+		doc = frappe.get_doc({
+			"doctype": "Campaign Customer",
+			"campaign": campaign,
+			"customer": customer,
+			"caller": caller,
+			"planned_contact_date": planned_contact_date,
+			"priority": priority,
+			"status": "Planned",
+		})
+		doc.insert()
+		created.append(doc.name)
+
+	return {
+		"created": created,
+		"created_count": len(created),
+		"skipped": skipped,
+		"skipped_count": len(skipped),
 	}
 
 
