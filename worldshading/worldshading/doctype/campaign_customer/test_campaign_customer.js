@@ -8,6 +8,7 @@ assert.ok(fs.existsSync(scriptPath), "Missing Campaign Customer form script");
 
 let handlers;
 let lastRead;
+let reads = [];
 let lastDialog;
 let lastCall;
 let message;
@@ -16,6 +17,7 @@ const responses = {
         customer_name: "Acme Trading",
         customer_group: "Commercial",
         territory: "Bahrain",
+        customer_primary_contact: "CONTACT-0001",
         mobile_no: "39000000",
         email_id: "customer@example.com"
     },
@@ -56,6 +58,7 @@ const sandbox = {
         db: {
             get_value: function(doctype, name, fields, callback) {
                 lastRead = {doctype: doctype, name: name, fields: fields};
+                reads.push(lastRead);
                 callback({message: responses[doctype]});
             }
         },
@@ -115,44 +118,64 @@ const customerForm = makeForm({
     customer: "CUST-0001",
     contact_person: "OLD-CONTACT",
     mobile_number: "39999999",
+    whatsapp_number: "",
     email_address: ""
 });
+reads = [];
 handlers.customer(customerForm);
-assert.deepStrictEqual(plain(lastRead), {
-    doctype: "Customer",
-    name: "CUST-0001",
-    fields: ["customer_name", "customer_group", "territory", "mobile_no", "email_id"]
-});
-assert.strictEqual(customerForm.doc.contact_person, "");
+assert.deepStrictEqual(plain(reads), [
+    {
+        doctype: "Customer",
+        name: "CUST-0001",
+        fields: [
+            "customer_name", "customer_group", "territory",
+            "customer_primary_contact", "mobile_no", "email_id"
+        ]
+    },
+    {
+        doctype: "Contact",
+        name: "CONTACT-0001",
+        fields: ["mobile_no", "phone", "email_id"]
+    }
+]);
+assert.strictEqual(customerForm.doc.contact_person, "CONTACT-0001");
 assert.strictEqual(customerForm.doc.customer_name, "Acme Trading");
 assert.strictEqual(customerForm.doc.customer_group, "Commercial");
 assert.strictEqual(customerForm.doc.territory, "Bahrain");
 assert.strictEqual(customerForm.doc.mobile_number, "39999999");
-assert.strictEqual(customerForm.doc.email_address, "customer@example.com");
+assert.strictEqual(customerForm.doc.whatsapp_number, "39111111");
+assert.strictEqual(customerForm.doc.email_address, "contact@example.com");
 
 const switchedCustomerForm = makeForm({
     customer: "CUST-0001",
     contact_person: "",
     mobile_number: "",
+    whatsapp_number: "",
     email_address: ""
 });
+responses.Customer.customer_primary_contact = "";
 handlers.customer(switchedCustomerForm);
 assert.strictEqual(switchedCustomerForm.doc.mobile_number, "39000000");
+assert.strictEqual(switchedCustomerForm.doc.whatsapp_number, "39000000");
 assert.strictEqual(switchedCustomerForm.doc.email_address, "customer@example.com");
 responses.Customer.mobile_no = "39222222";
 responses.Customer.email_id = "second@example.com";
 switchedCustomerForm.doc.customer = "CUST-0002";
 handlers.customer(switchedCustomerForm);
 assert.strictEqual(switchedCustomerForm.doc.mobile_number, "39222222");
+assert.strictEqual(switchedCustomerForm.doc.whatsapp_number, "39222222");
 assert.strictEqual(switchedCustomerForm.doc.email_address, "second@example.com");
 
 switchedCustomerForm.doc.mobile_number = "manual-number";
+switchedCustomerForm.doc.whatsapp_number = "manual-whatsapp";
+switchedCustomerForm.doc.email_address = "manual@example.com";
 responses.Customer.mobile_no = "39333333";
 responses.Customer.email_id = "third@example.com";
 switchedCustomerForm.doc.customer = "CUST-0003";
 handlers.customer(switchedCustomerForm);
 assert.strictEqual(switchedCustomerForm.doc.mobile_number, "manual-number");
-assert.strictEqual(switchedCustomerForm.doc.email_address, "third@example.com");
+assert.strictEqual(switchedCustomerForm.doc.whatsapp_number, "manual-whatsapp");
+assert.strictEqual(switchedCustomerForm.doc.email_address, "manual@example.com");
 
 const contactForm = makeForm({
     contact_person: "CONTACT-0001",
@@ -181,7 +204,7 @@ handlers.contact_person(contactSwitchForm);
 contactSwitchForm.doc.customer = "CUST-0004";
 handlers.customer(contactSwitchForm);
 assert.strictEqual(contactSwitchForm.doc.mobile_number, "39333333");
-assert.strictEqual(contactSwitchForm.doc.whatsapp_number, "");
+assert.strictEqual(contactSwitchForm.doc.whatsapp_number, "39333333");
 assert.strictEqual(contactSwitchForm.doc.email_address, "third@example.com");
 
 responses.Contact.mobile_no = "";

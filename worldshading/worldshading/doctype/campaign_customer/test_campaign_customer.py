@@ -125,7 +125,8 @@ class TestCampaignCustomerControllerContract(unittest.TestCase):
 
 	def test_controller_exposes_approved_validation_api(self):
 		for name in (
-			"set_campaign_customer_key", "validate_unique_campaign_customer", "update_interaction_summary",
+			"set_missing_contact_details", "set_campaign_customer_key",
+			"validate_unique_campaign_customer", "update_interaction_summary",
 			"validate_opportunity_customer"
 		):
 			self.assertTrue(hasattr(campaign_customer, name), "Missing controller helper: {0}".format(name))
@@ -159,6 +160,72 @@ class TestCampaignCustomerController(unittest.TestCase):
 
 	def _throw(self, message, *args, **kwargs):
 		raise frappe.ValidationError(message)
+
+	def test_missing_contact_details_prefer_customer_primary_contact(self):
+		doc = self._doc(
+			contact_person=None, mobile_number=None, whatsapp_number=None,
+			email_address=None
+		)
+		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+			db.get_value.side_effect = [
+				frappe._dict({
+					"customer_primary_contact": "CONTACT-0001",
+					"mobile_no": "39000000",
+					"email_id": "customer@example.com"
+				}),
+				frappe._dict({
+					"mobile_no": "39111111", "phone": "17000000",
+					"email_id": "contact@example.com"
+				})
+			]
+			campaign_customer.set_missing_contact_details(doc)
+
+		self.assertEqual(doc.contact_person, "CONTACT-0001")
+		self.assertEqual(doc.mobile_number, "39111111")
+		self.assertEqual(doc.whatsapp_number, "39111111")
+		self.assertEqual(doc.email_address, "contact@example.com")
+		self.assertEqual(db.get_value.call_args_list[0][0], (
+			"Customer", "CUST-0001",
+			["customer_primary_contact", "mobile_no", "email_id"]
+		))
+		self.assertTrue(db.get_value.call_args_list[0][1]["as_dict"])
+		self.assertEqual(db.get_value.call_args_list[1][0], (
+			"Contact", "CONTACT-0001", ["mobile_no", "phone", "email_id"]
+		))
+		self.assertTrue(db.get_value.call_args_list[1][1]["as_dict"])
+
+	def test_missing_contact_details_fall_back_to_customer_values(self):
+		doc = self._doc(
+			contact_person=None, mobile_number=None, whatsapp_number=None,
+			email_address=None
+		)
+		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+			db.get_value.return_value = frappe._dict({
+				"customer_primary_contact": None,
+				"mobile_no": "39000000",
+				"email_id": "customer@example.com"
+			})
+			campaign_customer.set_missing_contact_details(doc)
+
+		self.assertIsNone(doc.contact_person)
+		self.assertEqual(doc.mobile_number, "39000000")
+		self.assertEqual(doc.whatsapp_number, "39000000")
+		self.assertEqual(doc.email_address, "customer@example.com")
+		self.assertEqual(db.get_value.call_count, 1)
+
+	def test_missing_contact_details_preserve_manual_values(self):
+		doc = self._doc(
+			contact_person="MANUAL-CONTACT", mobile_number="manual-mobile",
+			whatsapp_number="manual-whatsapp", email_address="manual@example.com"
+		)
+		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+			campaign_customer.set_missing_contact_details(doc)
+
+		self.assertEqual(doc.contact_person, "MANUAL-CONTACT")
+		self.assertEqual(doc.mobile_number, "manual-mobile")
+		self.assertEqual(doc.whatsapp_number, "manual-whatsapp")
+		self.assertEqual(doc.email_address, "manual@example.com")
+		db.get_value.assert_not_called()
 
 	def test_new_duplicate_is_rejected_without_empty_name_filter(self):
 		doc = self._doc()
@@ -266,7 +333,8 @@ class TestCampaignCustomerController(unittest.TestCase):
 				"next_follow_up": "2026-10-22 09:00:00"
 			})]
 		)
-		with patch.object(campaign_customer.frappe, "db", create=True) as db:
+		with patch.object(campaign_customer, "set_missing_contact_details") as autofill, \
+				patch.object(campaign_customer.frappe, "db", create=True) as db:
 			db.get_value.side_effect = [
 				None,
 				frappe._dict({
@@ -274,6 +342,7 @@ class TestCampaignCustomerController(unittest.TestCase):
 				})
 			]
 			campaign_customer.CampaignCustomer.validate(doc)
+		autofill.assert_called_once_with(doc)
 		self.assertEqual(doc.number_of_interactions, 1)
 		self.assertEqual(doc.last_outcome, "Interested")
 		self.assertEqual(

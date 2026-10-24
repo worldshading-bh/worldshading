@@ -28,10 +28,48 @@ MAX_BULK_CUSTOMERS = 250
 class CampaignCustomer(Document):
 
 	def validate(self):
+		set_missing_contact_details(self)
 		set_campaign_customer_key(self)
 		validate_unique_campaign_customer(self)
 		update_interaction_summary(self)
 		validate_opportunity_customer(self)
+
+
+def set_missing_contact_details(doc):
+	if not doc.get("customer"):
+		return
+	if all(doc.get(fieldname) for fieldname in (
+		"contact_person", "mobile_number", "whatsapp_number", "email_address"
+	)):
+		return
+
+	customer = frappe.db.get_value(
+		"Customer",
+		doc.customer,
+		["customer_primary_contact", "mobile_no", "email_id"],
+		as_dict=True
+	) or frappe._dict()
+
+	if not doc.get("contact_person") and customer.get("customer_primary_contact"):
+		doc.contact_person = customer.get("customer_primary_contact")
+
+	contact = frappe._dict()
+	if doc.get("contact_person"):
+		contact = frappe.db.get_value(
+			"Contact",
+			doc.contact_person,
+			["mobile_no", "phone", "email_id"],
+			as_dict=True
+		) or frappe._dict()
+
+	if not doc.get("mobile_number"):
+		doc.mobile_number = (
+			contact.get("mobile_no") or contact.get("phone") or customer.get("mobile_no")
+		)
+	if not doc.get("whatsapp_number"):
+		doc.whatsapp_number = contact.get("mobile_no") or customer.get("mobile_no")
+	if not doc.get("email_address"):
+		doc.email_address = contact.get("email_id") or customer.get("email_id")
 
 
 def set_campaign_customer_key(doc):

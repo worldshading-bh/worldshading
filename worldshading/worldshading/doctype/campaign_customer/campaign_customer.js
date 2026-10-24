@@ -10,12 +10,47 @@ function clear_customer_autofill(frm) {
 }
 
 function set_customer_autofill(frm, fieldname, value) {
-    if (!value) {
+    if (!value || frm.doc[fieldname]) {
         return;
     }
     frm.set_value(fieldname, value);
     frm.__campaign_customer_autofill = frm.__campaign_customer_autofill || {};
     frm.__campaign_customer_autofill[fieldname] = value;
+}
+
+function apply_contact_autofill(frm, contact_values, customer_values) {
+    contact_values = contact_values || {};
+    customer_values = customer_values || {};
+    set_customer_autofill(
+        frm,
+        "mobile_number",
+        contact_values.mobile_no || contact_values.phone || customer_values.mobile_no
+    );
+    set_customer_autofill(
+        frm,
+        "whatsapp_number",
+        contact_values.mobile_no || customer_values.mobile_no
+    );
+    set_customer_autofill(
+        frm,
+        "email_address",
+        contact_values.email_id || customer_values.email_id
+    );
+}
+
+function load_contact_autofill(frm, contact, customer_values) {
+    if (!contact) {
+        apply_contact_autofill(frm, {}, customer_values);
+        return;
+    }
+    frappe.db.get_value("Contact", contact, [
+        "mobile_no", "phone", "email_id"
+    ], function(r) {
+        if (frm.doc.contact_person !== contact) {
+            return;
+        }
+        apply_contact_autofill(frm, r.message || {}, customer_values);
+    });
 }
 
 function suggested_status(outcome, current_status) {
@@ -161,21 +196,26 @@ frappe.ui.form.on("Campaign Customer", {
         }
 
         frappe.db.get_value("Customer", customer, [
-            "customer_name", "customer_group", "territory", "mobile_no", "email_id"
+            "customer_name", "customer_group", "territory",
+            "customer_primary_contact", "mobile_no", "email_id"
         ], function(r) {
             if (frm.doc.customer !== customer || !r.message) {
                 return;
             }
 
+            frm.__campaign_customer_source = {
+                customer: customer,
+                values: r.message
+            };
             frm.set_value("customer_name", r.message.customer_name || "");
             frm.set_value("customer_group", r.message.customer_group || "");
             frm.set_value("territory", r.message.territory || "");
-            if (!frm.doc.mobile_number && r.message.mobile_no) {
-                set_customer_autofill(frm, "mobile_number", r.message.mobile_no);
-            }
-            if (!frm.doc.email_address && r.message.email_id) {
-                set_customer_autofill(frm, "email_address", r.message.email_id);
-            }
+            frm.set_value(
+                "contact_person", r.message.customer_primary_contact || ""
+            );
+            load_contact_autofill(
+                frm, r.message.customer_primary_contact, r.message
+            );
         });
     },
 
@@ -184,26 +224,11 @@ frappe.ui.form.on("Campaign Customer", {
         if (!contact) {
             return;
         }
-
-        frappe.db.get_value("Contact", contact, [
-            "mobile_no", "phone", "email_id"
-        ], function(r) {
-            if (frm.doc.contact_person !== contact || !r.message) {
-                return;
-            }
-
-            if (!frm.doc.mobile_number && (r.message.mobile_no || r.message.phone)) {
-                set_customer_autofill(
-                    frm, "mobile_number", r.message.mobile_no || r.message.phone
-                );
-            }
-            if (!frm.doc.whatsapp_number && r.message.mobile_no) {
-                set_customer_autofill(frm, "whatsapp_number", r.message.mobile_no);
-            }
-            if (!frm.doc.email_address && r.message.email_id) {
-                set_customer_autofill(frm, "email_address", r.message.email_id);
-            }
-        });
+        clear_customer_autofill(frm);
+        var source = frm.__campaign_customer_source || {};
+        var customer_values = source.customer === frm.doc.customer
+            ? source.values : {};
+        load_contact_autofill(frm, contact, customer_values);
     }
 });
 })();
