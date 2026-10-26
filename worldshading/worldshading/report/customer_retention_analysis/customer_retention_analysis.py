@@ -9,6 +9,7 @@ from frappe.utils import cint, flt, getdate, today
 
 
 STATUS_OPTIONS = ("", "Lost", "Decreased", "Stable", "Increased", "New", "Reactivated")
+CUSTOMER_TYPE_OPTIONS = ("All", "Company", "Individual")
 SORT_OPTIONS = (
 	"Importance", "Decrease Amount", "Current Sales", "Comparison Sales", "Previous Sales",
 	"Inactive Days", "Current Invoice Count",
@@ -44,6 +45,7 @@ def normalize_filters(filters, current_year=None):
 	)
 	filters.retention_status = filters.get("retention_status") or ""
 	filters.item_group = filters.get("item_group") or ""
+	filters.customer_type = filters.get("customer_type") or "All"
 	filters.minimum_historical_sales = flt(filters.get("minimum_historical_sales") or 0)
 	filters.top_results = str("100" if top_results in (None, "") else top_results)
 	filters.sort_by = filters.get("sort_by") or "Importance"
@@ -60,6 +62,8 @@ def normalize_filters(filters, current_year=None):
 		frappe.throw("Minimum Historical Sales cannot be negative")
 	if filters.retention_status not in STATUS_OPTIONS:
 		frappe.throw("Invalid Retention Status")
+	if filters.customer_type not in CUSTOMER_TYPE_OPTIONS:
+		frappe.throw("Invalid Customer Type")
 	if filters.sort_by not in SORT_OPTIONS:
 		frappe.throw("Invalid Sort By value")
 	if filters.sort_direction not in SORT_DIRECTIONS:
@@ -327,6 +331,9 @@ def get_sales_activity(filters):
 		if filters.get(fieldname):
 			conditions.append("{0} = %({1})s".format(sql_field, fieldname))
 			values[fieldname] = filters.get(fieldname)
+	if filters.customer_type != "All":
+		conditions.append("customer.customer_type = %(customer_type)s")
+		values["customer_type"] = filters.customer_type
 
 	from_clause = """from `tabSales Invoice` si
 		inner join `tabCustomer` customer on customer.name = si.customer"""

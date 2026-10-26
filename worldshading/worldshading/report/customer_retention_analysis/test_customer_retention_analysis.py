@@ -50,6 +50,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(filters.comparison_year, 2025)
 		self.assertEqual(filters.previous_years, 1)
 		self.assertEqual(filters.item_group, "")
+		self.assertEqual(filters.customer_type, "All")
 		self.assertEqual(filters.top_results, "100")
 		self.assertEqual(filters.sort_by, "Importance")
 		self.assertEqual(filters.sort_direction, "Descending")
@@ -70,6 +71,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 			{"comparison_year": 2026},
 			{"comparison_year": 2027},
 			{"comparison_year": 2020},
+			{"customer_type": "Organisation"},
 			{"minimum_historical_sales": -1},
 			{"retention_status": "Dormant"},
 			{"sort_by": "Revenue"},
@@ -401,7 +403,8 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 	def test_sales_query_scopes_all_metrics_to_exact_item_group(self):
 		filters = report.normalize_filters(self.valid_filters(
 			previous_years=3, comparison_year=2021, item_group="PVC 680 GSM",
-			customer="CUST-1", customer_group="Retail", territory="Bahrain",
+			customer="CUST-1", customer_group="Retail", customer_type="Company",
+			territory="Bahrain",
 		), current_year=2026)
 		captured = {}
 
@@ -421,6 +424,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertIn("sum(sii.base_net_amount)", query)
 		self.assertIn("year(si.posting_date) in %(reporting_years)s", query)
 		self.assertIn("item.item_group = %(item_group)s", query)
+		self.assertIn("customer.customer_type = %(customer_type)s", query)
 		self.assertIn("case when ifnull(si.is_return, 0) = 0 then si.name", query)
 		self.assertEqual(captured["values"]["item_group"], "PVC 680 GSM")
 		self.assertEqual(
@@ -428,6 +432,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		)
 		self.assertEqual(captured["values"]["customer"], "CUST-1")
 		self.assertEqual(captured["values"]["customer_group"], "Retail")
+		self.assertEqual(captured["values"]["customer_type"], "Company")
 		self.assertEqual(captured["values"]["territory"], "Bahrain")
 		self.assertTrue(captured["as_dict"])
 

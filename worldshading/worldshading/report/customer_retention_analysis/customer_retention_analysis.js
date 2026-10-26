@@ -242,6 +242,7 @@
 			["comparison_year", __("Comparison Year")],
 			["previous_years", __("Previous Years")],
 			["item_group", __("Item Group")],
+			["customer_type", __("Customer Type")],
 			["retention_status", __("Status")],
 			["sort_by", __("Sort By")],
 			["top_results", __("Top Results")]
@@ -649,6 +650,7 @@
 			{fieldname: "previous_years", label: __("Previous Years"), fieldtype: "Select", options: "1\n2\n3\n4\n5", "default": 1},
 			{fieldname: "customer", label: __("Customer"), fieldtype: "Link", options: "Customer"},
 			{fieldname: "customer_group", label: __("Customer Group"), fieldtype: "Link", options: "Customer Group"},
+			{fieldname: "customer_type", label: __("Customer Type"), fieldtype: "Select", options: "All\nCompany\nIndividual", "default": "All"},
 			{fieldname: "item_group", label: __("Item Group"), fieldtype: "Link", options: "Item Group", description: __("When selected, all sales, invoice activity, status, ranking, and inactivity calculations are limited to this exact Item Group.")},
 			{fieldname: "territory", label: __("Territory"), fieldtype: "Link", options: "Territory"},
 			{fieldname: "retention_status", label: __("Retention Status"), fieldtype: "Select", options: "\nLost\nDecreased\nStable\nIncreased\nNew\nReactivated"},
