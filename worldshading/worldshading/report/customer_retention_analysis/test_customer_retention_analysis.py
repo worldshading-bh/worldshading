@@ -363,7 +363,8 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 
 	def test_sales_query_uses_bound_scope_and_return_safe_activity_count(self):
 		filters = report.normalize_filters(self.valid_filters(
-			previous_years=3, customer="CUST-'quoted", customer_group="Retail",
+			previous_years=3, comparison_year=2021,
+			customer="CUST-'quoted", customer_group="Retail",
 			territory="Bahrain",
 		), current_year=2026)
 		captured = {}
@@ -378,18 +379,56 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 
 		query = " ".join(captured["query"].lower().split())
 		self.assertEqual(captured["values"]["company"], "World Shading")
-		self.assertEqual(captured["values"]["start_date"], date(2023, 1, 1))
+		self.assertEqual(captured["values"]["start_date"], date(2021, 1, 1))
 		self.assertEqual(captured["values"]["end_date"], date(2026, 12, 31))
+		self.assertEqual(
+			captured["values"]["reporting_years"], (2026, 2025, 2024, 2023, 2021)
+		)
 		self.assertEqual(captured["values"]["customer"], "CUST-'quoted")
 		self.assertEqual(captured["values"]["customer_group"], "Retail")
 		self.assertEqual(captured["values"]["territory"], "Bahrain")
 		self.assertIn("si.docstatus = 1", query)
 		self.assertIn("year(si.posting_date)", query)
+		self.assertIn("year(si.posting_date) in %(reporting_years)s", query)
 		self.assertIn("sum(si.base_net_total)", query)
 		self.assertIn("case when ifnull(si.is_return, 0) = 0 then si.name", query)
 		self.assertIn("group by si.customer, year(si.posting_date)", query)
 		self.assertNotIn("disabled", query)
+		self.assertNotIn("`tabsales invoice item`", query)
 		self.assertNotIn("cust-'quoted", query)
+		self.assertTrue(captured["as_dict"])
+
+	def test_sales_query_scopes_all_metrics_to_exact_item_group(self):
+		filters = report.normalize_filters(self.valid_filters(
+			previous_years=3, comparison_year=2021, item_group="PVC 680 GSM",
+			customer="CUST-1", customer_group="Retail", territory="Bahrain",
+		), current_year=2026)
+		captured = {}
+
+		def fake_sql(query, values=None, as_dict=False):
+			captured.update({"query": query, "values": values, "as_dict": as_dict})
+			return []
+
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = fake_sql
+			report.get_sales_activity(filters)
+
+		query = " ".join(captured["query"].lower().split())
+		self.assertIn("from `tabsales invoice item` sii", query)
+		self.assertIn("inner join `tabsales invoice` si on si.name = sii.parent", query)
+		self.assertIn("inner join `tabitem` item on item.name = sii.item_code", query)
+		self.assertIn("inner join `tabcustomer` customer", query)
+		self.assertIn("sum(sii.base_net_amount)", query)
+		self.assertIn("year(si.posting_date) in %(reporting_years)s", query)
+		self.assertIn("item.item_group = %(item_group)s", query)
+		self.assertIn("case when ifnull(si.is_return, 0) = 0 then si.name", query)
+		self.assertEqual(captured["values"]["item_group"], "PVC 680 GSM")
+		self.assertEqual(
+			captured["values"]["reporting_years"], (2026, 2025, 2024, 2023, 2021)
+		)
+		self.assertEqual(captured["values"]["customer"], "CUST-1")
+		self.assertEqual(captured["values"]["customer_group"], "Retail")
+		self.assertEqual(captured["values"]["territory"], "Bahrain")
 		self.assertTrue(captured["as_dict"])
 
 	def test_last_invoice_query_uses_full_history_and_skips_empty_customers(self):
@@ -419,6 +458,29 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(values["company"], "World Shading")
 		self.assertEqual(values["customers"], ("CUST-1", "CUST-2"))
 		self.assertEqual(values["end_date"], date(2026, 12, 31))
+
+	def test_last_invoice_query_scopes_activity_to_exact_item_group(self):
+		filters = report.normalize_filters(self.valid_filters(
+			item_group="PVC 680 GSM",
+		), current_year=2026)
+		captured = {}
+
+		def fake_sql(query, values=None, as_dict=False):
+			captured.update({"query": query, "values": values, "as_dict": as_dict})
+			return []
+
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = fake_sql
+			report.get_last_invoice_dates(filters, ["CUST-1"])
+
+		query = " ".join(captured["query"].lower().split())
+		self.assertIn("exists (", query)
+		self.assertIn("from `tabsales invoice item` sii", query)
+		self.assertIn("inner join `tabitem` item on item.name = sii.item_code", query)
+		self.assertIn("sii.parent = si.name", query)
+		self.assertIn("item.item_group = %(item_group)s", query)
+		self.assertIn("ifnull(si.is_return, 0) = 0", query)
+		self.assertEqual(captured["values"]["item_group"], "PVC 680 GSM")
 
 	def test_company_context_checks_read_permission_and_returns_currency(self):
 		company = type("Company", (object,), {
@@ -522,7 +584,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 
 	def test_item_group_context_uses_limited_customers_and_positive_top_three(self):
 		filters = report.normalize_filters(
-			self.valid_filters(previous_years=2), current_year=2026
+			self.valid_filters(previous_years=2, comparison_year=2021), current_year=2026
 		)
 		query_rows = [
 			{"customer": "CUST-1", "item_group": "Blinds", "net_amount": 100},
@@ -549,17 +611,66 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertIn("inner join `tabsales invoice`", query)
 		self.assertIn("inner join `tabitem`", query)
 		self.assertIn("si.docstatus = 1", query)
+		self.assertIn("year(si.posting_date) in %(reporting_years)s", query)
 		self.assertIn("sum(sii.base_net_amount)", query)
 		self.assertIn("group by si.customer, item.item_group", query)
 		self.assertEqual(captured["values"]["company"], "World Shading")
-		self.assertEqual(captured["values"]["start_date"], date(2024, 1, 1))
+		self.assertEqual(captured["values"]["start_date"], date(2021, 1, 1))
 		self.assertEqual(captured["values"]["end_date"], date(2026, 12, 31))
+		self.assertEqual(
+			captured["values"]["reporting_years"], (2026, 2025, 2024, 2021)
+		)
 		self.assertEqual(captured["values"]["customers"], ("CUST-1", "CUST-2"))
 		self.assertEqual(context, {"CUST-1": [
 			{"item_group": "Awnings", "net_amount": 100.0},
 			{"item_group": "Blinds", "net_amount": 100.0},
 			{"item_group": "Outdoor", "net_amount": 80.0},
 		]})
+
+	def test_item_group_context_limits_selected_group_and_uses_explicit_years(self):
+		filters = report.normalize_filters(self.valid_filters(
+			previous_years=3, comparison_year=2021, item_group="PVC 680 GSM",
+		), current_year=2026)
+		captured = {}
+
+		def fake_sql(query, values=None, as_dict=False):
+			captured.update({"query": query, "values": values, "as_dict": as_dict})
+			return [{
+				"customer": "CUST-1", "item_group": "PVC 680 GSM", "net_amount": 250,
+			}]
+
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.side_effect = fake_sql
+			context = report.get_item_group_context(filters, ["CUST-1"])
+
+		query = " ".join(captured["query"].lower().split())
+		self.assertIn("item.item_group = %(item_group)s", query)
+		self.assertIn("year(si.posting_date) in %(reporting_years)s", query)
+		self.assertEqual(captured["values"]["item_group"], "PVC 680 GSM")
+		self.assertEqual(
+			captured["values"]["reporting_years"], (2026, 2025, 2024, 2023, 2021)
+		)
+		self.assertEqual(context, {"CUST-1": [{
+			"item_group": "PVC 680 GSM", "net_amount": 250.0,
+		}]})
+
+	def test_enrichment_labels_only_the_explicit_reporting_years(self):
+		filters = report.normalize_filters(self.valid_filters(
+			previous_years=3, comparison_year=2021, item_group="PVC 680 GSM",
+		), current_year=2026)
+		rows = [{"customer": "CUST-1"}]
+
+		with patch.object(report, "get_item_group_context", return_value={
+			"CUST-1": [{"item_group": "PVC 680 GSM", "net_amount": 250.0}],
+		}), patch.object(report, "get_campaign_context", return_value={}):
+			enriched = report.enrich_rows(rows, filters)
+
+		self.assertEqual(enriched[0]["top_item_group_1"], "PVC 680 GSM")
+		self.assertIsNone(enriched[0]["top_item_group_2"])
+		self.assertIsNone(enriched[0]["top_item_group_3"])
+		self.assertEqual(
+			enriched[0]["item_group_sales_period"], "2021, 2023, 2024, 2025, 2026"
+		)
 
 	def test_campaign_context_denies_without_query_when_user_lacks_permission(self):
 		with patch.object(report, "frappe") as frappe_mock:
@@ -637,7 +748,9 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 			self.valid_filters(previous_years=3), ["CUST-2", "CUST-1"]
 		)
 		campaigns.assert_called_once_with(["CUST-2", "CUST-1"])
-		self.assertEqual(enriched[0]["item_group_sales_period"], "2023\u20132026")
+		self.assertEqual(
+			enriched[0]["item_group_sales_period"], "2023, 2024, 2025, 2026"
+		)
 
 	def test_javascript_defines_filters_visual_contract_and_safe_read_only_behavior(self):
 		path = os.path.join(os.path.dirname(__file__), "customer_retention_analysis.js")

@@ -311,11 +311,13 @@ def get_sales_activity(filters):
 		"si.company = %(company)s",
 		"si.docstatus = 1",
 		"si.posting_date between %(start_date)s and %(end_date)s",
+		"year(si.posting_date) in %(reporting_years)s",
 	]
 	values = {
 		"company": filters.company,
 		"start_date": start_date,
 		"end_date": end_date,
+		"reporting_years": tuple(get_reporting_years(filters)),
 	}
 	for fieldname, sql_field in (
 		("customer", "si.customer"),
@@ -326,6 +328,18 @@ def get_sales_activity(filters):
 			conditions.append("{0} = %({1})s".format(sql_field, fieldname))
 			values[fieldname] = filters.get(fieldname)
 
+	from_clause = """from `tabSales Invoice` si
+		inner join `tabCustomer` customer on customer.name = si.customer"""
+	sales_expression = "sum(si.base_net_total)"
+	if filters.get("item_group"):
+		from_clause = """from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		inner join `tabItem` item on item.name = sii.item_code
+		inner join `tabCustomer` customer on customer.name = si.customer"""
+		sales_expression = "sum(sii.base_net_amount)"
+		conditions.append("item.item_group = %(item_group)s")
+		values["item_group"] = filters.item_group
+
 	# Aggregate SQL is required here to process several calendar years in one
 	# database pass and avoid one query per Customer.
 	return frappe.db.sql("""
@@ -335,36 +349,53 @@ def get_sales_activity(filters):
 			customer.customer_group,
 			customer.territory,
 			year(si.posting_date) as sales_year,
-			sum(si.base_net_total) as sales,
+			{sales_expression} as sales,
 			count(distinct case
 				when ifnull(si.is_return, 0) = 0 then si.name
 			end) as invoice_count
-		from `tabSales Invoice` si
-		inner join `tabCustomer` customer on customer.name = si.customer
+		{from_clause}
 		where {conditions}
 		group by si.customer, year(si.posting_date), customer.customer_name,
 			customer.customer_group, customer.territory
-	""".format(conditions=" and ".join(conditions)), values, as_dict=True)
+	""".format(
+		sales_expression=sales_expression,
+		from_clause=from_clause,
+		conditions=" and ".join(conditions),
+	), values, as_dict=True)
 
 
 def get_last_invoice_dates(filters, customers):
 	if not customers:
 		return {}
 	unused_start_date, end_date = get_period_bounds(filters)
-	rows = frappe.db.sql("""
-		select si.customer, max(si.posting_date) as last_invoice_date
-		from `tabSales Invoice` si
-		where si.company = %(company)s
-			and si.docstatus = 1
-			and ifnull(si.is_return, 0) = 0
-			and si.posting_date <= %(end_date)s
-			and si.customer in %(customers)s
-		group by si.customer
-	""", {
+	conditions = [
+		"si.company = %(company)s",
+		"si.docstatus = 1",
+		"ifnull(si.is_return, 0) = 0",
+		"si.posting_date <= %(end_date)s",
+		"si.customer in %(customers)s",
+	]
+	values = {
 		"company": filters.company,
 		"end_date": end_date,
 		"customers": tuple(customers),
-	}, as_dict=True)
+	}
+	if filters.get("item_group"):
+		conditions.append("""exists (
+			select 1
+			from `tabSales Invoice Item` sii
+			inner join `tabItem` item on item.name = sii.item_code
+			where sii.parent = si.name
+				and item.item_group = %(item_group)s
+		)""")
+		values["item_group"] = filters.item_group
+
+	rows = frappe.db.sql("""
+		select si.customer, max(si.posting_date) as last_invoice_date
+		from `tabSales Invoice` si
+		where {conditions}
+		group by si.customer
+	""".format(conditions=" and ".join(conditions)), values, as_dict=True)
 	return dict((row["customer"], row["last_invoice_date"]) for row in rows)
 
 
@@ -392,6 +423,24 @@ def get_item_group_context(filters, customers):
 	if not customers:
 		return {}
 	start_date, end_date = get_period_bounds(filters)
+	conditions = [
+		"si.company = %(company)s",
+		"si.docstatus = 1",
+		"si.posting_date between %(start_date)s and %(end_date)s",
+		"year(si.posting_date) in %(reporting_years)s",
+		"si.customer in %(customers)s",
+	]
+	values = {
+		"company": filters.company,
+		"start_date": start_date,
+		"end_date": end_date,
+		"reporting_years": tuple(get_reporting_years(filters)),
+		"customers": tuple(customers),
+	}
+	if filters.get("item_group"):
+		conditions.append("item.item_group = %(item_group)s")
+		values["item_group"] = filters.item_group
+
 	rows = frappe.db.sql("""
 		select
 			si.customer,
@@ -400,17 +449,9 @@ def get_item_group_context(filters, customers):
 		from `tabSales Invoice Item` sii
 		inner join `tabSales Invoice` si on si.name = sii.parent
 		inner join `tabItem` item on item.name = sii.item_code
-		where si.company = %(company)s
-			and si.docstatus = 1
-			and si.posting_date between %(start_date)s and %(end_date)s
-			and si.customer in %(customers)s
+		where {conditions}
 		group by si.customer, item.item_group
-	""", {
-		"company": filters.company,
-		"start_date": start_date,
-		"end_date": end_date,
-		"customers": tuple(customers),
-	}, as_dict=True)
+	""".format(conditions=" and ".join(conditions)), values, as_dict=True)
 
 	grouped = {}
 	for row in rows:
@@ -485,8 +526,9 @@ def enrich_rows(rows, filters):
 	item_group_context = get_item_group_context(filters, customers)
 	campaign_context = get_campaign_context(customers)
 	rows = apply_customer_context(rows, item_group_context, campaign_context)
-	start_date, end_date = get_period_bounds(filters)
-	period = "{0}\u2013{1}".format(start_date.year, end_date.year)
+	period = ", ".join(
+		str(year) for year in sorted(get_reporting_years(filters))
+	)
 	for row in rows:
 		row["item_group_sales_period"] = period
 	return rows
