@@ -47,7 +47,9 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		filters = report.normalize_filters({"company": "World Shading"}, current_year=2026)
 
 		self.assertEqual(filters.analysis_year, 2026)
+		self.assertEqual(filters.comparison_year, 2025)
 		self.assertEqual(filters.previous_years, 1)
+		self.assertEqual(filters.item_group, "")
 		self.assertEqual(filters.top_results, "100")
 		self.assertEqual(filters.sort_by, "Importance")
 		self.assertEqual(filters.sort_direction, "Descending")
@@ -65,6 +67,9 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 			{"analysis_year": 2027},
 			{"previous_years": 0},
 			{"previous_years": 6},
+			{"comparison_year": 2026},
+			{"comparison_year": 2027},
+			{"comparison_year": 2020},
 			{"minimum_historical_sales": -1},
 			{"retention_status": "Dormant"},
 			{"sort_by": "Revenue"},
@@ -81,18 +86,22 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 
 	def test_period_helpers_use_full_calendar_years(self):
 		filters = report.normalize_filters(
-			self.valid_filters(previous_years=3), current_year=2026
+			self.valid_filters(previous_years=3, comparison_year=2021), current_year=2026
 		)
 
 		self.assertEqual(report.get_years(filters), [2026, 2025, 2024, 2023])
 		self.assertEqual(
+			report.get_reporting_years(filters),
+			[2026, 2025, 2024, 2023, 2021],
+		)
+		self.assertEqual(
 			report.get_period_bounds(filters),
-			(date(2023, 1, 1), date(2026, 12, 31)),
+			(date(2021, 1, 1), date(2026, 12, 31)),
 		)
 
 	def test_columns_use_year_labels_and_newest_first_dynamic_history(self):
 		filters = report.normalize_filters(
-			self.valid_filters(previous_years=3), current_year=2026
+			self.valid_filters(previous_years=3, comparison_year=2024), current_year=2026
 		)
 		columns = report.get_columns(filters, "BHD")
 		fieldnames = [column["fieldname"] for column in columns]
@@ -108,7 +117,8 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		)
 		labels = dict((column["fieldname"], column["label"]) for column in columns)
 		self.assertEqual(labels["current_sales"], "2026 Sales")
-		self.assertEqual(labels["previous_sales"], "2025 Sales")
+		self.assertEqual(labels["previous_sales"], "2024 Comparison Sales")
+		self.assertEqual(labels["previous_invoice_count"], "2024 Comparison Invoice Count")
 		self.assertEqual(labels["sales_2023"], "2023 Sales")
 		for column in columns:
 			if column["fieldtype"] == "Currency":
@@ -127,7 +137,53 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		]
 		for label, values, expected in cases:
 			with self.subTest(label=label):
-				self.assertEqual(report.classify_customer(values, 2026, 2), expected)
+				self.assertEqual(
+					report.classify_customer(values, 2026, 2025, [2025, 2024]),
+					expected,
+				)
+
+	def test_classification_uses_comparison_year_and_other_relevant_history(self):
+		cases = [
+			("reactivated", {2026: 25, 2025: 50, 2021: 0}, "Reactivated"),
+			("new", {2026: 25, 2025: 0, 2021: 0}, "New"),
+			("lost from comparison", {2026: 0, 2025: 0, 2021: 100}, "Lost"),
+			("decreased", {2026: 80, 2025: 200, 2021: 100}, "Decreased"),
+		]
+		for label, values, expected in cases:
+			with self.subTest(label=label):
+				self.assertEqual(
+					report.classify_customer(values, 2026, 2021, [2025, 2021]),
+					expected,
+				)
+
+	def test_build_customer_row_uses_independent_comparison_year(self):
+		filters = report.normalize_filters(self.valid_filters(
+			previous_years=3, comparison_year=2021,
+		), current_year=2026)
+		year_values = {
+			2026: {"sales": 80, "invoice_count": 2},
+			2025: {"sales": 60, "invoice_count": 3},
+			2024: {"sales": 30, "invoice_count": 2},
+			2023: {"sales": 0, "invoice_count": 0},
+			2021: {"sales": 100, "invoice_count": 5},
+		}
+
+		row = report.build_customer_row(
+			"CUST-001", {}, year_values, date(2026, 1, 1), filters, date(2026, 10, 26)
+		)
+
+		self.assertEqual(row["retention_status"], "Decreased")
+		self.assertEqual(row["previous_sales"], 100.0)
+		self.assertEqual(row["previous_invoice_count"], 5)
+		self.assertEqual(row["change_amount"], -20.0)
+		self.assertEqual(row["decrease_amount"], 20.0)
+		self.assertEqual(row["change_percent"], -20.0)
+		self.assertEqual(row["average_historical_sales"], 30.0)
+		self.assertEqual(row["total_invoice_count"], 7)
+		self.assertEqual(
+			[row["sales_2025"], row["sales_2024"], row["sales_2023"]],
+			[60.0, 30.0, 0.0],
+		)
 
 	def test_build_customer_row_calculates_sales_activity_and_inactivity(self):
 		filters = report.normalize_filters(
@@ -406,7 +462,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertTrue(any(column["options"] == "BHD" for column in columns if column["fieldtype"] == "Currency"))
 		self.assertIsNone(message)
 		self.assertEqual(chart["data"]["labels"], ["Alpha"])
-		self.assertTrue(any(item["label"] == "At-risk Previous Sales" for item in summary))
+		self.assertTrue(any(item["label"] == "At-risk Comparison Sales" for item in summary))
 		self.assertEqual(skip_total_row, 1)
 
 	def test_execute_returns_no_notice_for_completed_analysis_year(self):

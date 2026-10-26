@@ -10,7 +10,7 @@ from frappe.utils import cint, flt, getdate, today
 
 STATUS_OPTIONS = ("", "Lost", "Decreased", "Stable", "Increased", "New", "Reactivated")
 SORT_OPTIONS = (
-	"Importance", "Decrease Amount", "Current Sales", "Previous Sales",
+	"Importance", "Decrease Amount", "Current Sales", "Comparison Sales", "Previous Sales",
 	"Inactive Days", "Current Invoice Count",
 )
 SORT_DIRECTIONS = ("Descending", "Ascending")
@@ -29,15 +29,21 @@ def normalize_filters(filters, current_year=None):
 		frappe.throw("Company is required")
 
 	analysis_year = filters.get("analysis_year")
+	comparison_year = filters.get("comparison_year")
 	previous_years = filters.get("previous_years")
 	top_results = filters.get("top_results")
 	filters.analysis_year = cint(
 		current_year if analysis_year in (None, "") else analysis_year
 	)
+	filters.comparison_year = cint(
+		filters.analysis_year - 1
+		if comparison_year in (None, "") else comparison_year
+	)
 	filters.previous_years = cint(
 		1 if previous_years in (None, "") else previous_years
 	)
 	filters.retention_status = filters.get("retention_status") or ""
+	filters.item_group = filters.get("item_group") or ""
 	filters.minimum_historical_sales = flt(filters.get("minimum_historical_sales") or 0)
 	filters.top_results = str("100" if top_results in (None, "") else top_results)
 	filters.sort_by = filters.get("sort_by") or "Importance"
@@ -47,6 +53,9 @@ def normalize_filters(filters, current_year=None):
 		frappe.throw("Analysis Year must be between 2000 and {0}".format(current_year))
 	if filters.previous_years < 1 or filters.previous_years > 5:
 		frappe.throw("Previous Years must be between 1 and 5")
+	if filters.comparison_year >= filters.analysis_year \
+			or filters.comparison_year < filters.analysis_year - 5:
+		frappe.throw("Comparison Year must be within the five years before Analysis Year")
 	if filters.minimum_historical_sales < 0:
 		frappe.throw("Minimum Historical Sales cannot be negative")
 	if filters.retention_status not in STATUS_OPTIONS:
@@ -65,9 +74,19 @@ def get_years(filters):
 	return [filters.analysis_year - offset for offset in range(filters.previous_years + 1)]
 
 
-def get_period_bounds(filters):
+def get_reporting_years(filters):
 	years = get_years(filters)
-	return date(years[-1], 1, 1), date(years[0], 12, 31)
+	comparison_year = cint(
+		filters.get("comparison_year") or filters.analysis_year - 1
+	)
+	if comparison_year not in years:
+		years.append(comparison_year)
+	return years
+
+
+def get_period_bounds(filters):
+	years = get_reporting_years(filters)
+	return date(min(years), 1, 1), date(filters.analysis_year, 12, 31)
 
 
 def _column(label, fieldname, fieldtype="Data", width=110, options=None):
@@ -84,7 +103,7 @@ def _column(label, fieldname, fieldtype="Data", width=110, options=None):
 
 def get_columns(filters, currency):
 	analysis_year = filters.analysis_year
-	previous_year = analysis_year - 1
+	comparison_year = filters.comparison_year
 	columns = [
 		_column("Customer", "customer", "Link", 140, "Customer"),
 		_column("Customer Name", "customer_name", width=190),
@@ -93,12 +112,12 @@ def get_columns(filters, currency):
 		_column("Retention Status", "retention_status", width=120),
 		_column("Importance Score", "importance_score", "Float", 115),
 		_column("{0} Sales".format(analysis_year), "current_sales", "Currency", 125, currency),
-		_column("{0} Sales".format(previous_year), "previous_sales", "Currency", 125, currency),
+		_column("{0} Comparison Sales".format(comparison_year), "previous_sales", "Currency", 150, currency),
 		_column("Change Amount", "change_amount", "Currency", 125, currency),
 		_column("Change %", "change_percent", "Percent", 95),
 		_column("Average Historical Sales", "average_historical_sales", "Currency", 150, currency),
 		_column("{0} Invoice Count".format(analysis_year), "current_invoice_count", "Int", 125),
-		_column("{0} Invoice Count".format(previous_year), "previous_invoice_count", "Int", 125),
+		_column("{0} Comparison Invoice Count".format(comparison_year), "previous_invoice_count", "Int", 165),
 		_column("Total Invoice Count", "total_invoice_count", "Int", 120),
 		_column("Last Invoice Date", "last_invoice_date", "Date", 115),
 		_column("Inactive Days", "inactive_days", "Int", 100),
@@ -133,22 +152,24 @@ def _year_metric(year_values, year, key):
 	return 0
 
 
-def classify_customer(year_values, analysis_year, previous_years):
+def classify_customer(year_values, analysis_year, comparison_year, historical_years):
 	current_sales = flt(_year_metric(year_values, analysis_year, "sales"))
 	prior_sales = [
-		flt(_year_metric(year_values, analysis_year - offset, "sales"))
-		for offset in range(1, previous_years + 1)
+		flt(_year_metric(year_values, year, "sales")) for year in historical_years
 	]
-	previous_sales = prior_sales[0]
+	comparison_sales = flt(_year_metric(year_values, comparison_year, "sales"))
 
 	if current_sales > 0 and not any(value > 0 for value in prior_sales):
 		return "New"
-	if current_sales > 0 and previous_sales <= 0 and any(value > 0 for value in prior_sales[1:]):
+	if current_sales > 0 and comparison_sales <= 0 and any(
+		flt(_year_metric(year_values, year, "sales")) > 0
+		for year in historical_years if year != comparison_year
+	):
 		return "Reactivated"
 	if current_sales <= 0 and any(value > 0 for value in prior_sales):
 		return "Lost"
-	if current_sales > 0 and previous_sales > 0:
-		change_percent = (current_sales - previous_sales) / previous_sales * 100.0
+	if current_sales > 0 and comparison_sales > 0:
+		change_percent = (current_sales - comparison_sales) / comparison_sales * 100.0
 		if change_percent <= -STATUS_CHANGE_THRESHOLD:
 			return "Decreased"
 		if change_percent >= STATUS_CHANGE_THRESHOLD:
@@ -161,11 +182,11 @@ def build_customer_row(customer, customer_context, year_values, last_invoice_dat
 		filters, as_of_date):
 	years = get_years(filters)
 	analysis_year = years[0]
-	previous_year = years[1]
+	comparison_year = filters.comparison_year
 	current_sales = flt(_year_metric(year_values, analysis_year, "sales"))
-	previous_sales = flt(_year_metric(year_values, previous_year, "sales"))
+	previous_sales = flt(_year_metric(year_values, comparison_year, "sales"))
 	current_invoice_count = cint(_year_metric(year_values, analysis_year, "invoice_count"))
-	previous_invoice_count = cint(_year_metric(year_values, previous_year, "invoice_count"))
+	previous_invoice_count = cint(_year_metric(year_values, comparison_year, "invoice_count"))
 	historical_sales = [
 		flt(_year_metric(year_values, year, "sales")) for year in years[1:]
 	]
@@ -186,7 +207,8 @@ def build_customer_row(customer, customer_context, year_values, last_invoice_dat
 		"customer_group": customer_context.get("customer_group"),
 		"territory": customer_context.get("territory"),
 		"retention_status": classify_customer(
-			year_values, analysis_year, filters.previous_years
+			year_values, analysis_year, comparison_year,
+			get_reporting_years(filters)[1:]
 		),
 		"current_sales": current_sales,
 		"previous_sales": previous_sales,
@@ -240,6 +262,7 @@ def get_sort_value(row, sort_by):
 		"Importance": "importance_score",
 		"Decrease Amount": "decrease_amount",
 		"Current Sales": "current_sales",
+		"Comparison Sales": "previous_sales",
 		"Previous Sales": "previous_sales",
 		"Inactive Days": "inactive_days",
 		"Current Invoice Count": "current_invoice_count",
@@ -252,13 +275,14 @@ def filter_sort_and_limit(rows, filters):
 	prior_years = get_years(filters)[1:]
 	filtered_rows = []
 	for row in rows:
-		annual_sales = [flt(row.get("current_sales"))]
-		annual_sales.extend(
+		historical_sales = [
 			flt(row.get("sales_{0}".format(year))) for year in prior_years
-		)
-		if not any(value != 0 for value in annual_sales):
+		]
+		reporting_sales = [flt(row.get("current_sales")), flt(row.get("previous_sales"))]
+		reporting_sales.extend(historical_sales)
+		if not any(value != 0 for value in reporting_sales):
 			continue
-		if max(annual_sales[1:]) < filters.minimum_historical_sales:
+		if max(historical_sales) < filters.minimum_historical_sales:
 			continue
 		if filters.retention_status and row.get("retention_status") != filters.retention_status:
 			continue
@@ -490,7 +514,7 @@ def get_report_summary(rows, currency):
 		if row.get("retention_status") in ("Lost", "Decreased")
 	)
 	summary.append({
-		"label": "At-risk Previous Sales",
+		"label": "At-risk Comparison Sales",
 		"value": at_risk,
 		"indicator": "red" if at_risk else "gray",
 		"datatype": "Currency",
