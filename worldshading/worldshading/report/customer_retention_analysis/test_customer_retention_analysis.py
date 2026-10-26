@@ -98,9 +98,10 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		fieldnames = [column["fieldname"] for column in columns]
 
 		self.assertEqual(fieldnames[0:6], [
-			"rank", "customer", "customer_name", "customer_group", "territory",
-			"retention_status",
+			"customer", "customer_name", "customer_group", "territory",
+			"retention_status", "importance_score",
 		])
+		self.assertNotIn("rank", fieldnames)
 		self.assertEqual(
 			[fieldname for fieldname in fieldnames if fieldname.startswith("sales_")],
 			["sales_2025", "sales_2024", "sales_2023"],
@@ -207,7 +208,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		ranked = report.filter_sort_and_limit(rows, filters)
 
 		self.assertEqual([row["customer"] for row in ranked], ["A", "B", "OLDER"])
-		self.assertEqual([row["rank"] for row in ranked], [1, 2, 3])
+		self.assertTrue(all("rank" not in row for row in ranked))
 
 	def test_filter_sort_and_limit_filters_status_then_limits_by_decrease(self):
 		filters = report.normalize_filters(self.valid_filters(
@@ -230,6 +231,79 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(ranked[0]["customer"], "CUST-24")
 		self.assertEqual(ranked[-1]["customer"], "CUST-05")
 		self.assertTrue(all(row["retention_status"] == "Decreased" for row in ranked))
+
+	def test_importance_ranks_filtered_customers_by_value_loss_and_inactivity(self):
+		filters = report.normalize_filters(self.valid_filters(
+			previous_years=2, top_results="All", sort_by="Importance",
+			sort_direction="Descending",
+		), current_year=2026)
+		rows = [
+			{"customer": "VALUE", "retention_status": "Decreased", "current_sales": 150,
+			 "previous_sales": 200, "sales_2025": 200, "sales_2024": 200,
+			 "average_historical_sales": 200, "decrease_amount": 50,
+			 "inactive_days": 100, "current_invoice_count": 2},
+			{"customer": "PRIORITY", "retention_status": "Lost", "current_sales": 0,
+			 "previous_sales": 100, "sales_2025": 100, "sales_2024": 100,
+			 "average_historical_sales": 100, "decrease_amount": 100,
+			 "inactive_days": 300, "current_invoice_count": 0},
+			{"customer": "LOW", "retention_status": "Stable", "current_sales": 50,
+			 "previous_sales": 50, "sales_2025": 50, "sales_2024": 50,
+			 "average_historical_sales": 50, "decrease_amount": 0,
+			 "inactive_days": None, "current_invoice_count": 1},
+		]
+
+		ranked = report.filter_sort_and_limit(rows, filters)
+
+		self.assertEqual([row["customer"] for row in ranked], [
+			"PRIORITY", "VALUE", "LOW",
+		])
+		self.assertAlmostEqual(ranked[0]["importance_score"], 85.0, places=5)
+		self.assertAlmostEqual(ranked[1]["importance_score"], 72.5, places=5)
+		self.assertAlmostEqual(ranked[2]["importance_score"], 15.0, places=5)
+
+	def test_positive_percentile_ranks_handle_zero_ties_singletons_and_empty_rows(self):
+		rows = [
+			{"value": 0}, {"value": 10}, {"value": 10}, {"value": 20},
+		]
+
+		ranks = report.get_positive_percentile_ranks(rows, "value")
+
+		self.assertEqual(ranks[0], 0.0)
+		self.assertAlmostEqual(ranks[1], 66.666667, places=5)
+		self.assertAlmostEqual(ranks[2], 66.666667, places=5)
+		self.assertEqual(ranks[3], 100.0)
+		self.assertEqual(
+			report.get_positive_percentile_ranks([{"value": 5}], "value"),
+			[100.0],
+		)
+		self.assertEqual(report.get_positive_percentile_ranks([], "value"), [])
+
+	def test_importance_scores_use_filtered_population_before_top_results(self):
+		rows = []
+		for index in range(25):
+			value = index + 1
+			rows.append({
+				"customer": "CUST-{0:02d}".format(index),
+				"retention_status": "Lost", "current_sales": 0,
+				"previous_sales": value, "sales_2025": value,
+				"average_historical_sales": value, "decrease_amount": value,
+				"inactive_days": value, "current_invoice_count": 0,
+			})
+		all_filters = report.normalize_filters(self.valid_filters(
+			top_results="All", sort_by="Importance",
+		), current_year=2026)
+		top_filters = report.normalize_filters(self.valid_filters(
+			top_results="20", sort_by="Importance",
+		), current_year=2026)
+
+		all_rows = report.filter_sort_and_limit([dict(row) for row in rows], all_filters)
+		top_rows = report.filter_sort_and_limit([dict(row) for row in rows], top_filters)
+
+		self.assertEqual(len(top_rows), 20)
+		self.assertEqual(
+			[(row["customer"], row["importance_score"]) for row in top_rows],
+			[(row["customer"], row["importance_score"]) for row in all_rows[:20]],
+		)
 
 	def test_sales_query_uses_bound_scope_and_return_safe_activity_count(self):
 		filters = report.normalize_filters(self.valid_filters(
@@ -325,7 +399,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 
 		columns, rows, message, chart, summary, skip_total_row = result
 		self.assertEqual(captured["customers"], ["CUST-1"])
-		self.assertEqual(rows[0]["rank"], 1)
+		self.assertNotIn("rank", rows[0])
 		self.assertEqual(rows[0]["top_item_group_1"], "Outdoor")
 		self.assertEqual(rows[0]["report_currency"], "BHD")
 		self.assertEqual(rows[0]["retention_status"], "Decreased")
@@ -475,10 +549,10 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertEqual(context["CUST-1"]["number_of_interactions"], 3)
 		self.assertEqual(context["CUST-2"]["campaign_customer"], "CC-2")
 
-	def test_apply_and_enrich_context_keep_blanks_and_existing_rank_order(self):
+	def test_apply_and_enrich_context_keep_blanks_and_existing_order(self):
 		rows = [
-			{"rank": 1, "customer": "CUST-2"},
-			{"rank": 2, "customer": "CUST-1"},
+			{"customer": "CUST-2"},
+			{"customer": "CUST-1"},
 		]
 		campaign = {"CUST-2": {
 			"campaign_customer": "CC-2", "campaign": "Winter", "outreach_status": "Planned",
@@ -543,7 +617,8 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertNotIn("sales are not annualized", script)
 		self.assertIn("cra-filter-summary", script)
 		self.assertIn("cra-table", script)
-		self.assertIn('text === __("Rank")', script)
+		self.assertNotIn('text === __("Rank")', script)
+		self.assertNotIn("--cra-rank-width", script)
 		self.assertIn('text === __("Customer")', script)
 		self.assertIn('text === __("Customer Name")', script)
 		self.assertNotIn("annualized_value", script)

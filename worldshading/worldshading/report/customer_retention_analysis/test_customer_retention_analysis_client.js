@@ -94,7 +94,8 @@ let source = fs.readFileSync(script_path, "utf8");
 source = source.replace(
 	/\}\(\)\);\s*$/,
 	"global.__cra_test = {build_result_summary_html: build_result_summary_html, " +
-		"update_result_summary: update_result_summary};}());"
+		"update_result_summary: update_result_summary, get_sort_help: get_sort_help, " +
+		"apply_sort_help: apply_sort_help};}());"
 );
 vm.runInThisContext(source, {filename: script_path});
 
@@ -134,6 +135,59 @@ const summary = global.__cra_test.build_result_summary_html([
 assert(summary.indexOf("cra-summary-chip") !== -1);
 assert(summary.indexOf("BHD 100.000") !== -1);
 assert(summary.indexOf("&lt;div") === -1);
+
+let selected_sort = "Importance";
+let input_native_title = null;
+let wrapper_native_title = null;
+let wrapper_tooltip = "Sort By";
+let sort_change_handler = null;
+const sort_filter = {
+	get_value: function () { return selected_sort; },
+	$input: {
+		attr: function (name, value) {
+			if (name === "title") { input_native_title = value; }
+			return this;
+		},
+		removeAttr: function (name) {
+			if (name === "title") { input_native_title = null; }
+			return this;
+		},
+		off: function () { return this; },
+		on: function (name, handler) {
+			if (name === "change.cra_sort_help") { sort_change_handler = handler; }
+			return this;
+		}
+	},
+	$wrapper: {
+		attr: function (name, value) {
+			if (name === "title") { wrapper_native_title = value; }
+			if (name === "data-original-title") { wrapper_tooltip = value; }
+			return this;
+		},
+		removeAttr: function (name) {
+			if (name === "title") { wrapper_native_title = null; }
+			return this;
+		},
+		addClass: function () { return this; }
+	}
+};
+global.__cra_test.apply_sort_help({
+	get_filter: function () { return sort_filter; }
+});
+assert(wrapper_tooltip.indexOf("0–100") !== -1);
+assert(wrapper_tooltip.indexOf("45% average historical sales rank") !== -1);
+assert(wrapper_tooltip.indexOf("45% decrease amount rank") !== -1);
+assert(wrapper_tooltip.indexOf("10% inactive days rank") !== -1);
+assert(wrapper_tooltip.indexOf("45% average historical sales rank") !== -1);
+assert.strictEqual(input_native_title, null);
+assert.strictEqual(wrapper_native_title, null);
+assert.strictEqual(typeof sort_change_handler, "function");
+
+selected_sort = "Decrease Amount";
+sort_change_handler();
+assert(wrapper_tooltip.indexOf("previous-year sales minus analysis-year sales") !== -1);
+assert.strictEqual(input_native_title, null);
+assert.strictEqual(wrapper_native_title, null);
 
 function reset_dom() {
 	dom_elements = {};

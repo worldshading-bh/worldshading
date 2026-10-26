@@ -16,6 +16,14 @@
 		"New": "blue",
 		"Reactivated": "purple"
 	};
+	var SORT_HELP = {
+		"Importance": "Retention priority score (0–100): 45% average historical sales rank + 45% decrease amount rank + 10% inactive days rank. Each component ranks only positive values among customers matching the filters before Top Results; zero, missing, or negative values score 0, and ties share the same cumulative rank.",
+		"Decrease Amount": "Sorts by sales decrease: previous-year sales minus analysis-year sales, with increases treated as zero.",
+		"Current Sales": "Sorts by sales in the selected analysis year.",
+		"Previous Sales": "Sorts by sales in the calendar year immediately before the analysis year.",
+		"Inactive Days": "Sorts by the number of days since the customer's last submitted sales invoice.",
+		"Current Invoice Count": "Sorts by the number of submitted non-return invoices in the analysis year."
+	};
 
 	function get_current_year() {
 		return parseInt(frappe.datetime.get_today().slice(0, 4), 10);
@@ -142,7 +150,40 @@
 			".cra-table .dt-dropdown__list{z-index:60!important;}" +
 			".cra-table .cra-item-group-tooltip{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}" +
 			".cra-table .cra-item-group-heading .dt-cell__content{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}" +
+			".cra-sort-help,.cra-sort-help input{cursor:help!important;}" +
 			"</style>").appendTo("head");
+	}
+
+	function get_sort_help(sort_by) {
+		return __(SORT_HELP[sort_by] || "Choose how customers are ranked in the report.");
+	}
+
+	function set_sort_help(sort_filter, sort_by) {
+		var help = get_sort_help(sort_by || "Importance");
+		if (sort_filter.$input) { sort_filter.$input.removeAttr("title"); }
+		if (sort_filter.$wrapper) {
+			sort_filter.$wrapper
+				.attr("data-original-title", help)
+				.removeAttr("title")
+				.addClass("cra-sort-help");
+		}
+	}
+
+	function apply_sort_help(report) {
+		if (!report || !report.get_filter) { return; }
+		var sort_filter = report.get_filter("sort_by");
+		if (!sort_filter) { return; }
+		var sort_by = sort_filter.get_value ? sort_filter.get_value() : "Importance";
+		set_sort_help(sort_filter, sort_by);
+		if (sort_filter.$input) {
+			sort_filter.$input.off("change.cra_sort_help")
+				.on("change.cra_sort_help", function () {
+					set_sort_help(
+						sort_filter,
+						sort_filter.get_value ? sort_filter.get_value() : "Importance"
+					);
+				});
+		}
 	}
 
 	function summary_value(report, fieldname) {
@@ -249,6 +290,7 @@
 				}
 			});
 			update_filter_summary(report);
+			apply_sort_help(report);
 		});
 	}
 
@@ -267,17 +309,13 @@
 			return matched;
 		}
 
-		var rank_column = get_column("rank");
 		var customer_column = get_column("customer");
 		var customer_name_column = get_column("customer_name");
-		if (!rank_column || !customer_column || !customer_name_column) {
+		if (!customer_column || !customer_name_column) {
 			wrapper.find(".dt-row-header .dt-cell").each(function () {
 				var text = $(this).text().trim();
 				var class_name = (this.className.match(/dt-cell--col-(\d+)/) || [])[1];
 				if (class_name === undefined) { return; }
-				if (!rank_column && text === __("Rank")) {
-					rank_column = {colIndex: cint(class_name)};
-				}
 				if (!customer_column && text === __("Customer")) {
 					customer_column = {colIndex: cint(class_name)};
 				}
@@ -286,9 +324,9 @@
 				}
 			});
 		}
-		if (!rank_column || !customer_column || !customer_name_column) { return; }
+		if (!customer_column || !customer_name_column) { return; }
 		var sticky_indices = [
-			0, rank_column.colIndex, customer_column.colIndex, customer_name_column.colIndex
+			0, customer_column.colIndex, customer_name_column.colIndex
 		];
 		var sticky_header_selector = sticky_indices.map(function (index) {
 			return ".dt-header .dt-cell--col-" + index;
@@ -350,14 +388,10 @@
 		function update_sticky_offsets() {
 			wrapper_element.style.setProperty("--cra-row-index-width", "50px");
 			wrapper_element.style.setProperty(
-				"--cra-rank-width", get_column_width(rank_column.colIndex, 65) + "px"
-			);
-			wrapper_element.style.setProperty(
 				"--cra-customer-width", get_column_width(customer_column.colIndex, 140) + "px"
 			);
 		}
 		function update_sticky_rules() {
-			var rank_class = ".dt-cell--col-" + rank_column.colIndex;
 			var customer_class = ".dt-cell--col-" + customer_column.colIndex;
 			var name_class = ".dt-cell--col-" + customer_name_column.colIndex;
 			var header_filter = sticky_indices.map(function (index) {
@@ -366,9 +400,8 @@
 			}).join(",");
 			var rules = [
 				".cra-table .dt-cell--col-0{position:sticky;left:0;z-index:4;background:#fff;width:50px;min-width:50px;max-width:50px;flex:0 0 50px;}",
-				".cra-table " + rank_class + "{position:sticky;left:var(--cra-row-index-width);z-index:4;background:#fff;}",
-				".cra-table " + customer_class + "{position:sticky;left:calc(var(--cra-row-index-width) + var(--cra-rank-width));z-index:4;background:#fff;}",
-				".cra-table " + name_class + "{position:sticky;left:calc(var(--cra-row-index-width) + var(--cra-rank-width) + var(--cra-customer-width));z-index:4;background:#fff;box-shadow:2px 0 2px rgba(0,0,0,.08);}",
+				".cra-table " + customer_class + "{position:sticky;left:var(--cra-row-index-width);z-index:4;background:#fff;}",
+				".cra-table " + name_class + "{position:sticky;left:calc(var(--cra-row-index-width) + var(--cra-customer-width));z-index:4;background:#fff;box-shadow:2px 0 2px rgba(0,0,0,.08);}",
 				header_filter + "{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}"
 			];
 			$("#cra-dynamic-style").remove();
@@ -563,12 +596,14 @@
 			update_filter_summary(report);
 			update_result_summary(report);
 			add_campaign_customer_button(report);
+			apply_sort_help(report);
 			return restore_prepared_filters(report);
 		},
-			after_datatable_render: function (datatable) {
+		after_datatable_render: function (datatable) {
 			apply_sticky_columns(datatable);
 			update_filter_summary(frappe.query_report);
 			update_result_summary(frappe.query_report);
+			apply_sort_help(frappe.query_report);
 		}
 	};
 }());

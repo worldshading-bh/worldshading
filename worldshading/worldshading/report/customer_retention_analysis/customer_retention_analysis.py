@@ -1,5 +1,6 @@
 from __future__ import unicode_literals
 
+from bisect import bisect_right
 from datetime import date
 
 import frappe
@@ -15,6 +16,9 @@ SORT_OPTIONS = (
 SORT_DIRECTIONS = ("Descending", "Ascending")
 TOP_RESULT_OPTIONS = ("20", "50", "100", "250", "All")
 STATUS_CHANGE_THRESHOLD = 20.0
+IMPORTANCE_VALUE_WEIGHT = 0.45
+IMPORTANCE_DECREASE_WEIGHT = 0.45
+IMPORTANCE_INACTIVITY_WEIGHT = 0.10
 
 
 def normalize_filters(filters, current_year=None):
@@ -82,12 +86,12 @@ def get_columns(filters, currency):
 	analysis_year = filters.analysis_year
 	previous_year = analysis_year - 1
 	columns = [
-		_column("Rank", "rank", "Int", 65),
 		_column("Customer", "customer", "Link", 140, "Customer"),
 		_column("Customer Name", "customer_name", width=190),
 		_column("Customer Group", "customer_group", "Link", 130, "Customer Group"),
 		_column("Territory", "territory", "Link", 120, "Territory"),
 		_column("Retention Status", "retention_status", width=120),
+		_column("Importance Score", "importance_score", "Float", 115),
 		_column("{0} Sales".format(analysis_year), "current_sales", "Currency", 125, currency),
 		_column("{0} Sales".format(previous_year), "previous_sales", "Currency", 125, currency),
 		_column("Change Amount", "change_amount", "Currency", 125, currency),
@@ -203,9 +207,37 @@ def build_customer_row(customer, customer_context, year_values, last_invoice_dat
 	return row
 
 
+def get_positive_percentile_ranks(rows, fieldname):
+	positive_values = sorted(
+		max(flt(row.get(fieldname)), 0) for row in rows
+		if flt(row.get(fieldname)) > 0
+	)
+	if not positive_values:
+		return [0.0 for unused_row in rows]
+	total = float(len(positive_values))
+	return [
+		(bisect_right(positive_values, max(flt(row.get(fieldname)), 0)) / total * 100.0)
+		if flt(row.get(fieldname)) > 0 else 0.0
+		for row in rows
+	]
+
+
+def apply_importance_scores(rows):
+	value_ranks = get_positive_percentile_ranks(rows, "average_historical_sales")
+	decrease_ranks = get_positive_percentile_ranks(rows, "decrease_amount")
+	inactivity_ranks = get_positive_percentile_ranks(rows, "inactive_days")
+	for index, row in enumerate(rows):
+		row["importance_score"] = (
+			value_ranks[index] * IMPORTANCE_VALUE_WEIGHT
+			+ decrease_ranks[index] * IMPORTANCE_DECREASE_WEIGHT
+			+ inactivity_ranks[index] * IMPORTANCE_INACTIVITY_WEIGHT
+		)
+	return rows
+
+
 def get_sort_value(row, sort_by):
 	fieldname = {
-		"Importance": "previous_sales",
+		"Importance": "importance_score",
 		"Decrease Amount": "decrease_amount",
 		"Current Sales": "current_sales",
 		"Previous Sales": "previous_sales",
@@ -232,6 +264,7 @@ def filter_sort_and_limit(rows, filters):
 			continue
 		filtered_rows.append(row)
 
+	apply_importance_scores(filtered_rows)
 	filtered_rows.sort(key=lambda row: row.get("customer") or "")
 	filtered_rows.sort(
 		key=lambda row: get_sort_value(row, filters.sort_by),
@@ -239,8 +272,6 @@ def filter_sort_and_limit(rows, filters):
 	)
 	if filters.top_results != "All":
 		filtered_rows = filtered_rows[:cint(filters.top_results)]
-	for index, row in enumerate(filtered_rows):
-		row["rank"] = index + 1
 	return filtered_rows
 
 
