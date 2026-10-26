@@ -18,15 +18,57 @@
 	};
 	var SORT_HELP = {
 		"Importance": "Retention priority score (0–100): 45% average historical sales rank + 45% decrease amount rank + 10% inactive days rank. Each component ranks only positive values among customers matching the filters before Top Results; zero, missing, or negative values score 0, and ties share the same cumulative rank.",
-		"Decrease Amount": "Sorts by sales decrease: previous-year sales minus analysis-year sales, with increases treated as zero.",
+		"Decrease Amount": "Sorts by sales decrease: comparison-year sales minus analysis-year sales, with increases treated as zero.",
 		"Current Sales": "Sorts by sales in the selected analysis year.",
-		"Previous Sales": "Sorts by sales in the calendar year immediately before the analysis year.",
+		"Comparison Sales": "Sorts by sales in the selected comparison year.",
 		"Inactive Days": "Sorts by the number of days since the customer's last submitted sales invoice.",
 		"Current Invoice Count": "Sorts by the number of submitted non-return invoices in the analysis year."
 	};
 
 	function get_current_year() {
 		return parseInt(frappe.datetime.get_today().slice(0, 4), 10);
+	}
+
+	function get_comparison_year_options(analysis_year) {
+		var year = cint(analysis_year) || get_current_year();
+		var options = [];
+		for (var offset = 1; offset <= 5; offset += 1) {
+			options.push(year - offset);
+		}
+		return options;
+	}
+
+	function sync_comparison_year_filter(report, preferred_value) {
+		if (!report || !report.get_filter || !report.get_filter_value) { return; }
+		var comparison_filter = report.get_filter("comparison_year");
+		if (!comparison_filter) { return; }
+		var options = get_comparison_year_options(
+			report.get_filter_value("analysis_year")
+		);
+		var current_value = preferred_value;
+		if (current_value === undefined || current_value === null || current_value === "") {
+			current_value = comparison_filter.get_value ?
+				comparison_filter.get_value() : report.get_filter_value("comparison_year");
+		}
+		current_value = cint(current_value);
+		var selected_value = options.indexOf(current_value) !== -1 ?
+			current_value : options[0];
+		comparison_filter.df.options = options.join("\n");
+		if (comparison_filter.refresh) { comparison_filter.refresh(); }
+		if (!comparison_filter.get_value || cint(comparison_filter.get_value()) !== selected_value) {
+			comparison_filter.set_input(selected_value);
+		}
+		return selected_value;
+	}
+
+	function analysis_year_changed(report) {
+		sync_comparison_year_filter(report);
+		update_filter_summary(report);
+		if (report.prepared_report) {
+			report.reset_report_view();
+		} else if (!report._no_refresh) {
+			report.refresh();
+		}
 	}
 
 	function get_displayed_customers(report) {
@@ -196,7 +238,9 @@
 		var labels = [
 			["company", __("Company")],
 			["analysis_year", __("Analysis Year")],
+			["comparison_year", __("Comparison Year")],
 			["previous_years", __("Previous Years")],
+			["item_group", __("Item Group")],
 			["retention_status", __("Status")],
 			["sort_by", __("Sort By")],
 			["top_results", __("Top Results")]
@@ -259,7 +303,7 @@
 		var currency = rows.length ? rows[0].report_currency : null;
 		var formatted_risk = format_currency(at_risk, currency);
 		parts.push("<span class='cra-summary-chip cra-summary-risk'><strong>" +
-			frappe.utils.escape_html(__("At-risk Previous Sales")) +
+			frappe.utils.escape_html(__("At-risk Comparison Sales")) +
 			":</strong> " + frappe.utils.escape_html(String(formatted_risk)) + "</span>");
 		return parts.join("");
 	}
@@ -283,8 +327,19 @@
 			args: {prepared_report_name: params.prepared_report_name}
 		}).then(function (response) {
 			var values = response.message || {};
+			if (values.sort_by === "Previous Sales") {
+				values.sort_by = "Comparison Sales";
+			}
+			var analysis_filter = report.get_filter && report.get_filter("analysis_year");
+			if (analysis_filter && Object.prototype.hasOwnProperty.call(values, "analysis_year")) {
+				analysis_filter.set_input(values.analysis_year);
+			}
+			sync_comparison_year_filter(report, values.comparison_year);
 			(report.filters || []).forEach(function (filter) {
 				var fieldname = filter.df.fieldname;
+				if (fieldname === "analysis_year" || fieldname === "comparison_year") {
+					return;
+				}
 				if (Object.prototype.hasOwnProperty.call(values, fieldname)) {
 					filter.set_input(values[fieldname]);
 				}
@@ -292,6 +347,34 @@
 			update_filter_summary(report);
 			apply_sort_help(report);
 		});
+	}
+
+	function normalize_legacy_sort_filter(report) {
+		if (!report || !report.get_filter) { return; }
+		var sort_filter = report.get_filter("sort_by");
+		if (!sort_filter) { return; }
+		var selected_value = sort_filter.get_value ? sort_filter.get_value() : null;
+		if (selected_value !== "Previous Sales" &&
+				sort_filter.value !== "Previous Sales") { return; }
+		sort_filter.set_input("Comparison Sales");
+		update_filter_summary(report);
+		apply_sort_help(report);
+	}
+
+	function install_refresh_filter_compatibility(report) {
+		if (!report || !report.refresh || report.__cra_refresh_compatibility_installed) {
+			return;
+		}
+		report.__cra_refresh_compatibility_installed = true;
+		var original_refresh = report.refresh;
+		report.refresh = function () {
+			var active_report = this;
+			var result = original_refresh.apply(active_report, arguments);
+			return Promise.resolve(result).then(function (value) {
+				normalize_legacy_sort_filter(active_report);
+				return value;
+			});
+		};
 	}
 
 	function apply_sticky_columns(datatable) {
@@ -553,15 +636,17 @@
 	frappe.query_reports["Customer Retention Analysis"] = {
 		filters: [
 			{fieldname: "company", label: __("Company"), fieldtype: "Link", options: "Company", reqd: 1, "default": frappe.defaults.get_user_default("Company")},
-			{fieldname: "analysis_year", label: __("Analysis Year"), fieldtype: "Int", reqd: 1, "default": get_current_year()},
+			{fieldname: "analysis_year", label: __("Analysis Year"), fieldtype: "Int", reqd: 1, "default": get_current_year(), on_change: analysis_year_changed},
+			{fieldname: "comparison_year", label: __("Comparison Year"), fieldtype: "Select", reqd: 1, options: get_comparison_year_options(get_current_year()).join("\n"), "default": get_current_year() - 1, description: __("Main sales, status, change, and decrease calculations use this year as the baseline.")},
 			{fieldname: "previous_years", label: __("Previous Years"), fieldtype: "Select", options: "1\n2\n3\n4\n5", "default": 1},
 			{fieldname: "customer", label: __("Customer"), fieldtype: "Link", options: "Customer"},
 			{fieldname: "customer_group", label: __("Customer Group"), fieldtype: "Link", options: "Customer Group"},
+			{fieldname: "item_group", label: __("Item Group"), fieldtype: "Link", options: "Item Group", description: __("When selected, all sales, invoice activity, status, ranking, and inactivity calculations are limited to this exact Item Group.")},
 			{fieldname: "territory", label: __("Territory"), fieldtype: "Link", options: "Territory"},
 			{fieldname: "retention_status", label: __("Retention Status"), fieldtype: "Select", options: "\nLost\nDecreased\nStable\nIncreased\nNew\nReactivated"},
 			{fieldname: "minimum_historical_sales", label: __("Minimum Historical Sales"), fieldtype: "Currency", "default": 0},
 			{fieldname: "top_results", label: __("Top Results"), fieldtype: "Select", options: "20\n50\n100\n250\nAll", "default": "100"},
-			{fieldname: "sort_by", label: __("Sort By"), fieldtype: "Select", options: "Importance\nDecrease Amount\nCurrent Sales\nPrevious Sales\nInactive Days\nCurrent Invoice Count", "default": "Importance"},
+			{fieldname: "sort_by", label: __("Sort By"), fieldtype: "Select", options: "Importance\nDecrease Amount\nCurrent Sales\nComparison Sales\nInactive Days\nCurrent Invoice Count", "default": "Importance"},
 			{fieldname: "sort_direction", label: __("Sort Direction"), fieldtype: "Select", options: "Descending\nAscending", "default": "Descending"}
 		],
 		formatter: function (value, row, column, data, default_formatter) {
@@ -593,6 +678,8 @@
 		},
 		onload: function (report) {
 			install_styles();
+			install_refresh_filter_compatibility(report);
+			sync_comparison_year_filter(report);
 			update_filter_summary(report);
 			update_result_summary(report);
 			add_campaign_customer_button(report);

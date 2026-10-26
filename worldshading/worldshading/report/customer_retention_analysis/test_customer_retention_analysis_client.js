@@ -95,11 +95,66 @@ source = source.replace(
 	/\}\(\)\);\s*$/,
 	"global.__cra_test = {build_result_summary_html: build_result_summary_html, " +
 		"update_result_summary: update_result_summary, get_sort_help: get_sort_help, " +
-		"apply_sort_help: apply_sort_help};}());"
+		"apply_sort_help: apply_sort_help, " +
+		"get_comparison_year_options: get_comparison_year_options, " +
+		"sync_comparison_year_filter: sync_comparison_year_filter, " +
+		"restore_prepared_filters: restore_prepared_filters, " +
+		"install_refresh_filter_compatibility: install_refresh_filter_compatibility};}());"
 );
 vm.runInThisContext(source, {filename: script_path});
 
 const report = frappe.query_reports["Customer Retention Analysis"];
+assert.deepStrictEqual(
+	global.__cra_test.get_comparison_year_options(2026),
+	[2025, 2024, 2023, 2022, 2021]
+);
+const filter_definitions = {};
+report.filters.forEach(function (filter) { filter_definitions[filter.fieldname] = filter; });
+assert.strictEqual(filter_definitions.item_group.fieldtype, "Link");
+assert.strictEqual(filter_definitions.item_group.options, "Item Group");
+assert.strictEqual(filter_definitions.comparison_year.fieldtype, "Select");
+assert.strictEqual(filter_definitions.comparison_year.reqd, 1);
+assert(filter_definitions.sort_by.options.indexOf("Comparison Sales") !== -1);
+assert(filter_definitions.sort_by.options.indexOf("Previous Sales") === -1);
+
+function make_comparison_report(analysis_year, comparison_year) {
+	let current_analysis_year = analysis_year;
+	let current_comparison_year = comparison_year;
+	const comparison_filter = {
+		df: {fieldname: "comparison_year", options: ""},
+		get_value: function () { return current_comparison_year; },
+		set_input: function (value) { current_comparison_year = value; },
+		refresh: function () { this.refresh_count = (this.refresh_count || 0) + 1; }
+	};
+	return {
+		comparison_filter: comparison_filter,
+		get_filter_value: function (fieldname) {
+			return fieldname === "analysis_year" ? current_analysis_year : current_comparison_year;
+		},
+		get_filter: function (fieldname) {
+			return fieldname === "comparison_year" ? comparison_filter : null;
+		},
+		set_analysis_year: function (value) { current_analysis_year = value; }
+	};
+}
+
+const dynamic_report = make_comparison_report(2026, 2024);
+dynamic_report.refresh = function () { this.refresh_count = (this.refresh_count || 0) + 1; };
+global.__cra_test.sync_comparison_year_filter(dynamic_report);
+assert.strictEqual(
+	dynamic_report.comparison_filter.df.options,
+	"2025\n2024\n2023\n2022\n2021"
+);
+assert.strictEqual(dynamic_report.get_filter_value("comparison_year"), 2024);
+dynamic_report.set_analysis_year(2024);
+filter_definitions.analysis_year.on_change(dynamic_report);
+assert.strictEqual(
+	dynamic_report.comparison_filter.df.options,
+	"2023\n2022\n2021\n2020\n2019"
+);
+assert.strictEqual(dynamic_report.get_filter_value("comparison_year"), 2023);
+assert.strictEqual(dynamic_report.refresh_count, 1);
+
 const default_formatter = function (value) {
 	return "<a>" + escape_html(value) + "</a>";
 };
@@ -185,9 +240,13 @@ assert.strictEqual(typeof sort_change_handler, "function");
 
 selected_sort = "Decrease Amount";
 sort_change_handler();
-assert(wrapper_tooltip.indexOf("previous-year sales minus analysis-year sales") !== -1);
+assert(wrapper_tooltip.indexOf("comparison-year sales minus analysis-year sales") !== -1);
 assert.strictEqual(input_native_title, null);
 assert.strictEqual(wrapper_native_title, null);
+
+selected_sort = "Comparison Sales";
+sort_change_handler();
+assert(wrapper_tooltip.indexOf("selected comparison year") !== -1);
 
 function reset_dom() {
 	dom_elements = {};
@@ -219,6 +278,65 @@ function make_report(prepared) {
 	return result;
 }
 
+const prepared_values = {
+	analysis_year: 2024,
+	comparison_year: 2021,
+	item_group: "PVC 680 GSM",
+	sort_by: "Previous Sales"
+};
+const prepared_order = [];
+const prepared_filter_values = {
+	analysis_year: 2026, comparison_year: 2025, item_group: "", sort_by: "Importance"
+};
+const prepared_filters = ["analysis_year", "comparison_year", "item_group", "sort_by"].map(function (fieldname) {
+	return {
+		df: {fieldname: fieldname, options: ""},
+		get_value: function () { return prepared_filter_values[fieldname]; },
+		set_input: function (value) {
+			prepared_order.push(fieldname + ":" + value);
+			prepared_filter_values[fieldname] = value;
+		},
+		refresh: function () {
+			if (fieldname === "comparison_year") {
+				prepared_order.push("comparison_options:" + this.df.options.replace(/\n/g, ","));
+			}
+		}
+	};
+});
+const prepared_restore_report = {
+	filters: prepared_filters,
+	page: {main: {find: global.$}},
+	get_query_params: function () { return {prepared_report_name: "PREP-ORDERED"}; },
+	get_filter: function (fieldname) {
+		return prepared_filters.filter(function (filter) {
+			return filter.df.fieldname === fieldname;
+		})[0];
+	},
+	get_filter_value: function (fieldname) { return prepared_filter_values[fieldname]; }
+};
+
+let core_sort_value = "Comparison Sales";
+const core_sort_filter = {
+	value: "Comparison Sales",
+	get_value: function () {
+		return this.value === "Previous Sales" ? "" : this.value;
+	},
+	set_input: function (value) {
+		this.value = value;
+		core_sort_value = value;
+	}
+};
+const core_restore_report = {
+	get_filter: function (fieldname) {
+		return fieldname === "sort_by" ? core_sort_filter : null;
+	},
+	refresh: function () {
+		core_sort_filter.set_input("Previous Sales");
+		return Promise.resolve("core-result");
+	}
+};
+global.__cra_test.install_refresh_filter_compatibility(core_restore_report);
+
 function assert_clean_layout() {
 	assert.strictEqual(dom_elements[".cra-partial-year-notice"], undefined);
 	const summary_insertion = dom_insertions.filter(function (entry) {
@@ -229,8 +347,32 @@ function assert_clean_layout() {
 }
 
 reset_dom();
-report.onload(make_report(false)).then(function () {
+core_restore_report.refresh().then(function (result) {
+	assert.strictEqual(result, "core-result");
+	assert.strictEqual(core_sort_value, "Comparison Sales");
+	return report.onload(make_report(false));
+}).then(function () {
 	assert_clean_layout();
+	reset_dom();
+	frappe.call = function () { return Promise.resolve({message: prepared_values}); };
+	return global.__cra_test.restore_prepared_filters(prepared_restore_report);
+}).then(function () {
+	assert.deepStrictEqual(prepared_order.slice(0, 3), [
+		"analysis_year:2024",
+		"comparison_options:2023,2022,2021,2020,2019",
+		"comparison_year:2021"
+	]);
+	assert.strictEqual(prepared_filter_values.item_group, "PVC 680 GSM");
+	assert.strictEqual(prepared_filter_values.sort_by, "Comparison Sales");
+	frappe.call = function (options) {
+		frappe_calls.push(options);
+		if (options.method && options.method.indexOf("bulk_create_campaign_customers") !== -1) {
+			const response = {message: {created_count: 2, skipped_count: 1}};
+			if (options.callback) { options.callback(response); }
+			return Promise.resolve(response);
+		}
+		return Promise.resolve({message: {analysis_year: 2026}});
+	};
 	reset_dom();
 	return report.onload(make_report(true));
 }).then(function () {

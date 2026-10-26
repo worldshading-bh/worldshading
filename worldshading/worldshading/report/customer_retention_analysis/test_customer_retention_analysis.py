@@ -549,14 +549,15 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 			"territory": "Bahrain", "sales_year": 2026, "sales": -50, "invoice_count": 0,
 		}]
 		with patch.object(report, "get_company_context", return_value="BHD"), \
-				patch.object(report, "get_sales_activity", return_value=sales_rows), \
+				patch.object(report, "get_sales_activity", return_value=sales_rows) as sales_activity, \
 				patch.object(report, "get_last_invoice_dates", return_value={}), \
 				patch.object(report, "today", return_value="2026-10-22"), \
 				patch.object(report, "enrich_rows", side_effect=lambda rows, filters: rows):
 			unused_columns, rows, unused_message, unused_chart, unused_summary, unused_skip = report.execute(
-				self.valid_filters()
+				self.valid_filters(item_group="PVC 680 GSM")
 			)
 
+		self.assertEqual(sales_activity.call_args[0][0].item_group, "PVC 680 GSM")
 		self.assertEqual(rows[0]["current_sales"], -50.0)
 		self.assertEqual(rows[0]["current_invoice_count"], 0)
 		self.assertEqual(rows[0]["total_invoice_count"], 0)
@@ -759,7 +760,8 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 
 		self.assertIn('frappe.query_reports["Customer Retention Analysis"]', script)
 		for fieldname in (
-			"company", "analysis_year", "previous_years", "customer", "customer_group",
+			"company", "analysis_year", "comparison_year", "previous_years",
+			"customer", "customer_group", "item_group",
 			"territory", "retention_status", "minimum_historical_sales", "top_results",
 			"sort_by", "sort_direction",
 		):
@@ -767,7 +769,8 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertIn('options: "1\\n2\\n3\\n4\\n5"', script)
 		self.assertIn('options: "20\\n50\\n100\\n250\\nAll"', script)
 		self.assertIn('options: "\\nLost\\nDecreased\\nStable\\nIncreased\\nNew\\nReactivated"', script)
-		self.assertIn('options: "Importance\\nDecrease Amount\\nCurrent Sales\\nPrevious Sales\\nInactive Days\\nCurrent Invoice Count"', script)
+		self.assertIn('options: "Importance\\nDecrease Amount\\nCurrent Sales\\nComparison Sales\\nInactive Days\\nCurrent Invoice Count"', script)
+		self.assertIn('options: "Item Group"', script)
 		self.assertIn('options: "Descending\\nAscending"', script)
 		self.assertIn('"default": 1', script)
 		self.assertIn('"default": "100"', script)
@@ -875,7 +878,7 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertIn("build_decline_chart", script)
 		self.assertIn("update_result_summary", script)
 		self.assertIn("cra-result-summary", script)
-		self.assertIn("At-risk Previous Sales", script)
+		self.assertIn("At-risk Comparison Sales", script)
 
 	def test_client_uses_purchase_plan_sticky_and_highlight_safeguards(self):
 		path = os.path.join(os.path.dirname(__file__), "customer_retention_analysis.js")
