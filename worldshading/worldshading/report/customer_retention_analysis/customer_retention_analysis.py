@@ -470,6 +470,38 @@ def get_item_group_context(filters, customers):
 	return context
 
 
+def get_overall_sales_context(filters, customers):
+	if not filters.get("item_group") or not customers:
+		return {}
+	start_date, end_date = get_period_bounds(filters)
+	rows = frappe.db.sql("""
+		select
+			si.customer,
+			year(si.posting_date) as sales_year,
+			sum(si.base_net_total) as sales
+		from `tabSales Invoice` si
+		where si.company = %(company)s
+			and si.docstatus = 1
+			and si.posting_date between %(start_date)s and %(end_date)s
+			and year(si.posting_date) in %(reporting_years)s
+			and si.customer in %(customers)s
+		group by si.customer, year(si.posting_date)
+	""", {
+		"company": filters.company,
+		"start_date": start_date,
+		"end_date": end_date,
+		"reporting_years": tuple(get_reporting_years(filters)),
+		"customers": tuple(customers),
+	}, as_dict=True)
+
+	context = {}
+	for row in rows:
+		context.setdefault(row["customer"], {})[cint(row["sales_year"])] = flt(
+			row.get("sales")
+		)
+	return context
+
+
 def get_campaign_context(customers):
 	if not customers:
 		return {}
@@ -524,6 +556,7 @@ def enrich_rows(rows, filters):
 	filters = frappe._dict(filters or {})
 	customers = [row["customer"] for row in rows]
 	item_group_context = get_item_group_context(filters, customers)
+	overall_sales_context = get_overall_sales_context(filters, customers)
 	campaign_context = get_campaign_context(customers)
 	rows = apply_customer_context(rows, item_group_context, campaign_context)
 	period = ", ".join(
@@ -531,6 +564,13 @@ def enrich_rows(rows, filters):
 	)
 	for row in rows:
 		row["item_group_sales_period"] = period
+		if filters.get("item_group"):
+			row["selected_item_group"] = filters.item_group
+			row["analysis_year"] = filters.analysis_year
+			row["comparison_year"] = filters.comparison_year
+			customer_sales = overall_sales_context.get(row["customer"], {})
+			for year in get_reporting_years(filters):
+				row["overall_sales_{0}".format(year)] = flt(customer_sales.get(year))
 	return rows
 
 

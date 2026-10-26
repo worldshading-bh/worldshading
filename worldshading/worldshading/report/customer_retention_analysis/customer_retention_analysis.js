@@ -191,6 +191,7 @@
 			".cra-table .cra-selected-row .dt-cell{background:#fff3cd!important;}" +
 			".cra-table .dt-dropdown__list{z-index:60!important;}" +
 			".cra-table .cra-item-group-tooltip{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}" +
+			".cra-table .cra-sales-scope-tooltip{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}" +
 			".cra-table .cra-item-group-heading .dt-cell__content{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}" +
 			".cra-sort-help,.cra-sort-help input{cursor:help!important;}" +
 			"</style>").appendTo("head");
@@ -375,6 +376,13 @@
 				return value;
 			});
 		};
+	}
+
+	function get_yearly_sales_year(fieldname, data) {
+		if (fieldname === "current_sales") { return cint(data.analysis_year); }
+		if (fieldname === "previous_sales") { return cint(data.comparison_year); }
+		var matched = String(fieldname || "").match(/^sales_(\d{4})$/);
+		return matched ? cint(matched[1]) : 0;
 	}
 
 	function apply_sticky_columns(datatable) {
@@ -652,6 +660,24 @@
 		formatter: function (value, row, column, data, default_formatter) {
 			var formatted = default_formatter(value, row, column, data);
 			var fieldname = column && column.fieldname;
+			var sales_year = data && get_yearly_sales_year(fieldname, data);
+			var overall_field = "overall_sales_" + sales_year;
+			if (sales_year && data.selected_item_group &&
+					Object.prototype.hasOwnProperty.call(data, overall_field)) {
+				var selected_sales = parseFloat(value || 0);
+				var overall_sales = parseFloat(data[overall_field] || 0);
+				var sales_tooltip = data.selected_item_group + " " + __("Sales") +
+					" (" + sales_year + "): " +
+					format_currency(selected_sales, data.report_currency) + "\n" +
+					__("Total Customer Sales") + " (" + sales_year + "): " +
+					format_currency(overall_sales, data.report_currency);
+				if (overall_sales > 0) {
+					sales_tooltip += "\n" + __("Share of Total") + ": " +
+						(selected_sales / overall_sales * 100).toFixed(1) + "%";
+				}
+				return "<span class='cra-sales-scope-tooltip' title=\"" +
+					frappe.utils.escape_html(sales_tooltip) + "\">" + formatted + "</span>";
+			}
 			if (/^top_item_group_[123]$/.test(fieldname || "") && data) {
 				var amount = data[fieldname + "_sales"];
 				if (amount !== undefined && amount !== null && value) {

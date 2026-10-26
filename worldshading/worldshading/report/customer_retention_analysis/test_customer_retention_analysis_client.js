@@ -159,6 +159,40 @@ const default_formatter = function (value) {
 	return "<a>" + escape_html(value) + "</a>";
 };
 
+[
+	{fieldname: "current_sales", year: 2026},
+	{fieldname: "previous_sales", year: 2021},
+	{fieldname: "sales_2024", year: 2024}
+].forEach(function (example) {
+	const data = {
+		selected_item_group: "PVC 680 GSM",
+		analysis_year: 2026,
+		comparison_year: 2021,
+		report_currency: "BHD"
+	};
+	data["overall_sales_" + example.year] = 100;
+	const sales_tooltip = report.formatter(
+		25,
+		null,
+		{fieldname: example.fieldname},
+		data,
+		default_formatter
+	);
+	assert(sales_tooltip.indexOf("cra-sales-scope-tooltip") !== -1);
+	assert(sales_tooltip.indexOf("PVC 680 GSM Sales (" + example.year + "): BHD 25.000") !== -1);
+	assert(sales_tooltip.indexOf("Total Customer Sales (" + example.year + "): BHD 100.000") !== -1);
+	assert(sales_tooltip.indexOf("Share of Total: 25.0%") !== -1);
+});
+
+const unfiltered_sales = report.formatter(
+	25,
+	null,
+	{fieldname: "current_sales"},
+	{analysis_year: 2026, overall_sales_2026: 100, report_currency: "BHD"},
+	default_formatter
+);
+assert.strictEqual(unfiltered_sales, "<a>25</a>");
+
 const tooltip = report.formatter(
 	"Outdoor & Shade",
 	null,

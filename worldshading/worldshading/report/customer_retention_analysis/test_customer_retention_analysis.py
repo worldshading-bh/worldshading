@@ -661,11 +661,45 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		), current_year=2026)
 		rows = [{"customer": "CUST-1"}]
 
+		query_rows = [
+			{"customer": "CUST-1", "sales_year": 2026, "sales": 400},
+			{"customer": "CUST-1", "sales_year": 2025, "sales": 500},
+			{"customer": "CUST-1", "sales_year": 2024, "sales": 300},
+		]
+		captured = {}
+
+		def fake_sql(query, values=None, as_dict=False):
+			captured.update({"query": query, "values": values, "as_dict": as_dict})
+			return query_rows
+
+		frappe_dict = report.frappe._dict
 		with patch.object(report, "get_item_group_context", return_value={
 			"CUST-1": [{"item_group": "PVC 680 GSM", "net_amount": 250.0}],
-		}), patch.object(report, "get_campaign_context", return_value={}):
+		}), patch.object(report, "get_campaign_context", return_value={}), \
+				patch.object(report, "frappe") as frappe_mock:
+			frappe_mock._dict.side_effect = frappe_dict
+			frappe_mock.db.sql.side_effect = fake_sql
 			enriched = report.enrich_rows(rows, filters)
 
+		self.assertEqual(enriched[0].get("overall_sales_2026"), 400.0)
+		query = " ".join(captured["query"].lower().split())
+		self.assertIn("sum(si.base_net_total)", query)
+		self.assertIn("year(si.posting_date) in %(reporting_years)s", query)
+		self.assertIn("si.customer in %(customers)s", query)
+		self.assertNotIn("`tabsales invoice item`", query)
+		self.assertNotIn("item_group", query)
+		self.assertEqual(captured["values"]["customers"], ("CUST-1",))
+		self.assertEqual(
+			captured["values"]["reporting_years"], (2026, 2025, 2024, 2023, 2021)
+		)
+		self.assertTrue(captured["as_dict"])
+		self.assertEqual(enriched[0]["selected_item_group"], "PVC 680 GSM")
+		self.assertEqual(enriched[0]["analysis_year"], 2026)
+		self.assertEqual(enriched[0]["comparison_year"], 2021)
+		self.assertEqual(enriched[0]["overall_sales_2025"], 500.0)
+		self.assertEqual(enriched[0]["overall_sales_2024"], 300.0)
+		self.assertEqual(enriched[0]["overall_sales_2023"], 0.0)
+		self.assertEqual(enriched[0]["overall_sales_2021"], 0.0)
 		self.assertEqual(enriched[0]["top_item_group_1"], "PVC 680 GSM")
 		self.assertIsNone(enriched[0]["top_item_group_2"])
 		self.assertIsNone(enriched[0]["top_item_group_3"])
@@ -742,13 +776,17 @@ class TestCustomerRetentionAnalysis(unittest.TestCase):
 		self.assertIsNone(applied[1]["campaign_customer"])
 		self.assertIsNone(applied[1]["number_of_interactions"])
 
+		frappe_dict = report.frappe._dict
 		with patch.object(report, "get_item_group_context", return_value={}) as item_groups, \
-				patch.object(report, "get_campaign_context", return_value={}) as campaigns:
+				patch.object(report, "get_campaign_context", return_value={}) as campaigns, \
+				patch.object(report, "frappe") as frappe_mock:
+			frappe_mock._dict.side_effect = frappe_dict
 			enriched = report.enrich_rows(rows, self.valid_filters(previous_years=3))
 		item_groups.assert_called_once_with(
 			self.valid_filters(previous_years=3), ["CUST-2", "CUST-1"]
 		)
 		campaigns.assert_called_once_with(["CUST-2", "CUST-1"])
+		frappe_mock.db.sql.assert_not_called()
 		self.assertEqual(
 			enriched[0]["item_group_sales_period"], "2023, 2024, 2025, 2026"
 		)
