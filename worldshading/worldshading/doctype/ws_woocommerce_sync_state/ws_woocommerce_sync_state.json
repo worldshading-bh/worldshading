@@ -1,0 +1,104 @@
+{
+ "doctype": "DocType",
+ "name": "WS WooCommerce Sync State",
+ "module": "Worldshading",
+ "custom": 0,
+ "engine": "InnoDB",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "creation": "2026-11-01 09:00:00",
+ "modified": "2026-11-01 09:00:00",
+ "autoname": "field:item_link",
+ "fields": [
+  {
+   "fieldname": "item_link",
+   "fieldtype": "Data",
+   "label": "Item Link",
+   "read_only": 1,
+   "unique": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "read_only": 1,
+   "options": "Item",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "requested_version",
+   "fieldtype": "Int",
+   "label": "Requested Version",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "synced_version",
+   "fieldtype": "Int",
+   "label": "Synced Version",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "last_payload_hash",
+   "fieldtype": "Data",
+   "label": "Verified Payload Hash",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_verified",
+   "fieldtype": "Datetime",
+   "label": "Last Woo Verification",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "next_retry",
+   "fieldtype": "Datetime",
+   "label": "Next Retry",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_attempt",
+   "fieldtype": "Datetime",
+   "label": "Last Attempt",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "item_link",
+  "item_code",
+  "requested_version",
+  "synced_version",
+  "last_payload_hash",
+  "last_verified",
+  "attempts",
+  "next_retry",
+  "last_error",
+  "last_attempt"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1
+  }
+ ],
+ "track_changes": 0,
+ "sort_field": "last_verified",
+ "sort_order": "DESC"
+}

@@ -1,0 +1,73 @@
+{
+ "doctype": "DocType",
+ "name": "WS WooCommerce Sync Log",
+ "module": "Worldshading",
+ "custom": 0,
+ "engine": "InnoDB",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "creation": "2026-10-29 12:00:00",
+ "modified": "2026-10-29 12:00:00",
+ "fields": [
+  {
+   "fieldname": "item_link",
+   "fieldtype": "Data",
+   "label": "Item Link",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "operation",
+   "fieldtype": "Data",
+   "label": "Operation",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "label": "Reference",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Success\nFailed\nSkipped",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Code",
+   "label": "Details",
+   "options": "JSON",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "item_link",
+  "operation",
+  "reference",
+  "status",
+  "message",
+  "details"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1
+  }
+ ],
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "autoname": "hash"
+}

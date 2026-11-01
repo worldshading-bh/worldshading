@@ -1,0 +1,15 @@
+.ws-woo-guide { max-width: 980px; margin: 0 auto; padding: 24px; color: var(--text-color, #36414c); line-height: 1.65; }
+.ws-woo-guide .guide-intro { font-size: 16px; margin-bottom: 20px; }
+.ws-woo-guide .guide-note { padding: 12px 16px; margin: 16px 0; background: var(--control-bg, #f5f7fa); border-left: 3px solid #5e64ff; }
+.ws-woo-guide .guide-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 28px; }
+.ws-woo-guide section { border-top: 1px solid var(--border-color, #e2e6ea); padding-top: 22px; margin-top: 28px; scroll-margin-top: 90px; }
+.ws-woo-guide h2 { font-size: 21px; margin: 0 0 14px; }
+.ws-woo-guide h3 { font-size: 16px; margin-top: 20px; }
+.ws-woo-guide li { margin-bottom: 8px; }
+.ws-woo-guide th { background: var(--control-bg, #f5f7fa); }
+.ws-woo-guide td, .ws-woo-guide th { vertical-align: top; }
+.ws-woo-guide details { border-bottom: 1px solid var(--border-color, #e2e6ea); padding: 12px 0; }
+.ws-woo-guide summary { cursor: pointer; font-weight: 600; }
+.ws-woo-guide details p { margin: 10px 0 0; }
+.ws-woo-guide .guide-footer { margin-top: 28px; color: var(--text-muted, #6c7680); font-size: 12px; }
+@media (max-width: 600px) { .ws-woo-guide { padding: 16px; } }

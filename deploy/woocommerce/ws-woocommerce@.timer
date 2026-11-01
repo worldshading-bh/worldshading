@@ -1,0 +1,11 @@
+[Unit]
+Description=Five-minute Worldshading WooCommerce recovery for %i
+
+[Timer]
+OnBootSec=45s
+OnUnitInactiveSec=300s
+RandomizedDelaySec=5s
+Unit=ws-woocommerce@%i.service
+
+[Install]
+WantedBy=timers.target
