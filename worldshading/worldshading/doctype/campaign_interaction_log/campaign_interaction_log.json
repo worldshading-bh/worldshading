@@ -1,5 +1,5 @@
 {
- "creation": "2026-10-21 00:00:00.000000",
+ "creation": "2026-10-21 00:00:00",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -14,6 +14,7 @@
  ],
  "fields": [
   {
+   "columns": 2,
    "fieldname": "interaction_on",
    "fieldtype": "Datetime",
    "in_list_view": 1,
@@ -21,6 +22,7 @@
    "reqd": 1
   },
   {
+   "columns": 1,
    "fieldname": "channel",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -29,6 +31,7 @@
    "reqd": 1
   },
   {
+   "columns": 2,
    "default": "__user",
    "fieldname": "handled_by",
    "fieldtype": "Link",
@@ -38,6 +41,7 @@
    "reqd": 1
   },
   {
+   "columns": 1,
    "fieldname": "outcome",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -46,8 +50,10 @@
    "reqd": 1
   },
   {
+   "columns": 3,
    "fieldname": "notes",
    "fieldtype": "Small Text",
+   "in_list_view": 1,
    "label": "Notes",
    "reqd": 1
   },
@@ -64,9 +70,12 @@
   }
  ],
  "istable": 1,
- "modified": "2026-10-21 00:00:00.000000",
- "modified_by": "Administrator",
+ "modified": "2026-10-24 16:56:21.705881",
+ "modified_by": "hilal@worldshading.com",
  "module": "Worldshading",
  "name": "Campaign Interaction Log",
- "owner": "Administrator"
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
 }
