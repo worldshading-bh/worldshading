@@ -36,10 +36,13 @@ def store_payload(payload):
 def customer_for(order, config):
     billing = order.get('billing') or {}
     email = (billing.get('email') or '').strip().lower()
-    key = d.customer_key(order)
+    key = d.customer_key(order, config.store_url)
     existing = frappe.db.get_value('Customer', {'ws_woo_customer_key': key}, 'name')
-    if existing:
-        return existing
+    legacy = frappe.db.get_value('Customer', {'ws_woo_customer_key': d.legacy_customer_key(order)}, 'name')
+    if existing and legacy and existing != legacy:
+        raise ValueError('Conflicting Woo customer links; review the existing customers')
+    if existing or legacy:
+        return existing or legacy
     display = ' '.join(filter(None, [billing.get('first_name'), billing.get('last_name')])).strip() or 'Woo Guest '+str(order['id'])
     customer = frappe.get_doc(dict(doctype='Customer', customer_name=display, customer_type='Individual',
                                   naming_series='CM.####',customer_group=config.customer_group,
@@ -155,7 +158,7 @@ def import_order(payload):
                 raise ValueError('Linked ERP Sales Order was cancelled or deleted; review is required')
             if inbox.sales_order:
                 customer=frappe.db.get_value('Sales Order',inbox.sales_order,'customer')
-                if frappe.db.get_value('Customer',customer,'ws_woo_customer_key')!=d.customer_key(payload):
+                if not d.customer_key_matches(frappe.db.get_value('Customer',customer,'ws_woo_customer_key'), payload, config.store_url):
                     raise ValueError('Woo customer identity changed; review the ERP buyer before applying this update')
             if inbox.sales_order and fingerprint == inbox.fingerprint:
                 frappe.db.set_value('Sales Order', inbox.sales_order, {

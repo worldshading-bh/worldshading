@@ -10,9 +10,14 @@
  "modified": "2026-10-29 12:00:00",
  "fields": [
   {
+   "fieldname": "order_section",
+   "fieldtype": "Section Break",
+   "label": "Order"
+  },
+  {
    "fieldname": "woo_order_id",
    "fieldtype": "Int",
-   "label": "Woo Order Id",
+   "label": "WooCommerce Order ID",
    "unique": 1,
    "reqd": 1,
    "in_list_view": 0
@@ -20,9 +25,13 @@
   {
    "fieldname": "woo_status",
    "fieldtype": "Data",
-   "label": "Woo Status",
+   "label": "WooCommerce Status",
    "read_only": 1,
    "in_list_view": 1
+  },
+  {
+   "fieldname": "order_column",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "status",
@@ -42,11 +51,20 @@
    "in_list_view": 1
   },
   {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "Amount"
+  },
+  {
    "fieldname": "currency",
    "fieldtype": "Link",
    "label": "Currency",
    "options": "Currency",
    "read_only": 1
+  },
+  {
+   "fieldname": "amount_column",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "total",
@@ -56,16 +74,9 @@
    "read_only": 1
   },
   {
-   "fieldname": "attempts",
-   "fieldtype": "Int",
-   "label": "Attempts",
-   "read_only": 1
-  },
-  {
-   "fieldname": "next_retry",
-   "fieldtype": "Datetime",
-   "label": "Next Retry",
-   "read_only": 1
+   "fieldname": "review_section",
+   "fieldtype": "Section Break",
+   "label": "Import Review"
   },
   {
    "fieldname": "error",
@@ -74,21 +85,47 @@
    "read_only": 1
   },
   {
-   "fieldname": "source_modified",
-   "fieldtype": "Datetime",
-   "label": "Source Modified",
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
    "read_only": 1
   },
   {
-   "fieldname": "fingerprint",
-   "fieldtype": "Data",
-   "label": "Fingerprint",
+   "fieldname": "retry_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "next_retry",
+   "fieldtype": "Datetime",
+   "label": "Next Retry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "technical_section",
+   "fieldtype": "Section Break",
+   "label": "Technical Details",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "source_modified",
+   "fieldtype": "Datetime",
+   "label": "WooCommerce Last Modified (UTC)",
    "read_only": 1
   },
   {
    "fieldname": "erp_modified",
    "fieldtype": "Datetime",
-   "label": "Erp Modified",
+   "label": "ERP Last Modified",
+   "read_only": 1
+  },
+  {
+   "fieldname": "technical_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "fingerprint",
+   "fieldtype": "Data",
+   "label": "Order Fingerprint",
    "read_only": 1
   },
   {
@@ -101,18 +138,26 @@
   }
  ],
  "field_order": [
+  "order_section",
   "woo_order_id",
   "woo_status",
+  "order_column",
   "status",
   "sales_order",
+  "amount_section",
   "currency",
+  "amount_column",
   "total",
-  "attempts",
-  "next_retry",
+  "review_section",
   "error",
+  "attempts",
+  "retry_column",
+  "next_retry",
+  "technical_section",
   "source_modified",
-  "fingerprint",
   "erp_modified",
+  "technical_column",
+  "fingerprint",
   "payload"
  ],
  "permissions": [

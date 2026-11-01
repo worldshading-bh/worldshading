@@ -10,10 +10,9 @@
  "modified": "2026-10-29 12:00:00",
  "fields": [
   {
-   "fieldname": "intro",
-   "fieldtype": "HTML",
-   "label": "Intro",
-   "options": "<p><strong>WooCommerce connector</strong> \u00b7 ERPNext owns mapped stock and regular prices. Woo orders become draft Sales Orders. Legacy WooCommerce Settings must remain disabled.</p>"
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "Connection"
   },
   {
    "fieldname": "enabled",
@@ -26,20 +25,19 @@
    "fieldtype": "Check",
    "label": "Automatic Sync",
    "default": "0",
-   "description": "Leave off for manual testing. When enabled, the connector worker and signed webhooks may process orders and stock. Background services must also be running."
-  },
-  {
-   "fieldname": "item_links_migrated",
-   "fieldtype": "Check",
-   "label": "Item Links Migrated",
-   "default": "0",
-   "read_only": 1,
-   "hidden": 1
+   "description": "Enable after manual testing and background service setup."
   },
   {
    "fieldname": "store_url",
    "fieldtype": "Data",
    "label": "WooCommerce Store URL",
+   "reqd": 1
+  },
+  {
+   "fieldname": "integration_user",
+   "fieldtype": "Link",
+   "label": "Integration User",
+   "options": "User",
    "reqd": 1
   },
   {
@@ -60,34 +58,15 @@
    "reqd": 1
   },
   {
-   "fieldname": "webhook_secret",
-   "fieldtype": "Password",
-   "label": "Webhook Secret"
-  },
-  {
    "fieldname": "defaults",
    "fieldtype": "Section Break",
-   "label": "Stock and Price Settings"
+   "label": "Company and Pricing"
   },
   {
    "fieldname": "company",
    "fieldtype": "Link",
    "label": "Company",
    "options": "Company",
-   "reqd": 1
-  },
-  {
-   "fieldname": "stock_warehouses",
-   "fieldtype": "Table",
-   "label": "Online Stock Warehouses",
-   "options": "WS WooCommerce Warehouse",
-   "description": "Available stock is combined from these warehouses. Include the Default Order Warehouse. Empty table uses that default only. Safety stock is deducted once from the combined total."
-  },
-  {
-   "fieldname": "price_list",
-   "fieldtype": "Link",
-   "label": "Price List",
-   "options": "Price List",
    "reqd": 1
   },
   {
@@ -99,9 +78,20 @@
    "reqd": 1
   },
   {
-   "fieldname": "defaults_column",
+   "fieldname": "pricing_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "label": "Price List",
+   "options": "Price List",
+   "reqd": 1
+  },
+  {
+   "fieldname": "stock_section",
    "fieldtype": "Section Break",
-   "label": "Order Import Settings"
+   "label": "Stock"
   },
   {
    "fieldname": "warehouse",
@@ -109,7 +99,35 @@
    "label": "Default Order Warehouse",
    "options": "Warehouse",
    "reqd": 1,
-   "description": "Imported draft Sales Order lines use this warehouse. Fulfilment staff may adjust them; the connector does not split orders across warehouses."
+   "description": "Used on imported draft Sales Orders."
+  },
+  {
+   "fieldname": "stock_policy_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "safety_stock",
+   "fieldtype": "Float",
+   "label": "Safety Stock",
+   "default": "0",
+   "description": "Extra stock withheld once from the combined pool, in stock UOM."
+  },
+  {
+   "fieldname": "stock_pool_section",
+   "fieldtype": "Section Break",
+   "label": "Online Warehouses"
+  },
+  {
+   "fieldname": "stock_warehouses",
+   "fieldtype": "Table",
+   "label": "Online Stock Warehouses",
+   "options": "WS WooCommerce Warehouse",
+   "description": "Combine available stock from these warehouses. Include the default order warehouse; leave empty to use only that warehouse."
+  },
+  {
+   "fieldname": "defaults_column",
+   "fieldtype": "Section Break",
+   "label": "Order Defaults"
   },
   {
    "fieldname": "customer_group",
@@ -126,11 +144,8 @@
    "reqd": 1
   },
   {
-   "fieldname": "integration_user",
-   "fieldtype": "Link",
-   "label": "Integration User",
-   "options": "User",
-   "reqd": 1
+   "fieldname": "order_column",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "sales_order_series",
@@ -139,9 +154,28 @@
    "default": "WOO-.YYYY.-.#####"
   },
   {
+   "fieldname": "delivery_days",
+   "fieldtype": "Int",
+   "label": "Delivery Days",
+   "default": "7",
+   "description": "Days from import to the expected delivery date."
+  },
+  {
+   "fieldname": "import_section",
+   "fieldtype": "Section Break",
+   "label": "Order Import"
+  },
+  {
+   "fieldname": "order_since_local",
+   "fieldtype": "Datetime",
+   "label": "Import Orders Created Since",
+   "reqd": 1,
+   "description": "Site timezone. Use Now to start with new orders; earlier orders are excluded."
+  },
+  {
    "fieldname": "accounts_section",
    "fieldtype": "Section Break",
-   "label": "Tax and Delivery"
+   "label": "Accounts"
   },
   {
    "fieldname": "tax_account",
@@ -158,40 +192,43 @@
    "reqd": 1
   },
   {
-   "fieldname": "fee_account",
-   "fieldtype": "Link",
-   "label": "Fee Account",
-   "options": "Account",
-   "reqd": 1
-  },
-  {
    "fieldname": "policy_column",
    "fieldtype": "Column Break",
    "label": ""
   },
   {
-   "fieldname": "delivery_days",
-   "fieldtype": "Int",
-   "label": "Delivery Days",
-   "default": "7"
-  },
-  {
-   "fieldname": "safety_stock",
-   "fieldtype": "Float",
-   "label": "Safety Stock",
-   "default": "0"
-  },
-  {
-   "fieldname": "order_since",
-   "fieldtype": "Datetime",
-   "label": "Import orders created since (UTC)",
+   "fieldname": "fee_account",
+   "fieldtype": "Link",
+   "label": "Fee Account",
+   "options": "Account",
    "reqd": 1,
-   "description": "WooCommerce timestamps are UTC. Earlier orders are excluded from automatic import."
+   "description": "Order fees and small rounding adjustments."
+  },
+  {
+   "fieldname": "webhooks_section",
+   "fieldtype": "Section Break",
+   "label": "Webhooks"
+  },
+  {
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret",
+   "description": "Use the same secret in both WooCommerce order webhooks."
+  },
+  {
+   "fieldname": "webhooks_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL",
+   "read_only": 1
   },
   {
    "fieldname": "operations",
    "fieldtype": "Section Break",
-   "label": "Operations"
+   "label": "Sync Status"
   },
   {
    "fieldname": "dashboard",
@@ -199,11 +236,9 @@
    "label": "Dashboard"
   },
   {
-   "fieldname": "poll_cursor",
-   "fieldtype": "Datetime",
-   "label": "Poll Cursor",
-   "read_only": 1,
-   "hidden": 1
+   "fieldname": "last_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Last Run"
   },
   {
    "fieldname": "last_run",
@@ -212,10 +247,20 @@
    "read_only": 1
   },
   {
+   "fieldname": "last_sync_column",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "last_result",
    "fieldtype": "Small Text",
    "label": "Last Sync Result",
    "read_only": 1
+  },
+  {
+   "fieldname": "advanced_section",
+   "fieldtype": "Section Break",
+   "label": "Advanced",
+   "collapsible": 1
   },
   {
    "fieldname": "max_attempts",
@@ -224,48 +269,77 @@
    "default": "8"
   },
   {
-   "fieldname": "webhook_url",
-   "fieldtype": "Data",
-   "label": "Webhook Url",
+   "fieldname": "item_links_migrated",
+   "fieldtype": "Check",
+   "label": "Item Links Migrated",
+   "default": "0",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "order_since",
+   "fieldtype": "Datetime",
+   "label": "Import Start (UTC, internal)",
+   "reqd": 0,
+   "hidden": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "poll_cursor",
+   "fieldtype": "Datetime",
+   "label": "Poll Cursor",
+   "read_only": 1,
+   "hidden": 1
   }
  ],
  "field_order": [
-  "intro",
+  "connection_section",
   "enabled",
   "automatic_sync",
-  "item_links_migrated",
   "store_url",
+  "integration_user",
   "api_column",
   "consumer_key",
   "consumer_secret",
-  "webhook_secret",
   "defaults",
   "company",
-  "stock_warehouses",
-  "price_list",
   "currency",
-  "defaults_column",
+  "pricing_column",
+  "price_list",
+  "stock_section",
   "warehouse",
+  "stock_policy_column",
+  "safety_stock",
+  "stock_pool_section",
+  "stock_warehouses",
+  "defaults_column",
   "customer_group",
   "territory",
-  "integration_user",
+  "order_column",
   "sales_order_series",
+  "delivery_days",
+  "import_section",
+  "order_since_local",
   "accounts_section",
   "tax_account",
   "shipping_account",
-  "fee_account",
   "policy_column",
-  "delivery_days",
-  "safety_stock",
-  "order_since",
+  "fee_account",
+  "webhooks_section",
+  "webhook_secret",
+  "webhooks_column",
+  "webhook_url",
   "operations",
   "dashboard",
-  "poll_cursor",
+  "last_sync_section",
   "last_run",
+  "last_sync_column",
   "last_result",
+  "advanced_section",
   "max_attempts",
-  "webhook_url"
+  "item_links_migrated",
+  "order_since",
+  "poll_cursor"
  ],
  "permissions": [
   {

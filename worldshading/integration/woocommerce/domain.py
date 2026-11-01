@@ -178,7 +178,22 @@ def retry_delay(attempt):
     return min(3600, 60 * (2 ** min(max(int(attempt) - 1, 0), 6)))
 
 
-def customer_key(order):
+def customer_identity(order):
     email=((order.get('billing') or {}).get('email') or '').strip().lower()
     external='id:'+str(order['customer_id']) if order.get('customer_id') else 'email:'+email if email else 'order:'+str(order['id'])
-    return 'testshop:'+hashlib.sha256(external.encode('utf-8')).hexdigest()[:32]
+    return external
+
+
+def customer_key(order, store_url):
+    """Identity is private, deterministic and scoped to the configured store."""
+    external = https_origin(store_url) + '\n' + customer_identity(order)
+    return 'woo:' + hashlib.sha256(external.encode('utf-8')).hexdigest()[:40]
+
+
+def legacy_customer_key(order):
+    # Read compatibility only: never create new customers with the old demo label.
+    return 'testshop:' + hashlib.sha256(customer_identity(order).encode('utf-8')).hexdigest()[:32]
+
+
+def customer_key_matches(saved_key, order, store_url):
+    return saved_key in (customer_key(order, store_url), legacy_customer_key(order))

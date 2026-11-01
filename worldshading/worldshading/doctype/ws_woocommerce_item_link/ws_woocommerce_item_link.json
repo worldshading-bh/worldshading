@@ -10,6 +10,11 @@
  "modified": "2026-10-29 12:00:00",
  "fields": [
   {
+   "fieldname": "product_section",
+   "fieldtype": "Section Break",
+   "label": "WooCommerce Product"
+  },
+  {
    "fieldname": "enabled",
    "fieldtype": "Check",
    "label": "Enabled",
@@ -31,7 +36,12 @@
    "label": "Woo Variation ID",
    "default": "0",
    "in_list_view": 1,
-   "columns": 2
+   "columns": 1,
+   "description": "Use 0 for a simple product."
+  },
+  {
+   "fieldname": "product_column",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "sku",
@@ -39,7 +49,7 @@
    "label": "Woo SKU",
    "reqd": 1,
    "in_list_view": 1,
-   "columns": 3
+   "columns": 2
   },
   {
    "fieldname": "sale_uom",
@@ -49,25 +59,39 @@
    "reqd": 1,
    "in_list_view": 1,
    "columns": 2,
-   "description": "Conversion is read from this Item's UOM table; do not enter it again."
+   "description": "Uses the conversion in this Item’s UOM table."
+  },
+  {
+   "fieldname": "sync_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Options"
   },
   {
    "fieldname": "sync_stock",
    "fieldtype": "Check",
    "label": "Sync Stock",
-   "default": "1"
+   "default": "1",
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "fieldname": "sync_price",
    "fieldtype": "Check",
    "label": "Sync Price",
-   "default": "1"
+   "default": "1",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "price_column",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "clear_sale_price",
    "fieldtype": "Check",
    "label": "Clear Sale Price",
-   "default": "0"
+   "default": "0",
+   "description": "Remove the WooCommerce promotional price when syncing the regular price."
   },
   {
    "fieldname": "target_key",
@@ -79,13 +103,17 @@
   }
  ],
  "field_order": [
+  "product_section",
   "enabled",
   "product_id",
   "variation_id",
+  "product_column",
   "sku",
   "sale_uom",
+  "sync_section",
   "sync_stock",
   "sync_price",
+  "price_column",
   "clear_sale_price",
   "target_key"
  ],

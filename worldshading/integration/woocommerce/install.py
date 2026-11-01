@@ -49,6 +49,7 @@ def execute():
     frappe.reload_doc('worldshading','page','ws_woocommerce_guide',force=True)
     create_custom_fields(CUSTOM_FIELDS,update=True)
     frappe.clear_cache()
+    migrate_order_cutoff()
     migrate_item_links()
     frappe.db.commit()
 
@@ -90,3 +91,32 @@ def migrate_item_links():
                 WHERE operation='Product sync' AND reference=%s AND COALESCE(item_link,'')='' ''',
                 (previous.name,previous.item_code))
     frappe.db.set_value(settings,settings,'item_links_migrated',1,update_modified=False)
+
+
+def migrate_order_cutoff(time_zone=None):
+    """Expose an existing UTC cutoff in site time once, without changing its meaning."""
+    from .timezones import utc_to_site
+    settings = 'WS WooCommerce Settings'
+    if frappe.db.get_single_value(settings, 'order_since_local'):
+        return False
+    value = frappe.db.get_single_value(settings, 'order_since')
+    if not value:
+        return False
+    frappe.db.set_value(settings, settings, 'order_since_local', utc_to_site(value, time_zone), update_modified=False)
+    return True
+
+
+def upgrade_refinements():
+    """Metadata-only release upgrade for an already installed connector; no core DDL."""
+    preflight()
+    for slug in DOCTYPES:
+        name = slug.replace('_', ' ').title().replace('Ws Woocommerce', 'WS WooCommerce')
+        if not frappe.db.exists('DocType', name):
+            raise ValueError('Install the connector first; missing DocType: ' + name)
+    for slug in DOCTYPES:
+        frappe.reload_doc('worldshading', 'doctype', slug, force=True)
+    frappe.reload_doc('worldshading', 'page', 'ws_woocommerce_guide', force=True)
+    migrate_order_cutoff()
+    frappe.clear_cache()
+    frappe.db.commit()
+    return dict(updated=True, cutoff_preserved=True, automatic_sync_changed=False)

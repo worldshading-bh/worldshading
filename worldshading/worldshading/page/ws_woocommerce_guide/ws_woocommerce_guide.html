@@ -20,6 +20,7 @@
         <ol>
             <li>Open <a href="/desk#Form/WS%20WooCommerce%20Settings/WS%20WooCommerce%20Settings">WS WooCommerce Settings</a>. Confirm the store and company, then click <strong>Test Connection</strong>.</li>
             <li>Select the selling <strong>Price List</strong> and the <strong>Online Stock Warehouses</strong>. Include the <strong>Default Order Warehouse</strong> in that selection.</li>
+            <li>Set <strong>Import Orders Created Since</strong> in the ERP site timezone. Use <strong>Now</strong> to start with new orders; the connector converts this to UTC internally.</li>
             <li>Leave <strong>Automatic Sync</strong> off while preparing and testing Items. Keep the old built-in <strong>Woocommerce Settings</strong> sync disabled.</li>
         </ol>
         <p><strong>Enable Connector</strong> allows manual actions. <strong>Automatic Sync</strong> allows background updates and order imports when the background services are running.</p>
@@ -69,7 +70,7 @@
             <li>Check the customer, Items, UOMs, quantities, prices, VAT, shipping and total before proceeding with your normal ERP workflow.</li>
         </ol>
         <p>Orders are imported as <strong>drafts</strong>. Reimporting the same Woo order uses its existing inbox record and linked Sales Order. The connector does not automatically post invoices, payments or deliveries.</p>
-        <p>Customer matching currently uses the Woo customer identity. Matching existing ERP customers by email or mobile is a later enhancement. Changes to a submitted or manually edited imported order can require review.</p>
+        <p>Customer matching uses a Woo identity scoped to the connected store. Existing connector customer links are still recognised. Matching existing ERP customers by email or mobile is a later enhancement. Changes to a submitted or manually edited imported order can require review.</p>
     </section>
 
     <section data-guide-section="stock" tabindex="-1">

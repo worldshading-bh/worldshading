@@ -83,9 +83,9 @@ class OrderReviewTests(unittest.TestCase):
             payload=dict(id=123,status='processing',currency='BHD',total='1',total_tax='0',shipping_total='0',
                          date_created_gmt='2026-10-29T10:00:00',payment_method='cod-updated',customer_id=12,
                          line_items=[dict(product_id=10,quantity=1,total='1')])
-            common.settings.return_value=Doc(currency='BHD',max_attempts=8,order_since='2026-10-01 00:00:00')
+            common.settings.return_value=Doc(store_url='https://shop.example.com',currency='BHD',max_attempts=8,order_since='2026-10-01 00:00:00')
             row=Doc(status='Imported',attempts=0,sales_order='SO-1',fingerprint=d.order_fingerprint(payload),save=Mock())
             module.store_payload=Mock(return_value=(row,True))
-            frappe.db.get_value.side_effect=lambda doctype,name,field:0 if field=='docstatus' else 'CUSTOMER' if field=='customer' else d.customer_key(payload)
+            frappe.db.get_value.side_effect=lambda doctype,name,field:0 if field=='docstatus' else 'CUSTOMER' if field=='customer' else d.customer_key(payload, 'https://shop.example.com')
             self.assertEqual(module.import_order(payload)['status'],'Unchanged')
             self.assertEqual(frappe.db.set_value.call_args[0][2]['ws_woo_payment_method'],'cod-updated')
