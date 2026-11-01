@@ -10,6 +10,16 @@ from test_item_links import Doc
 
 
 class OriginConfigurationTests(unittest.TestCase):
+    def test_settings_transport_reads_only_woo_api_credentials(self):
+        with adapter('client') as (m,f,c,o):
+            f.conf=Doc(host_name='https://erp.example.com',ws_woocommerce_erp_url='https://erp.example.com',ws_woocommerce_store_url='https://store.example.com')
+            password=Mock(side_effect=lambda key:{'consumer_key':'ck_example','consumer_secret':'cs_example'}[key])
+            config=Doc(store_url='https://store.example.com',get_password=password)
+            with patch.object(m,'Client') as factory:
+                m.from_settings(config)
+            self.assertEqual([call[0][0] for call in password.call_args_list],['consumer_key','consumer_secret'])
+            factory.assert_called_once_with('https://store.example.com','ck_example','cs_example',allowed_url='https://store.example.com')
+
     def test_demo_defaults_remain_restricted_to_demo_pair(self):
         with adapter('environment') as (m,f,c,o):
             f.conf=Doc(host_name='https://demo.worldshading.com')

@@ -60,16 +60,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "gateway_user",
-   "fieldtype": "Data",
-   "label": "Gateway User"
-  },
-  {
-   "fieldname": "gateway_password",
-   "fieldtype": "Password",
-   "label": "Gateway Password"
-  },
-  {
    "fieldname": "webhook_secret",
    "fieldtype": "Password",
    "label": "Webhook Secret"
@@ -249,8 +239,6 @@
   "api_column",
   "consumer_key",
   "consumer_secret",
-  "gateway_user",
-  "gateway_password",
   "webhook_secret",
   "defaults",
   "company",

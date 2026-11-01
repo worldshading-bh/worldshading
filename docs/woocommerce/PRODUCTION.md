@@ -46,7 +46,7 @@ Do these steps later in an agreed maintenance window, after live version/schema 
    This reloads six connector DocTypes and the guide Page and creates/updates only the declared custom fields. It never calls `bench migrate`, never imports demo records and never enables automatic sync. Existing connector settings are preserved on repeat runs. Future full migrations, if performed for other work, can synchronize these standard DocTypes on other sites using this app; the guarded connector setup/custom-field hook only runs on a matching configured site. Unconfigured sites cannot sync.
 6. Safely reload web/queue processes so code and hooks refresh; keep the general ERP scheduler in its existing state. Confirm the short queue workers are running. This feature has not added or modified global scheduled jobs.
 7. Open **WS WooCommerce Settings**. New settings default to connector disabled and Automatic Sync off. Configure the exact allowed Woo URL, dedicated read/write API credentials, company/currency/price list, integration user, online warehouses/default order warehouse, customer defaults, tax/shipping/fee accounts and the deliberate order-import starting point. Disable the legacy built-in Woo connector before enabling this one. Review older unfulfilled Woo orders before the first stock export.
-8. Create native Woo `order.created` and `order.updated` webhooks using the production webhook URL shown in Settings and the matching secret. Verify Woo scheduled tasks/webhook delivery work. Use new production credentials; optional gateway fields are for an actual existing access gate only.
+8. Create native Woo `order.created` and `order.updated` webhooks using the production webhook URL shown in Settings and the matching secret. Verify Woo scheduled tasks/webhook delivery work. Use new production WooCommerce API credentials.
 9. Map one approved real product/variation; do not reuse demo IDs blindly. Confirm exact SKU, selling UOM/conversion, approved net price, Woo tax class and VAT display. Enable the connector for manual connection/preview tests. A manual Sync performs writes and an order import may create ERP documents; perform those only as an approved controlled acceptance test. Check quantity, draft holds, VAT/shipping and exact order totals. Price sync assumes BHD-style three-decimal precision and net-entered Woo prices.
 10. Install/enable the connector recovery timer only when paths, ownership and site instance have been checked. The supplied templates assume `/home/erpadmin/frappe-bench` and user/group `erpadmin`; adjust for the actual server. Copy templates to systemd, reload its configuration, then enable `ws-woocommerce@YOUR-SITE.timer`. It checks every300–305 seconds after the previous recovery completes. It uses the native integration user and exits without syncing while Automatic Sync is off. The service has no overall wall-clock timeout because a slow order backlog must stabilize before the polling cursor advances; individual HTTP calls and pagination remain bounded. It never overlaps its own recovery runs. Do not install the demo service or change unrelated jobs.
 11. Enable Automatic Sync only after controlled acceptance. Monitor Settings, Order Inbox, Sync Logs and worker/service logs. Add more approved mappings gradually. The guide is at `/desk#ws-woocommerce-guide`, linked from Settings, with System Manager access.
@@ -70,3 +70,16 @@ Turn Automatic Sync off, disable the connector, pause only its Woo webhooks/reco
 ## Maintaining the guide
 
 Guide assets live under `worldshading/worldshading/page/ws_woocommerce_guide/`. Installed Frappe v12 template generation requires HTML entities such as `&#39;` instead of literal apostrophes in HTML. Validate the generated script and browser rendering after changing content.
+
+## Removing the former demo gateway fields
+
+The production connector uses WooCommerce Consumer Key and Consumer Secret only. The former Gateway User/Password fields and HTTP Basic gateway handling have been removed. After deploying that patch, refresh only the Settings metadata, then clear cache and safely reload processes:
+
+```sh
+bench --site YOUR-SITE reload-doc worldshading doctype ws_woocommerce_settings
+bench --site YOUR-SITE clear-cache
+# During a quiet moment, after active jobs finish:
+bench restart
+```
+
+Do not rerun the full connector installer for this change. No full migrate or test runner is needed. This removes the fields from the form; it does not delete unrelated settings or Woo API credentials. Frappe may retain obsolete stored singleton/password entries internally; the connector no longer reads or uses them. The production review reported those former gateway values unset, so no credential cleanup is required for that reviewed installation.
