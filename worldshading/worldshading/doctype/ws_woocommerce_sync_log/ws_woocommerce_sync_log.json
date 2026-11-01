@@ -10,11 +10,9 @@
  "modified": "2026-10-29 12:00:00",
  "fields": [
   {
-   "fieldname": "item_link",
-   "fieldtype": "Data",
-   "label": "Item Link",
-   "read_only": 1,
-   "search_index": 1
+   "fieldname": "result_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Result"
   },
   {
    "fieldname": "operation",
@@ -31,6 +29,10 @@
    "in_list_view": 1
   },
   {
+   "fieldname": "result_column",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
@@ -39,10 +41,28 @@
    "in_list_view": 1
   },
   {
+   "fieldname": "item_link",
+   "fieldtype": "Data",
+   "label": "Item Link",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "message_section",
+   "fieldtype": "Section Break",
+   "label": "Message"
+  },
+  {
    "fieldname": "message",
    "fieldtype": "Small Text",
    "label": "Message",
    "read_only": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Technical Details",
+   "collapsible": 1
   },
   {
    "fieldname": "details",
@@ -53,11 +73,15 @@
   }
  ],
  "field_order": [
-  "item_link",
+  "result_section",
   "operation",
   "reference",
+  "result_column",
   "status",
+  "item_link",
+  "message_section",
   "message",
+  "details_section",
   "details"
  ],
  "permissions": [

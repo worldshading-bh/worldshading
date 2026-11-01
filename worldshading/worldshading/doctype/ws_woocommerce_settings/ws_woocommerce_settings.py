@@ -8,6 +8,8 @@ class WSWooCommerceSettings(Document):
         # Editing a stale settings form must not roll the polling cursor backwards.
         for field in ['poll_cursor','last_run','last_result','item_links_migrated']:
             self.set(field,frappe.db.get_single_value(self.doctype,field))
+        from worldshading.integration.woocommerce.timezones import update_order_cutoff
+        update_order_cutoff(self)
         self.store_url = validate_store(self.store_url)
         if self.enabled and frappe.db.get_single_value('Woocommerce Settings', 'enable_sync'):
             frappe.throw('The legacy WooCommerce connector must be disabled')

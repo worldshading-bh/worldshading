@@ -13,7 +13,8 @@ frappe.ui.form.on('Item', {
             frappe.call({method:'worldshading.integration.woocommerce.api.item_status',args:{item_code:frm.doc.name},
                 callback(r) {
                     if (!r.message) return;
-                    let html = '<p>Sync status is read from Sync Log. Checking or syncing does not save this Item.</p>';
+                    let html = '';
+                    if (!r.message.links.length) html = '<p class="text-muted">No WooCommerce links yet.</p>';
                     if ((r.message.stock_orders || []).length) html += '<p><strong>Stock for this Item is held by orders '+r.message.stock_orders.map(escape).join(', ')+'. Price updates can continue. Resolve these orders, then retry import.</strong></p>';
                     for (const row of r.message.links) {
                         const label = {Skipped:'Already matching',Success:'Synced',Failed:'Failed'}[row.status] || row.status;

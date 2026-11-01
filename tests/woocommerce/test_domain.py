@@ -114,9 +114,9 @@ class DomainTests(unittest.TestCase):
         self.assertTrue(hasattr(d,'customer_key'),'Customer identity helper is not implemented')
         guest={'id':1,'customer_id':0,'billing':{'email':' Buyer@Example.invalid '}}
         second={'id':2,'customer_id':0,'billing':{'email':'buyer@example.invalid'}}
-        self.assertEqual(d.customer_key(guest),d.customer_key(second))
+        self.assertEqual(d.customer_key(guest, 'https://shop.example.com'),d.customer_key(second, 'https://shop.example.com'))
         guest['customer_id']=10;second['customer_id']=11
-        self.assertNotEqual(d.customer_key(guest),d.customer_key(second))
+        self.assertNotEqual(d.customer_key(guest, 'https://shop.example.com'),d.customer_key(second, 'https://shop.example.com'))
 
 
 if __name__ == '__main__': unittest.main()

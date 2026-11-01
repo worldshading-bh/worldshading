@@ -11,12 +11,9 @@
  "autoname": "field:item_link",
  "fields": [
   {
-   "fieldname": "item_link",
-   "fieldtype": "Data",
-   "label": "Item Link",
-   "read_only": 1,
-   "unique": 1,
-   "reqd": 1
+   "fieldname": "item_section",
+   "fieldtype": "Section Break",
+   "label": "Item"
   },
   {
    "fieldname": "item_code",
@@ -27,24 +24,21 @@
    "in_list_view": 1
   },
   {
-   "fieldname": "requested_version",
-   "fieldtype": "Int",
-   "label": "Requested Version",
-   "read_only": 1,
-   "default": "0"
+   "fieldname": "item_column",
+   "fieldtype": "Column Break"
   },
   {
-   "fieldname": "synced_version",
-   "fieldtype": "Int",
-   "label": "Synced Version",
-   "read_only": 1,
-   "default": "0"
-  },
-  {
-   "fieldname": "last_payload_hash",
+   "fieldname": "item_link",
    "fieldtype": "Data",
-   "label": "Verified Payload Hash",
-   "read_only": 1
+   "label": "Item Link",
+   "read_only": 1,
+   "unique": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "activity_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Activity"
   },
   {
    "fieldname": "last_verified",
@@ -52,6 +46,16 @@
    "label": "Last Woo Verification",
    "read_only": 1,
    "in_list_view": 1
+  },
+  {
+   "fieldname": "last_attempt",
+   "fieldtype": "Datetime",
+   "label": "Last Attempt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retry_column",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "attempts",
@@ -68,29 +72,65 @@
    "in_list_view": 1
   },
   {
+   "fieldname": "error_section",
+   "fieldtype": "Section Break",
+   "label": "Last Error"
+  },
+  {
    "fieldname": "last_error",
    "fieldtype": "Small Text",
    "label": "Last Error",
    "read_only": 1
   },
   {
-   "fieldname": "last_attempt",
-   "fieldtype": "Datetime",
-   "label": "Last Attempt",
+   "fieldname": "technical_section",
+   "fieldtype": "Section Break",
+   "label": "Technical Details",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "requested_version",
+   "fieldtype": "Int",
+   "label": "Requested Version",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "synced_version",
+   "fieldtype": "Int",
+   "label": "Synced Version",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "technical_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_payload_hash",
+   "fieldtype": "Data",
+   "label": "Verified Payload Hash",
    "read_only": 1
   }
  ],
  "field_order": [
-  "item_link",
+  "item_section",
   "item_code",
-  "requested_version",
-  "synced_version",
-  "last_payload_hash",
+  "item_column",
+  "item_link",
+  "activity_section",
   "last_verified",
+  "last_attempt",
+  "retry_column",
   "attempts",
   "next_retry",
+  "error_section",
   "last_error",
-  "last_attempt"
+  "technical_section",
+  "requested_version",
+  "synced_version",
+  "technical_column",
+  "last_payload_hash"
  ],
  "permissions": [
   {

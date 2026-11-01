@@ -4,6 +4,9 @@ frappe.ui.form.on('WS WooCommerce Settings', {
         const warehouseFilters=() => ({filters:{company:frm.doc.company,is_group:0,disabled:0}});
         frm.set_query('warehouse',warehouseFilters);
         frm.set_query('warehouse','stock_warehouses',warehouseFilters);
+        const zone = frappe.sys_defaults.time_zone || 'site timezone';
+        frm.set_df_property('order_since_local', 'description',
+            'Time zone: ' + zone + '. Use Now to start with new orders.');
         const escape = value => frappe.utils.escape_html(String(value == null ? '' : value));
         const call = method => {
             if (frm.is_dirty()) {
@@ -20,7 +23,7 @@ frappe.ui.form.on('WS WooCommerce Settings', {
                     if (method === 'test_connection') {
                         message = '<p><strong>Connected to ' + escape(result.store_url) + '</strong></p>' +
                             '<p>Currency: ' + escape(result.currency) + '. Products and orders are readable.</p>' +
-                            '<p>' + escape(result.message) + '</p>';
+                            '<p>No records changed. Write access is checked during product sync.</p>';
                     } else {
                         const products = result.products || [];
                         message = '<p>Orders checked: ' + escape(result.orders) + '. Retried: ' + escape(result.retries) + '.</p>' +
@@ -53,7 +56,7 @@ frappe.ui.form.on('WS WooCommerce Settings', {
             const mode = !d.enabled ? 'Connector disabled. Connection checks and previews are available.' :
                 d.automatic_sync ? 'Automatic sync enabled. Background services must be running.' :
                 'Manual mode. Orders and products change only when you run an action.';
-            frm.fields_dict.dashboard.$wrapper.html('<p><strong>'+escape(d.mappings)+'</strong> active mappings · <strong>'+escape(d.imported)+'</strong> imported orders · <strong>'+escape(d.review)+'</strong> requiring review</p><p>'+mode+'</p><p>ERPNext supplies regular prices and available stock. WooCommerce supplies draft Sales Orders. Product sync checks recent orders first to protect stock.</p>');
+            frm.fields_dict.dashboard.$wrapper.html('<p><strong>'+escape(d.mappings)+'</strong> active mappings · <strong>'+escape(d.imported)+'</strong> imported orders · <strong>'+escape(d.review)+'</strong> requiring review</p><p>'+mode+'</p>');
         }});
     }
 });
