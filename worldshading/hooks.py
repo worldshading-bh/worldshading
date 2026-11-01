@@ -538,3 +538,40 @@ doc_events = {
     
 
 # override_packing_list()  # ✅ Call it directly at load time (not via doc_events)
+
+# BEGIN WS WOOCOMMERCE CONNECTOR
+# Add only this feature; preserve existing scripts, handlers and scheduling.
+_ws_woo_item_js = doctype_js.get('Item', [])
+if isinstance(_ws_woo_item_js, str):
+    _ws_woo_item_js = [_ws_woo_item_js]
+if 'public/js/woocommerce_item.js' not in _ws_woo_item_js:
+    doctype_js['Item'] = _ws_woo_item_js + ['public/js/woocommerce_item.js']
+_ws_woo_hooks = {
+    'Stock Ledger Entry': {'after_insert': 'changes.stock_changed'},
+    'Sales Order': {
+        'before_validate': ['document_rules.preserve_woo_total', 'changes.sales_order_changed'],
+        'before_update_after_submit': 'document_rules.preserve_woo_total',
+        'before_cancel': 'changes.sales_order_changed',
+        'on_update_after_submit': 'changes.sales_order_changed'
+    },
+    'Item Price': {'on_update': 'changes.item_price_changed', 'on_trash': 'changes.item_price_changed'},
+    'Item': {'validate': 'item_links.validate_item', 'on_update': 'changes.item_changed'},
+    'WS WooCommerce Order': {'before_save': 'events.order_changed'}
+}
+for _ws_woo_dt, _ws_woo_events in _ws_woo_hooks.items():
+    _ws_woo_existing = doc_events.setdefault(_ws_woo_dt, {})
+    for _ws_woo_event, _ws_woo_callbacks in _ws_woo_events.items():
+        _ws_woo_handlers = _ws_woo_existing.get(_ws_woo_event, [])
+        if isinstance(_ws_woo_handlers, str):
+            _ws_woo_handlers = [_ws_woo_handlers]
+        if isinstance(_ws_woo_callbacks, str):
+            _ws_woo_callbacks = [_ws_woo_callbacks]
+        for _ws_woo_callback in _ws_woo_callbacks:
+            _ws_woo_path = 'worldshading.integration.woocommerce.' + _ws_woo_callback
+            if _ws_woo_path not in _ws_woo_handlers:
+                _ws_woo_handlers = _ws_woo_handlers + [_ws_woo_path]
+        _ws_woo_existing[_ws_woo_event] = _ws_woo_handlers
+_ws_woo_installer = 'worldshading.integration.woocommerce.install.after_migrate'
+if _ws_woo_installer not in after_migrate:
+    after_migrate = after_migrate + [_ws_woo_installer]
+# END WS WOOCOMMERCE CONNECTOR

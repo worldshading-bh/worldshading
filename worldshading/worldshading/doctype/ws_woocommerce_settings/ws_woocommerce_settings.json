@@ -1,0 +1,296 @@
+{
+ "doctype": "DocType",
+ "name": "WS WooCommerce Settings",
+ "module": "Worldshading",
+ "custom": 0,
+ "engine": "InnoDB",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "creation": "2026-10-29 12:00:00",
+ "modified": "2026-10-29 12:00:00",
+ "fields": [
+  {
+   "fieldname": "intro",
+   "fieldtype": "HTML",
+   "label": "Intro",
+   "options": "<p><strong>WooCommerce connector</strong> \u00b7 ERPNext owns mapped stock and regular prices. Woo orders become draft Sales Orders. Legacy WooCommerce Settings must remain disabled.</p>"
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable Connector",
+   "default": "0"
+  },
+  {
+   "fieldname": "automatic_sync",
+   "fieldtype": "Check",
+   "label": "Automatic Sync",
+   "default": "0",
+   "description": "Leave off for manual testing. When enabled, the connector worker and signed webhooks may process orders and stock. Background services must also be running."
+  },
+  {
+   "fieldname": "item_links_migrated",
+   "fieldtype": "Check",
+   "label": "Item Links Migrated",
+   "default": "0",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "store_url",
+   "fieldtype": "Data",
+   "label": "WooCommerce Store URL",
+   "reqd": 1
+  },
+  {
+   "fieldname": "api_column",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "consumer_key",
+   "fieldtype": "Password",
+   "label": "Consumer Key",
+   "reqd": 1
+  },
+  {
+   "fieldname": "consumer_secret",
+   "fieldtype": "Password",
+   "label": "Consumer Secret",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gateway_user",
+   "fieldtype": "Data",
+   "label": "Gateway User"
+  },
+  {
+   "fieldname": "gateway_password",
+   "fieldtype": "Password",
+   "label": "Gateway Password"
+  },
+  {
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret"
+  },
+  {
+   "fieldname": "defaults",
+   "fieldtype": "Section Break",
+   "label": "Stock and Price Settings"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "stock_warehouses",
+   "fieldtype": "Table",
+   "label": "Online Stock Warehouses",
+   "options": "WS WooCommerce Warehouse",
+   "description": "Available stock is combined from these warehouses. Include the Default Order Warehouse. Empty table uses that default only. Safety stock is deducted once from the combined total."
+  },
+  {
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "label": "Price List",
+   "options": "Price List",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "default": "BHD",
+   "reqd": 1
+  },
+  {
+   "fieldname": "defaults_column",
+   "fieldtype": "Section Break",
+   "label": "Order Import Settings"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Default Order Warehouse",
+   "options": "Warehouse",
+   "reqd": 1,
+   "description": "Imported draft Sales Order lines use this warehouse. Fulfilment staff may adjust them; the connector does not split orders across warehouses."
+  },
+  {
+   "fieldname": "customer_group",
+   "fieldtype": "Link",
+   "label": "Customer Group",
+   "options": "Customer Group",
+   "reqd": 1
+  },
+  {
+   "fieldname": "territory",
+   "fieldtype": "Link",
+   "label": "Territory",
+   "options": "Territory",
+   "reqd": 1
+  },
+  {
+   "fieldname": "integration_user",
+   "fieldtype": "Link",
+   "label": "Integration User",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sales_order_series",
+   "fieldtype": "Data",
+   "label": "Sales Order Series",
+   "default": "WOO-.YYYY.-.#####"
+  },
+  {
+   "fieldname": "accounts_section",
+   "fieldtype": "Section Break",
+   "label": "Tax and Delivery"
+  },
+  {
+   "fieldname": "tax_account",
+   "fieldtype": "Link",
+   "label": "Tax Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shipping_account",
+   "fieldtype": "Link",
+   "label": "Shipping Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "fee_account",
+   "fieldtype": "Link",
+   "label": "Fee Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "policy_column",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "delivery_days",
+   "fieldtype": "Int",
+   "label": "Delivery Days",
+   "default": "7"
+  },
+  {
+   "fieldname": "safety_stock",
+   "fieldtype": "Float",
+   "label": "Safety Stock",
+   "default": "0"
+  },
+  {
+   "fieldname": "order_since",
+   "fieldtype": "Datetime",
+   "label": "Import orders created since (UTC)",
+   "reqd": 1,
+   "description": "WooCommerce timestamps are UTC. Earlier orders are excluded from automatic import."
+  },
+  {
+   "fieldname": "operations",
+   "fieldtype": "Section Break",
+   "label": "Operations"
+  },
+  {
+   "fieldname": "dashboard",
+   "fieldtype": "HTML",
+   "label": "Dashboard"
+  },
+  {
+   "fieldname": "poll_cursor",
+   "fieldtype": "Datetime",
+   "label": "Poll Cursor",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "last_run",
+   "fieldtype": "Datetime",
+   "label": "Last Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_result",
+   "fieldtype": "Small Text",
+   "label": "Last Sync Result",
+   "read_only": 1
+  },
+  {
+   "fieldname": "max_attempts",
+   "fieldtype": "Int",
+   "label": "Max Attempts",
+   "default": "8"
+  },
+  {
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook Url",
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "intro",
+  "enabled",
+  "automatic_sync",
+  "item_links_migrated",
+  "store_url",
+  "api_column",
+  "consumer_key",
+  "consumer_secret",
+  "gateway_user",
+  "gateway_password",
+  "webhook_secret",
+  "defaults",
+  "company",
+  "stock_warehouses",
+  "price_list",
+  "currency",
+  "defaults_column",
+  "warehouse",
+  "customer_group",
+  "territory",
+  "integration_user",
+  "sales_order_series",
+  "accounts_section",
+  "tax_account",
+  "shipping_account",
+  "fee_account",
+  "policy_column",
+  "delivery_days",
+  "safety_stock",
+  "order_since",
+  "operations",
+  "dashboard",
+  "poll_cursor",
+  "last_run",
+  "last_result",
+  "max_attempts",
+  "webhook_url"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "export": 0
+  }
+ ],
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "issingle": 1
+}

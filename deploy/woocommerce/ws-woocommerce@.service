@@ -1,0 +1,16 @@
+[Unit]
+Description=Worldshading WooCommerce recovery for %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=erpadmin
+Group=erpadmin
+WorkingDirectory=/home/erpadmin/frappe-bench/sites
+ExecStart=/home/erpadmin/frappe-bench/env/bin/python -m worldshading.integration.woocommerce.worker --site %i --sites-path .
+# Order pagination may legitimately outlast a fixed overall deadline.
+# HTTP requests and pagination are bounded inside the connector.
+TimeoutStartSec=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

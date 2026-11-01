@@ -1,0 +1,97 @@
+{
+ "doctype": "DocType",
+ "name": "WS WooCommerce Item Link",
+ "module": "Worldshading",
+ "custom": 0,
+ "engine": "InnoDB",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "creation": "2026-10-29 12:00:00",
+ "modified": "2026-10-29 12:00:00",
+ "fields": [
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "product_id",
+   "fieldtype": "Int",
+   "label": "Woo Product ID",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "variation_id",
+   "fieldtype": "Int",
+   "label": "Woo Variation ID",
+   "default": "0",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "sku",
+   "fieldtype": "Data",
+   "label": "Woo SKU",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "sale_uom",
+   "fieldtype": "Link",
+   "label": "Selling UOM",
+   "options": "UOM",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "Conversion is read from this Item's UOM table; do not enter it again."
+  },
+  {
+   "fieldname": "sync_stock",
+   "fieldtype": "Check",
+   "label": "Sync Stock",
+   "default": "1"
+  },
+  {
+   "fieldname": "sync_price",
+   "fieldtype": "Check",
+   "label": "Sync Price",
+   "default": "1"
+  },
+  {
+   "fieldname": "clear_sale_price",
+   "fieldtype": "Check",
+   "label": "Clear Sale Price",
+   "default": "0"
+  },
+  {
+   "fieldname": "target_key",
+   "fieldtype": "Data",
+   "label": "Target Key",
+   "unique": 1,
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "field_order": [
+  "enabled",
+  "product_id",
+  "variation_id",
+  "sku",
+  "sale_uom",
+  "sync_stock",
+  "sync_price",
+  "clear_sale_price",
+  "target_key"
+ ],
+ "permissions": [],
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "istable": 1
+}

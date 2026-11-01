@@ -1,0 +1,9 @@
+{
+ "doctype": "Page",
+ "name": "ws-woocommerce-guide",
+ "page_name": "ws-woocommerce-guide",
+ "title": "WooCommerce Connector Guide",
+ "module": "Worldshading",
+ "standard": "Yes",
+ "roles": [{"role": "System Manager"}]
+}

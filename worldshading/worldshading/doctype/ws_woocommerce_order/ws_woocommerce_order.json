@@ -1,0 +1,128 @@
+{
+ "doctype": "DocType",
+ "name": "WS WooCommerce Order",
+ "module": "Worldshading",
+ "custom": 0,
+ "engine": "InnoDB",
+ "owner": "Administrator",
+ "modified_by": "Administrator",
+ "creation": "2026-10-29 12:00:00",
+ "modified": "2026-10-29 12:00:00",
+ "fields": [
+  {
+   "fieldname": "woo_order_id",
+   "fieldtype": "Int",
+   "label": "Woo Order Id",
+   "unique": 1,
+   "reqd": 1,
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "woo_status",
+   "fieldtype": "Data",
+   "label": "Woo Status",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nImported\nNeeds Review\nFailed\nIgnored",
+   "default": "Pending",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total",
+   "fieldtype": "Currency",
+   "label": "Total",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "next_retry",
+   "fieldtype": "Datetime",
+   "label": "Next Retry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_modified",
+   "fieldtype": "Datetime",
+   "label": "Source Modified",
+   "read_only": 1
+  },
+  {
+   "fieldname": "fingerprint",
+   "fieldtype": "Data",
+   "label": "Fingerprint",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_modified",
+   "fieldtype": "Datetime",
+   "label": "Erp Modified",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payload",
+   "fieldtype": "Code",
+   "label": "Payload",
+   "options": "JSON",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "field_order": [
+  "woo_order_id",
+  "woo_status",
+  "status",
+  "sales_order",
+  "currency",
+  "total",
+  "attempts",
+  "next_retry",
+  "error",
+  "source_modified",
+  "fingerprint",
+  "erp_modified",
+  "payload"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1
+  }
+ ],
+ "track_changes": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "autoname": "field:woo_order_id"
+}

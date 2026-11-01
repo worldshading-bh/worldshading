@@ -1,0 +1,126 @@
+<!-- jinja -->
+<article class="ws-woo-guide">
+    <p class="guide-intro">Use this guide to prepare an Item, check its website stock and price, and bring WooCommerce orders into ERPNext.</p>
+    <p><strong>ERPNext → WooCommerce:</strong> available stock and regular prices.<br>
+    <strong>WooCommerce → ERPNext:</strong> orders become draft Sales Orders for your team to review.</p>
+    <div class="guide-note"><strong>Start with one Item.</strong> Preview it, sync it, then place one test order. Once that works, prepare the remaining Items using the same checklist.</div>
+    <nav class="guide-nav" aria-label="Guide sections">
+        <button class="btn btn-default btn-sm" data-guide-target="setup">1. Settings</button>
+        <button class="btn btn-default btn-sm" data-guide-target="items">2. Prepare Items</button>
+        <button class="btn btn-default btn-sm" data-guide-target="preview">3. Preview &amp; sync</button>
+        <button class="btn btn-default btn-sm" data-guide-target="orders">4. Orders</button>
+        <button class="btn btn-default btn-sm" data-guide-target="stock">5. Stock</button>
+        <button class="btn btn-default btn-sm" data-guide-target="prices">6. Prices &amp; VAT</button>
+        <button class="btn btn-default btn-sm" data-guide-target="automatic">7. Automatic sync</button>
+        <button class="btn btn-default btn-sm" data-guide-target="help">8. Help</button>
+    </nav>
+
+    <section data-guide-section="setup" tabindex="-1">
+        <h2>1. Check the settings</h2>
+        <ol>
+            <li>Open <a href="/desk#Form/WS%20WooCommerce%20Settings/WS%20WooCommerce%20Settings">WS WooCommerce Settings</a>. Confirm the store and company, then click <strong>Test Connection</strong>.</li>
+            <li>Select the selling <strong>Price List</strong> and the <strong>Online Stock Warehouses</strong>. Include the <strong>Default Order Warehouse</strong> in that selection.</li>
+            <li>Leave <strong>Automatic Sync</strong> off while preparing and testing Items. Keep the old built-in <strong>Woocommerce Settings</strong> sync disabled.</li>
+        </ol>
+        <p><strong>Enable Connector</strong> allows manual actions. <strong>Automatic Sync</strong> allows background updates and order imports when the background services are running.</p>
+    </section>
+
+    <section data-guide-section="items" tabindex="-1">
+        <h2>2. Prepare each Item</h2>
+        <p>Open the existing <a href="/desk#List/Item/List">ERPNext Item</a> and find its <strong>WooCommerce</strong> section. This connector links existing products; it does not create website products, descriptions or images.</p>
+        <ol>
+            <li><strong>Confirm the exact product.</strong> Check size, colour and selling unit in both systems. Use a sellable Item or Item variant, rather than an ERP template.</li>
+            <li><strong>Check the Item UOM table.</strong> Add or correct the normal ERP conversion there first. Then choose the website selling unit in the WooCommerce link.</li>
+            <li><strong>Add a row in WooCommerce Links.</strong> Fill the fields below, save the Item, then preview it.</li>
+        </ol>
+        <div class="table-responsive"><table class="table table-bordered">
+            <thead><tr><th>Field</th><th>What to enter</th></tr></thead>
+            <tbody>
+                <tr><td>Enabled</td><td>Tick when this link is ready to use.</td></tr>
+                <tr><td>Woo Product ID</td><td>The website product ID. For a variation, use its parent product ID here.</td></tr>
+                <tr><td>Woo Variation ID</td><td>The exact variation ID for a size/colour option. Use <strong>0</strong> for a simple product.</td></tr>
+                <tr><td>Woo SKU</td><td>The exact SKU of that product or variation in WooCommerce.</td></tr>
+                <tr><td>Selling UOM</td><td>The unit sold online, such as Each, Roll or Kg. Conversion comes from the Item UOM table.</td></tr>
+                <tr><td>Sync Stock</td><td>Let ERPNext update website availability.</td></tr>
+                <tr><td>Sync Price</td><td>Enable only when an approved Item Price exists in the configured price list and currency.</td></tr>
+                <tr><td>Clear Sale Price</td><td>When price sync is enabled, tick only if ERPNext should remove the Woo promotional sale price. Otherwise an existing Woo sale price can still affect the selling price.</td></tr>
+            </tbody>
+        </table></div>
+        <p>Find IDs and SKUs in the WooCommerce product editor; variations have their own IDs and SKUs. Link each Woo target once. Each ERP Item supports one enabled stock-sync link.</p>
+        <div class="guide-note"><strong>No approved ERP price yet?</strong> Start with <strong>Sync Stock</strong> on and <strong>Sync Price</strong> off. Add the price later; do not enter a guessed price to complete the setup.</div>
+    </section>
+
+    <section data-guide-section="preview" tabindex="-1">
+        <h2>3. Preview, then sync</h2>
+        <ol>
+            <li>Save the Item and click <strong>Preview WooCommerce</strong>. Compare <strong>WooCommerce now</strong> with <strong>ERPNext value</strong>, and check the warehouse list.</li>
+            <li>Use <strong>Open product in WooCommerce</strong> in the preview to confirm the correct product.</li>
+            <li>If the values are right, click <strong>Sync WooCommerce</strong>. Preview again to confirm they match.</li>
+        </ol>
+        <p>Preview changes nothing. Sync checks recent website orders before publishing stock. Item status shows the last website attempt or successful check.</p>
+    </section>
+
+    <section data-guide-section="orders" tabindex="-1">
+        <h2>4. Check a website order</h2>
+        <ol>
+            <li>Place an order for a linked product on the website and note the Woo order number.</li>
+            <li>In manual mode, click <strong>Import Orders</strong> in connector settings.</li>
+            <li>Open <a href="/desk#List/WS%20WooCommerce%20Order/List">Order Inbox</a>, find that number and open its linked <strong>Sales Order</strong>.</li>
+            <li>Check the customer, Items, UOMs, quantities, prices, VAT, shipping and total before proceeding with your normal ERP workflow.</li>
+        </ol>
+        <p>Orders are imported as <strong>drafts</strong>. Reimporting the same Woo order uses its existing inbox record and linked Sales Order. The connector does not automatically post invoices, payments or deliveries.</p>
+        <p>Customer matching currently uses the Woo customer identity. Matching existing ERP customers by email or mobile is a later enhancement. Changes to a submitted or manually edited imported order can require review.</p>
+    </section>
+
+    <section data-guide-section="stock" tabindex="-1">
+        <h2>5. Understand website stock</h2>
+        <p>Website stock is the available quantity from your selected online warehouses, after ERP reservations. The connector also deducts imported Woo draft-order quantities and any configured safety stock, then converts to the selling UOM.</p>
+        <ul>
+            <li>A submitted Sales Order reduces availability through ERP reservations, even before delivery.</li>
+            <li>Imported Woo drafts are held separately so the same units are not offered again.</li>
+            <li>The connector includes other supported ERP reservation fields, such as production reservations.</li>
+            <li>Website quantities are whole selling units. For example, 2.8 available rolls publishes as 2 rolls.</li>
+        </ul>
+        <p>Orders needing review hold stock exports for the affected Items. Unrelated Items and enabled price updates can continue. If an order&#39;s product identity cannot be read safely, stock may be held more broadly.</p>
+    </section>
+
+    <section data-guide-section="prices" tabindex="-1">
+        <h2>6. Prepare prices and VAT</h2>
+        <p>Maintain the approved <strong>Item Price excluding VAT</strong> in the connector&#39;s selected price list and currency. The connector uses that price and the Item UOM conversion when needed.</p>
+        <p>WooCommerce should accept prices <strong>excluding tax</strong> and display prices <strong>including tax</strong>, with the correct tax rate and product tax class. Woo calculates the displayed VAT-inclusive price; do not add VAT again to the ERP Item Price.</p>
+        <div class="guide-note"><strong>Example only:</strong> BHD 1.000 net with 10% VAT displays as BHD 1.100. Confirm the correct tax treatment for each product. Confirm the tax class and storefront/cart display before enabling price sync.</div>
+        <p>BHD prices use three decimal places. Imported order totals are checked against Woo totals. Broader ERP rounding policy changes are a separate task.</p>
+    </section>
+
+    <section data-guide-section="automatic" tabindex="-1">
+        <h2>7. Turn on automatic operation when ready</h2>
+        <p>After your manual checks pass, enable <strong>Automatic Sync</strong> and save Settings. The background services must also be running.</p>
+        <ul>
+            <li><strong>Normal changes:</strong> stock entries, Sales Order reservation events, Item Prices and Item changes queue updates after ERP saves. Only affected linked Items are processed; repeated notifications are combined.</li>
+            <li><strong>Timing:</strong> earlier demo stock and price checks took about 3–7 seconds. Website response time and worker availability can change this.</li>
+            <li><strong>Recovery:</strong> a five-minute check catches failures and changes that bypass normal events, including ERPNext v12 order close/reopen. Hourly verification catches website-side changes.</li>
+            <li><strong>Orders:</strong> an arriving Woo webhook wakes import processing. Delivery depends on the website background services; polling also recovers missed orders.</li>
+        </ul>
+        <p>Turning Automatic Sync off pauses automatic imports and exports. You can still use the manual buttons. This guide is static: check Settings for the current operating mode.</p>
+    </section>
+
+    <section data-guide-section="help" tabindex="-1">
+        <h2>8. When something needs attention</h2>
+        <details open><summary>An order says Needs Review, or an Item says Stock Held</summary>
+            <p>Open that order in <a href="/desk#List/WS%20WooCommerce%20Order/List">Order Inbox</a>. Read the error and its Product mappings checklist. Correct every missing Item link or UOM, then click <strong>Retry Import</strong>. Do not ignore a real order simply to release stock.</p>
+        </details>
+        <details><summary>The SKU or variation does not match</summary>
+            <p>Check the Woo parent product ID, exact variation ID and SKU against the website editor. Save the corrected Item link and preview again. Do not link a similar-looking product without checking its size and unit.</p>
+        </details>
+        <details><summary>The price is missing or different</summary>
+            <p>Check Sync Price, price list, currency, validity dates and selling UOM. The price must be a general selling price rather than a customer-specific price. Also check Woo VAT settings and any active sale price.</p>
+        </details>
+        <details><summary>Automatic updates have stopped</summary>
+            <p>Check Enable Connector and Automatic Sync in Settings. Read <a href="/desk#List/WS%20WooCommerce%20Sync%20Log/List">Sync Logs</a>, then try Test Connection. Ask the administrator to check the background worker and recovery service. Failed updates remain pending for retry; manual Sync can help diagnose an Item.</p>
+        </details>
+        <details><summary>What should I finish before adding more Items?</summary>
+            <p>Confirm the exact product/variation, SKU, selling UOM and conversion, online warehouses, approved net price if enabled, and product tax class. Then complete Preview → Sync → test order → ERP Sales Order review for one Item before repeating the setup.</p>
+        </details>
+    </section>
+    <p class="guide-footer">Worldshading connector · ERPNext v12 operator guide · Updated 1 November 2026 · Connector actions require System Manager access.</p>
+</article>
