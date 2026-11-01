@@ -13,8 +13,7 @@ class ClientTests(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(Client, 'REST client is not implemented')
         self.transport = Mock()
-        self.client = Client('https://testshop.worldshading.com', 'ck_example', 'cs_private',
-                             'gate', 'gate_private', session=self.transport)
+        self.client = Client('https://testshop.worldshading.com', 'ck_example', 'cs_private',session=self.transport)
 
     def response(self, status=200, body=None):
         r = requests.Response(); r.status_code = status
@@ -27,10 +26,10 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(result, [{'id': 10}])
         args, kw = self.transport.request.call_args
         url = args[1]
-        self.assertNotIn('cs_private', url); self.assertNotIn('gate_private', url)
+        self.assertNotIn('cs_private', url)
         q = parse_qs(urlsplit(url).query)
         self.assertEqual(q['sku'], ['A B/C']); self.assertEqual(q['oauth_signature_method'], ['HMAC-SHA256'])
-        self.assertTrue(q['oauth_signature'][0]); self.assertEqual(kw['auth'], ('gate', 'gate_private'))
+        self.assertTrue(q['oauth_signature'][0]); self.assertNotIn('auth',kw)
         self.assertFalse(kw['allow_redirects'])
 
     def test_put_uses_json_body(self):
