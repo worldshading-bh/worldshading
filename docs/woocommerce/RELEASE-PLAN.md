@@ -12,9 +12,11 @@ Design: copy six active connector DocTypes, feature modules, guide and Item JS; 
 - [x] Implement production configuration, additive hooks, scoped setup and neutral operator documentation.
 - [x] Run standalone no-site suite, Python3.6 syntax checks, frontend syntax/template checks and credential/file-scope review.
 - [x] Fresh independent code review; fix material findings.
-- [ ] Commit and publish feature branch/draft PR for review. Do not merge/deploy or access live ERP. Describe exact no-migrate setup and remaining live validation.
+- [x] Commit and publish feature branch/draft PR for review. Do not merge/deploy or access live ERP. Describe exact no-migrate setup and remaining live validation.
 
 Review ledger:
 - Release reviewer confirmed an important submitted-update lifecycle interaction with existing dynamic rounding. Added before_update_after_submit protection and a regression invoking the actual production handler; it failed before the fix and passes afterward.
 - Recovery service fixed overall timeout could repeatedly kill slow backlog polling before cursor progress. TimeoutStartSec=0 lets finite HTTP/pagination finish. Immediate queued jobs remain bounded; the independent recovery path covers queue timeout/failure.
 -167 standalone no-site tests pass; Python3.6 syntax and feature JS/native guide template syntax pass. No live ERP accessed or changed.
+
+Published for review: https://github.com/worldshading-bh/worldshading/pull/42 (draft). Production main was not merged or deployed.
