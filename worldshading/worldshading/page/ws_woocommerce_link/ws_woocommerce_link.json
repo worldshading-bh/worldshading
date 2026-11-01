@@ -1,0 +1,9 @@
+{
+ "doctype": "Page",
+ "name": "ws-woocommerce-link",
+ "page_name": "ws-woocommerce-link",
+ "title": "Link WooCommerce Item",
+ "module": "Worldshading",
+ "standard": "Yes",
+ "roles": [{"role": "System Manager"}]
+}
