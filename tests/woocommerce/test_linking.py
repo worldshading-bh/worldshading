@@ -34,6 +34,7 @@ class LinkingTests(unittest.TestCase):
                          check_permission=Mock(), save=Mock())
         self.f.get_doc.return_value = self.item
         self.f.get_list = Mock(return_value=[])
+        self.m.persist=Mock()
         self.f.db.exists.return_value = False
         self.targets = lambda *args, **kwargs: self.m.product_targets(*args,source_host='shop.example.com',**kwargs)
 
@@ -206,14 +207,14 @@ class LinkingTests(unittest.TestCase):
         self.assertEqual((row['enabled'],row['sync_stock'],row['sync_price'],row['clear_sale_price']), (0,1,0,0))
         self.assertFalse(result['enabled'])
         self.item.check_permission.assert_called_with('write')
-        self.item.save.assert_called_once_with()
+        self.m.persist.assert_called_once()
         self.client.put.assert_not_called()
         self.f.db.commit.assert_called_once()
         self.c.manager_only.assert_called_once_with(write=True)
         self.assertFalse(self.item.flags.get('ws_woo_link_only'))
 
     def test_save_returns_current_timestamp_for_next_inactive_edit(self):
-        self.item.save.side_effect = lambda: self.item.set('modified','2026-11-01 12:01:00')
+        self.m.persist.side_effect = lambda *args: self.item.set('modified','2026-11-01 12:01:00')
         result = self.save()
         self.assertEqual(result['modified'],'2026-11-01 12:01:00')
         self.f.db.get_value.return_value = Doc(self.item.ws_woocommerce_links[0],name='link1',parent='TENT3',parenttype='Item',parentfield='ws_woocommerce_links')
@@ -221,8 +222,8 @@ class LinkingTests(unittest.TestCase):
         self.save(sale_uom='Set',expected_modified=result['modified'])
         self.assertEqual(self.item.ws_woocommerce_links[0].sale_uom,'Set')
 
-    def test_link_only_flag_restored_after_save_failure(self):
-        self.item.save.side_effect = ValueError('save failed')
+    def test_persistence_failure_is_not_committed(self):
+        self.m.persist.side_effect = ValueError('save failed')
         with self.assertRaisesRegex(ValueError,'save failed'): self.save()
         self.assertFalse(self.item.flags.get('ws_woo_link_only'))
         self.f.db.commit.assert_not_called()
@@ -266,7 +267,7 @@ class LinkingTests(unittest.TestCase):
         self.save(sale_uom='Set')
         self.assertEqual(row['sale_uom'],'Set')
         self.assertEqual((row['enabled'],row['sync_price']),(0,0))
-        self.item.save.assert_called_once_with()
+        self.m.persist.assert_called_once()
 
     def test_search_honours_item_permissions_with_bounded_results(self):
         self.f.get_list = Mock(return_value=[Doc(name='TENT3',item_name='Tent 3m')])

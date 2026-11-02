@@ -145,3 +145,11 @@ def upgrade_bulk_linking():
     frappe.clear_cache()
     frappe.db.commit()
     return dict(updated=True,automatic_sync_changed=False,auto_link_skus_changed=False)
+
+
+def upgrade_hardening():
+    """Targeted v12 upgrade; hooks are read directly, no scheduler-table migration."""
+    result=upgrade_bulk_linking()
+    frappe.cache().delete_value('scheduler_events')
+    result.update(recovery_cron='*/10 * * * *',scheduler_enabled_changed=False)
+    return result

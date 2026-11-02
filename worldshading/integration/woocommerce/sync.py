@@ -199,7 +199,18 @@ def _run_cycle(mapping_name=None, export_products=True, changes_only=False, pend
                 result.update(process_changes(selected,config,client))
             else:
                 context={}
-                result['products']=[sync_product(m,config,client,context=context) for m in selected]
+                from .sync_state import StateStore,payload_hash
+                store=StateStore()
+                result['products']=[]
+                for mapping in selected:
+                    state=store.prepare([mapping])[mapping['name']]
+                    version=int(state.get('requested_version') or 0)
+                    outcome=sync_product(mapping,config,client,context=context)
+                    if outcome['status'] in ('Updated','Unchanged'):
+                        store.ack(mapping['name'],version,payload_hash(mapping,outcome.get('payload',{})),now_datetime())
+                    elif outcome['status']=='Stock Held':store.hold(mapping['name'],version)
+                    else:store.fail(mapping['name'],version,outcome.get('error') or 'Product sync failed',now_datetime())
+                    result['products'].append(outcome)
             result['stock_blocked']=sum(bool(p.get('stock_blocked')) for p in result['products'])
             summary='Orders checked: %s. Retries: %s. Products updated: %s. Unchanged: %s. Errors: %s. Orders requiring review: %s.' % (
                 result['orders'],result['retries'],sum(p['status']=='Updated' for p in result['products']),

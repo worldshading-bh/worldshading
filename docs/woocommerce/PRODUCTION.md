@@ -1,5 +1,7 @@
 # WooCommerce connector release
 
+Current installed-site update: see [production hardening](PRODUCTION-HARDENING.md). The native ten-minute recovery hook supersedes the original external-timer requirement.
+
 This feature branch starts at clean `main` commit `acf8ba81fe634988a6b301dd08afc1536f1c55ba` and ports only the reviewed connector from the separate demo feature repository. No dirty demo application snapshot is included. Existing application hooks, Item dashboard, pricing, rounding, permissions and schedules are preserved. This is a release candidate, not evidence of a production installation: live ERP was not accessed or changed.
 
 ## What is included
@@ -7,7 +9,7 @@ This feature branch starts at clean `main` commit `acf8ba81fe634988a6b301dd08afc
 - ERP-to-Woo stock and regular price synchronization for explicitly linked existing simple products/variations.
 - Woo-to-ERP draft Sales Orders, durable inbox/retries, affected-item stock holds and sync logs.
 - Item-owned links using native UOM conversions and combined online warehouses.
-- Immediate post-commit background processing, coalesced notifications, bounded batches, five-minute recovery and hourly remote verification.
+- Immediate post-commit background processing, coalesced notifications, bounded batches, ten-minute recovery and hourly remote verification.
 - Six active connector DocTypes, operational state separate from Item, eight custom fields on Item/Sales Order/Customer, and the native operator guide.
 - Standalone no-site tests under `tests/woocommerce/` and optional systemd recovery unit templates under `deploy/woocommerce/`.
 
@@ -44,11 +46,11 @@ Do these steps later in an agreed maintenance window, after live version/schema 
    ```
 
    This reloads six connector DocTypes and the guide Page and creates/updates only the declared custom fields. It never calls `bench migrate`, never imports demo records and never enables automatic sync. Existing connector settings are preserved on repeat runs. Future full migrations, if performed for other work, can synchronize these standard DocTypes on other sites using this app; the guarded connector setup/custom-field hook only runs on a matching configured site. Unconfigured sites cannot sync.
-6. Safely reload web/queue processes so code and hooks refresh; keep the general ERP scheduler in its existing state. Confirm the short queue workers are running. This feature has not added or modified global scheduled jobs.
+6. Safely reload web/queue processes so code and hooks refresh; keep the general ERP scheduler in its existing state. Confirm the short and long queue workers are running. The connector now appends only its ten-minute recovery callback to the existing cron hooks; unrelated scheduled jobs are preserved.
 7. Open **WS WooCommerce Settings**. New settings default to connector disabled and Automatic Sync off. Configure the exact allowed Woo URL, dedicated read/write API credentials, company/currency/price list, integration user, online warehouses/default order warehouse, customer defaults, tax/shipping/fee accounts and the deliberate order-import starting point in the ERP site timezone (converted internally to UTC). Disable the legacy built-in Woo connector before enabling this one. Review older unfulfilled Woo orders before the first stock export.
 8. Create native Woo `order.created` and `order.updated` webhooks using the production webhook URL shown in Settings and the matching secret. Verify Woo scheduled tasks/webhook delivery work. Use new production WooCommerce API credentials.
 9. Map one approved real product/variation; do not reuse demo IDs blindly. Confirm exact SKU, selling UOM/conversion, approved net price, Woo tax class and VAT display. Enable the connector for manual connection/preview tests. A manual Sync performs writes and an order import may create ERP documents; perform those only as an approved controlled acceptance test. Check quantity, draft holds, VAT/shipping and exact order totals. Price sync assumes BHD-style three-decimal precision and net-entered Woo prices.
-10. Install/enable the connector recovery timer only when paths, ownership and site instance have been checked. The supplied templates assume `/home/erpadmin/frappe-bench` and user/group `erpadmin`; adjust for the actual server. Copy templates to systemd, reload its configuration, then enable `ws-woocommerce@YOUR-SITE.timer`. It checks every300–305 seconds after the previous recovery completes. It uses the native integration user and exits without syncing while Automatic Sync is off. The service has no overall wall-clock timeout because a slow order backlog must stabilize before the polling cursor advances; individual HTTP calls and pagination remain bounded. It never overlaps its own recovery runs. Do not install the demo service or change unrelated jobs.
+10. Use the existing native Frappe scheduler for ten-minute recovery; no separate timer is required. Confirm the global scheduler is already enabled and the long worker runs. If an older external Woo recovery timer was installed, disable that timer after draining it. See the current hardening guide for the targeted update and acceptance checks.
 11. Enable Automatic Sync only after controlled acceptance. Monitor Settings, Order Inbox, Sync Logs and worker/service logs. Add more approved mappings gradually. The guide is at `/desk#ws-woocommerce-guide`, linked from Settings, with System Manager access.
 
 Immediate jobs start after successful commit; queues and Woo response times determine actual latency. Direct v12 reservation writes, including close/reopen, can wait for recovery. Pending/failing orders hold only affected stock unless source identities are unreadable. Recent orders are reconciled before absolute stock exports. The connector does not submit imported orders, create invoices/payments/deliveries, match legacy ERP customers by email/mobile, create Woo catalogue content, or allocate order lines across warehouses.
@@ -61,7 +63,7 @@ Run only the standalone suite:
 python -m unittest discover -s tests/woocommerce -q
 ```
 
-It initializes no Frappe site/database. The release suite currently passes167 tests. The 155-test demo baseline covers stock/reservations, order idempotency/holds, prices, failures, concurrency, revision state and queue behavior; release tests add exact destination configuration, real target construction, metadata preflight and coexistence with all existing hooks. Demo end-to-end results do not replace acceptance on a current production-data clone. No production access, schema check, load benchmark or live end-to-end compatibility is claimed for this branch.
+It initializes no Frappe site/database. The current standalone suite and its verification results are recorded in the hardening PR. The 155-test demo baseline covers stock/reservations, order idempotency/holds, prices, failures, concurrency, revision state and queue behavior; release tests add exact destination configuration, real target construction, metadata preflight and coexistence with all existing hooks. Demo end-to-end results do not replace acceptance on a current production-data clone. No production access, schema check, load benchmark or live end-to-end compatibility is claimed for this branch.
 
 ## Pause and rollback
 

@@ -7,6 +7,7 @@ import frappe
 from frappe.utils import get_datetime, now_datetime
 from .common import manager_only, settings, lock, log, SETTINGS, start_operation
 from .client import from_settings
+from .link_persistence import persist
 from .item_links import LINK, TABLE, normalize
 from .linking import _id, _existing, _eligible, _verified_target, _sku_identity
 
@@ -46,7 +47,7 @@ def candidate(target):
     try:result['sale_uom']=selling_uom(item)
     except ValueError as exc:
         result['reason']=str(exc);return result
-    result.update(status='Ready',reason='Exact SKU / Item Code; valid selling UOM')
+    result.update(status='Ready',reason='SKU matches; confirm the website selling unit')
     return result
 
 
@@ -69,14 +70,14 @@ def catalog_chunk(config,client,page=1,variation_page=1):
         if variable and row.get('parent_id') not in (None,pid):raise ValueError('Variation belongs to another parent')
         sku=row.get('sku')
         if not isinstance(sku,str):raise ValueError('Invalid WooCommerce SKU')
-        target=dict(product_id=pid,variation_id=vid,sku=sku,
+        target=dict(product_id=pid,variation_id=vid,sku=sku,source_host=urlsplit(config.store_url).netloc,
                     sku_inherited=bool(variable and (not sku or sku==parent.get('sku'))),
                     label=(parent.get('name') or str(pid)) + (' / '+', '.join(str(a.get('option') or '') for a in row.get('attributes') or []) if variable else ''))
         if parent.get('type') not in ('simple','variable'):
             results.append(dict(target,status='Skipped',reason='Unsupported product type'));continue
         results.append(candidate(target))
     more=variable and len(rows)==25
-    return dict(rows=results,done=False,page=page if more else page+1,variation_page=variation_page+1 if more else 1)
+    return dict(source_host=urlsplit(config.store_url).netloc,rows=results,done=False,page=page if more else page+1,variation_page=variation_page+1 if more else 1)
 
 
 @frappe.whitelist()
@@ -87,6 +88,8 @@ def preview(page=1,variation_page=1):
 
 
 def create_match(config,client,review):
+    if review.get('source_host')!=urlsplit(config.store_url).netloc:
+        raise ValueError('Preview belongs to a different store; start a new preview')
     pid,vid=_id(review.get('product_id')),_id(review.get('variation_id'),zero=True)
     # Resolve current own SKU and its unique stored identity, not inherited display SKU.
     parent,target=_verified_target(client,pid,vid)
@@ -102,12 +105,10 @@ def create_match(config,client,review):
             raise ValueError('Item or selling UOM changed; preview again')
         item=frappe.get_doc('Item',current['item_code'])
         item.check_permission('write')
-        # Frappe normal Item save retains timestamp/concurrency checks and all validation.
+        # The scoped writer retains permission, timestamp and mapping validation.
         if str(item.modified)!=current['modified']:raise ValueError('Item changed; preview again')
-        item.append(TABLE,dict(product_id=pid,variation_id=vid,sku=sku,sale_uom=current['sale_uom'],enabled=1,sync_stock=1,sync_price=0,clear_sale_price=0))
-        previous=item.flags.get('ws_woo_link_only');item.flags['ws_woo_link_only']=True
-        try:item.save()
-        finally:item.flags['ws_woo_link_only']=previous
+        row=item.append(TABLE,dict(product_id=pid,variation_id=vid,sku=sku,sale_uom=current['sale_uom'],enabled=1,sync_stock=1,sync_price=0,clear_sale_price=0))
+        persist(item,row,current['modified'])
         # A new active mapping is eligible for the normal stock worker. No remote writes here.
         from .changes import mark_items
         mark_items([item.name],'stock')

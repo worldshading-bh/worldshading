@@ -136,13 +136,20 @@ class ReleaseHookTests(unittest.TestCase):
                     after=after if isinstance(after,list) else [after]
                     self.assertEqual(after[:len(before)],before,(dt,event))
             self.assertEqual(namespace['doctype_js']['Item'],[original['doctype_js']['Item'],'public/js/woocommerce_item.js'])
-            for key in ['scheduler_events','override_whitelisted_methods']:
-                self.assertEqual(namespace[key],original[key])
+            self.assertEqual(namespace['override_whitelisted_methods'],original['override_whitelisted_methods'])
+            for event,handlers in original['scheduler_events'].items():
+                if event!='cron':self.assertEqual(namespace['scheduler_events'][event],handlers)
+                else:
+                    for expression,jobs in handlers.items():
+                        self.assertEqual(namespace['scheduler_events']['cron'][expression][:len(jobs)],jobs)
+            recovery=namespace['scheduler_events']['cron']['*/10 * * * *']
+            self.assertIn(PACKAGE+'.worker.scheduled_recovery',recovery)
             self.assertEqual(namespace['after_migrate'][:-1],original['after_migrate'])
             # Repeat registration must not duplicate hooks or scripts.
             block=source.split('# BEGIN WS WOOCOMMERCE CONNECTOR')[1]
             exec(compile(block,str(path),'exec'),namespace)
             self.assertEqual(namespace['doctype_js']['Item'].count('public/js/woocommerce_item.js'),1)
+            self.assertEqual(namespace['scheduler_events']['cron']['*/10 * * * *'].count(PACKAGE+'.worker.scheduled_recovery'),1)
 
 
 if __name__=='__main__':unittest.main()
