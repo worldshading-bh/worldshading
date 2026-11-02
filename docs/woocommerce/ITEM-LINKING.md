@@ -1,6 +1,6 @@
 # Link a WooCommerce product to an ERPNext Item
 
-The WooCommerce manager button opens a small ERPNext window. Sign into ERPNext there if needed, select the product variation, search for an existing Item by code or name, choose one of that Item's existing UOMs, and click **Save Link**. Product ID, variation ID and SKU come from the configured Woo store; no manual copying is required.
+The WooCommerce manager button opens ERPNext in a new browser tab. Sign into ERPNext there if needed, select the product variation, search for an existing Item by code or name, choose one of that Item's existing UOMs, and click **Save Link**. Product ID, variation ID and SKU come from the configured Woo store; no manual copying is required.
 
 A new link is **inactive**, with stock selected and price unselected. Save Link never publishes stock or prices. Use **Open ERPNext Item**, review the link and its preview, then enable the intended sync options in the Item. An existing active link must be edited in the Item; the popup cannot reassign a target already owned by another Item. An inactive link can change its UOM. Use Reload if the Item or remote SKU changed while the window was open.
 
@@ -27,7 +27,7 @@ Before switching the Woo button, confirm this ERP route opens as an ERP System M
 
 Loading the window makes read requests only. It requires the configured Woo credentials and matching store hostname. Save requires normal ERP System Manager and Item write permissions. Ordinary Woo shop-manager access alone does not grant ERP access.
 
-Then update only the bounded mapping-helper block in the existing World Shading Custom WordPress plugin using `deploy/woocommerce/wordpress/mapping-helper.php`. Preserve the current entry-file prefix and every other plugin module. Do not replace the live plugin with an older full ZIP. The paired helper is the 1.13.7 update; see its deployment README.
+Then update only the bounded mapping-helper block in the existing World Shading Custom WordPress plugin using `deploy/woocommerce/wordpress/mapping-helper.php`. Preserve the current entry-file prefix and every other plugin module. Do not replace the live plugin with an older full ZIP. The paired helper is the 1.13.8 update; see its deployment README.
 
 ## One-product acceptance
 
@@ -41,7 +41,7 @@ Then update only the bounded mapping-helper block in the existing World Shading 
 
 WordPress stores no ERP credentials. The popup uses the normal ERP session, CSRF checks and existing configured Woo API credentials on the ERP server. There are no guest linking endpoints, CORS changes or Woo write calls. Remote identity is reread before save. Target locking, normal Item save validation and Item timestamp checks reject conflicting changes. Link-only saves suppress only this connector's Item-change notification; ordinary Item saves still request normal syncing.
 
-Popup blocking falls back to a normal new tab. Modifier-click also opens normally. The admin identifier table and Copy controls remain available. Incorrect ERP-origin configuration falls back to that identifier page.
+Buttons use ordinary browser links in a new tab, with opener isolation. No scripted popup launcher is required. The admin identifier table and Copy controls remain available. Incorrect ERP-origin configuration falls back to that identifier page.
 
 ## Rollback and verification limits
 

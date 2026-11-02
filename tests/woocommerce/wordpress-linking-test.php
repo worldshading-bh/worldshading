@@ -45,9 +45,12 @@ if (($argv[1]??'')==='bad-origin') {check(strpos($bar->nodes[0]['href'],'@')===f
 check(strpos($bar->nodes[0]['href'],'/desk#ws-woocommerce-link/33166')!==false,'wrong toolbar product');
 check(strpos($bar->nodes[0]['href'],'/33166/all/shop.example.com')!==false,'source store missing from popup');
 check($child_reads===0,'storefront traversed variations');
+check($bar->nodes[0]['meta']['target']==='_blank' && $bar->nodes[0]['meta']['rel']==='noopener','toolbar must use an isolated native browser link');
 ob_start(); WSC_ERP_Product_Mapping::page(); $html=ob_get_clean();
 foreach(['33166','33168','33169','DCPT0003','DCPT0005','3m','5m'] as $value)check(strpos($html,$value)!==false,'missing mapping '.$value);
 check($child_reads===1,'mapping page traversed children repeatedly');
+check(preg_match('~<a[^>]*target="_blank"[^>]*rel="noopener"[^>]*href="[^"]*/33166/33168/shop.example.com"[^>]*>Link Item</a>~',$html)===1,'variation must use an isolated native browser link');
+check(!isset($hooks['wp_footer']) && !isset($hooks['admin_footer']),'scripted popup intercept must not replace native navigation');
 check(strpos($html,'/desk#ws-woocommerce-link/33166/33168')!==false,'direct variation popup link missing');
 check(strpos($html,'&lt;span&gt;')===false,'theme HTML leaked into variation label');
 $_GET=['product_id'=>'44'];ob_start();WSC_ERP_Product_Mapping::page();$html=ob_get_clean();
