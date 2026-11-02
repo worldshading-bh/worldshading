@@ -23,7 +23,7 @@ class ControlTests(unittest.TestCase):
 
     def test_worker_in_automatic_mode_runs_sync(self):
         with adapter('worker') as (worker, frappe, common, orders):
-            common.settings.return_value = types.SimpleNamespace(enabled=1, automatic_sync=1, integration_user='connector')
+            common.settings.return_value = types.SimpleNamespace(enabled=1, automatic_sync=1, integration_user='connector', get=lambda key:0)
             sync = types.ModuleType(PACKAGE + '.sync')
             sync.run_cycle = Mock(return_value={})
             with patch.dict(sys.modules, {PACKAGE + '.sync': sync}), patch.object(sys, 'argv', ['worker', '--site', 'demo']):

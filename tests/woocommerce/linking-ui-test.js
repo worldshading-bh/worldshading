@@ -1,91 +1,48 @@
-const fs = require('fs');
-const vm = require('vm');
-const assert = require('assert');
-const context = {frappe:{pages:{'ws-woocommerce-link':{}},utils:{escape_html:String}}, console};
-vm.createContext(context);
-vm.runInContext(fs.readFileSync('worldshading/worldshading/page/ws_woocommerce_link/ws_woocommerce_link.js','utf8'),context);
-function field(value='') {return {value,df:{},get_value(){return this.value;},set_value(v){this.value=v;},refresh(){}};}
-function fixture() {
- const f=Object.create(context.frappe.WSWooLinkForm.prototype);
- f.itemEpoch=0;f.loadEpoch=0;f.itemField=field('A');f.uomField=field('Nos');f.targetField=field('first');
- f.skuField=field('SKU');
- f.target={product_id:1,variation_id:2,sku:'SKU',linkable:true};
- f.itemOptions={item_code:'A',modified:'timestamp',uoms:[{uom:'Nos'}]};
- f.status={value:'',text(v){this.value=v;}};
- f.heading={text(){}};f.identity={empty(){}};f.pager={empty(){}};
- const props={};f.page={btn_primary:{prop(k,v){if(arguments.length===1)return props[k];props[k]=v;}}};
- f.requests=[];f.call=(method,args,done,always)=>f.requests.push({method,args,done,always});return f;
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const frappe={pages:{'ws-woocommerce-link':{}},utils:{escape_html:String},confirm(message,yes){this.confirmation={message,yes};}};
+vm.runInNewContext(fs.readFileSync('worldshading/worldshading/page/ws_woocommerce_link/ws_woocommerce_link.js','utf8'),{frappe});
+function element(){const props={};return {value:'',text(v){if(arguments.length){this.value=v;return this;}return this.value;},html(){return this;},empty(){return this;},show(){return this;},hide(){return this;},toggle(){return this;},prop(k,v){if(arguments.length===1)return props[k];props[k]=v;return this;}};}
+function field(value=''){return {value,df:{},get_value(){return this.value;},set_value(v){this.value=v;},refresh(){},$wrapper:element()};}
+function row(code='A'){return {epoch:0,dirty:true,target:{product_id:1,variation_id:2,sku:'SKU',linkable:true},
+ itemField:field(code),uomField:field('Each'),options:{item_code:code,modified:'old',default_uom:'Each',uoms:[{uom:'Each'}]},status:element()};}
+function fixture(){const f=Object.create(frappe.WSWooLinkForm.prototype);Object.assign(f,{epoch:1,rows:[],ready:true,bulk:false,requests:[],
+ page:{btn_primary:element()},status:element(),heading:element(),table:element(),moreButton:element(),stopButton:element(),findButton:element(),scanButton:element(),skuField:field('SKU')});
+ f.call=(method,args,done,always,module)=>f.requests.push({method,args,done,always,module});f.render=()=>{};return f;}
+{
+ const f=fixture(),r=row();f.rows=[r];f.choose_item(r);const first=f.requests[0];
+ r.itemField.value='B';f.choose_item(r);first.done({item_code:'A',modified:'wrong',uoms:[{uom:'Each'}]});assert.strictEqual(r.options,null);
+ f.requests[1].done({item_code:'B',modified:'new',uoms:[{uom:'Box'},{uom:'Each'}],default_uom:'Box'});assert.strictEqual(r.uomField.value,'Box');
+ f.epoch++;r.options=null;f.requests[1].done({item_code:'B',uoms:[{uom:'Each'}]});assert.strictEqual(r.options,null,'old route callback accepted');
 }
 {
- const f=fixture();f.choose_item();const first=f.requests[0];
- f.itemField.value='B';f.choose_item();const second=f.requests[1];
- first.done({item_code:'A',modified:'old',uoms:[{uom:'Nos'}]});assert.strictEqual(f.itemOptions,null,'stale Item response accepted');
- second.done({item_code:'B',modified:'new',uoms:[{uom:'Set'}]});assert.strictEqual(f.itemOptions.item_code,'B');assert.strictEqual(f.uomField.value,'Set');
+ const f=fixture(),r=row();f.rows=[r];r.target.link={enabled:true};f.save();assert.strictEqual(f.requests.length,0,'active mapping edited');
+ r.target.link=null;r.options.item_code='OTHER';f.save();assert.strictEqual(f.requests.length,0,'stale Item options saved');
 }
 {
- const f=fixture();f.target.link={enabled:true};f.save();assert.strictEqual(f.requests.length,0,'active link edited');
+ const f=fixture(),a=row(),b=row('B');b.target.variation_id=3;f.rows=[a,b];f.sourceHost='shop.example.com';f.save();
+ assert.strictEqual(f.requests.length,1);assert.strictEqual(a.itemField.df.read_only,true);assert.strictEqual(b.uomField.df.read_only,true);
+ f.requests[0].done({item_code:'A',enabled:false,modified:'saved'});f.requests[0].always();
+ assert.strictEqual(f.requests[1].args.variation_id,3,'second variation not saved');
+ f.requests[1].always();assert.strictEqual(f.busy,false);assert.strictEqual(a.dirty,false);assert.strictEqual(b.dirty,true,'failed row cannot retry');
 }
 {
- const f=fixture();f.itemOptions.item_code='OTHER';f.save();assert.strictEqual(f.requests.length,0,'stale Item options saved');
+ const f=fixture();f.productId=123;f.sourceHost='shop.example.com';f.focusVariation=222;f.load(1);
+ assert.strictEqual(f.requests[0].method,'product_sheet');assert.strictEqual(f.requests[0].args.variation_id,undefined,'launching variation filters sheet');
+ f.requests[0].done({product_name:'Product',store_url:'shop',targets:[{variation_id:1},{variation_id:2}],page:1,has_more:true});
+ assert.strictEqual(f.rows.length,2);assert.strictEqual(f.requests[1].args.page,2);
+ f.requests[1].done({product_name:'Product',targets:[{variation_id:3}],page:2,has_more:false});
+ assert.strictEqual(f.rows.length,3,'page replaces earlier variations');
 }
 {
- const f=fixture();f.save();assert.strictEqual(f.requests[0].method,'save_link');
- assert.strictEqual(f.itemField.df.read_only,true,'Item remains editable during save');
- assert.strictEqual(f.uomField.df.read_only,true,'UOM remains editable during save');
- assert.strictEqual(f.targetField.df.read_only,true,'variation remains editable during save');
- f.requests[0].done({item_code:'A',sale_uom:'Nos',enabled:false,modified:'saved timestamp'});f.requests[0].always();
- assert.strictEqual(f.itemOptions.modified,'saved timestamp','saved timestamp must refresh');
- assert.strictEqual(f.busy,false);assert.strictEqual(f.target.link.item_code,'A');
- assert.strictEqual(f.itemField.df.read_only,true,'existing target must remain pinned to its Item');
- assert.strictEqual(f.uomField.df.read_only,false,'inactive link UOM should remain editable');
- assert.strictEqual(f.targetField.df.read_only,false);
+ const f=fixture();f.bulk=true;f.scan();assert.strictEqual(f.requests[0].method,'preview');
+ f.requests[0].done({rows:[{status:'Ready',product_id:1,variation_id:0,item_code:'A',sale_uom:'Each',sku:'A',modified:'old'}],page:2,variation_page:1,done:false});
+ assert.strictEqual(f.requests.filter(r=>r.method==='apply').length,0,'preview writes');
+ f.stopRequested=true;f.requests[1].done({rows:[],done:false,page:3,variation_page:1});assert.strictEqual(f.reviewed,true);
+ f.save();assert.strictEqual(f.requests.filter(r=>r.method==='apply').length,0,'confirmation bypassed');
+ frappe.confirmation.yes();assert.strictEqual(f.requests[2].method,'apply');assert.strictEqual(f.requests[2].module,'bulk_linking');
+ f.requests[2].done({rows:[{status:'Linked'}]});f.requests[2].always();assert.strictEqual(f.rows[0].statusText,'Linked');assert.strictEqual(f.busy,false);
 }
 {
- const f=fixture();f.targets=[f.target];f.targetField.df.options='first';
- f.load(2);assert.strictEqual(f.targets.length,0,'old targets retained while loading');
- assert.strictEqual(f.targetField.value,'');assert.strictEqual(f.itemField.value,'');
- f.choose_target();f.save();assert.strictEqual(f.requests.length,1,'old target saved during load');
- f.requests[0].always();assert.strictEqual(f.loading,false);
- f.choose_target();f.save();assert.strictEqual(f.requests.length,1,'old target restored after failed load');
- assert.ok(f.status.value.includes('Reload'),'failed load lacks retry guidance');
+ const f=fixture();f.bulk=true;f.reviewed=false;f.rows=[{statusText:'Ready'}];f.save();assert.strictEqual(f.requests.length,0,'unreviewed preview applied');
 }
-console.log('PASS: stale Item callbacks, active-link protection, stale selection and save locking');
-{
- const f=fixture();f.itemField.value='';f.suggest_item();
- assert.strictEqual(f.requests[0].method,'match_item');
- f.itemField.value='MANUAL';f.requests[0].done({item_code:'AUTO',reason:'matched'});
- assert.strictEqual(f.itemField.value,'MANUAL','late suggestion replaced manual Item choice');
-}
-{
- const f=fixture();f.itemField.value='';f.suggest_item();
- f.requests[0].done({item_code:'AUTO',reason:'matched'});
- assert.strictEqual(f.itemField.value,'AUTO');
- assert.strictEqual(f.requests[1].method,'item_uoms');
- assert.strictEqual(f.requests.filter(r=>r.method==='save_link').length,0,'suggestion saved automatically');
-}
-{
- const f=fixture();f.render_targets=data=>{f.rendered=data;};f.find_sku();
- assert.strictEqual(f.requests[0].method,'find_by_sku');
- assert.strictEqual(f.skuField.df.read_only,true,'SKU editable during lookup');
- ++f.loadEpoch;f.requests[0].done({source_host:'wrong',targets:[{product_id:9}]});f.requests[0].always();
- assert.strictEqual(f.rendered,undefined,'stale SKU response accepted');
-}
-console.log('PASS: SKU lookup locking, stale suggestions and read-only automatic matching');
-{
- const f=fixture();f.itemField.value='';f.suggest_item();
- f.target={product_id:1,variation_id:3};f.requests[0].done({item_code:'OLD',reason:'old target'});
- assert.strictEqual(f.itemField.value,'','old variation suggestion accepted');
-}
-{
- const f=fixture();f.choose_item();
- f.requests[0].done({item_code:'A',modified:'new',uoms:[{uom:'Nos'},{uom:'Box'}]});
- assert.strictEqual(f.uomField.value,'','ambiguous selling UOM was guessed');
- assert.strictEqual(f.page.btn_primary.prop('disabled'),true);
-}
-{
- const f=fixture();f.render_targets=data=>{f.rendered=data;};f.find_sku();
- f.requests[0].done({source_host:'shop.example.com',targets:[{product_id:1}]});f.requests[0].always();
- assert.strictEqual(f.sourceHost,'shop.example.com');assert.strictEqual(f.productId,1);
- assert.ok(f.rendered);assert.strictEqual(f.skuField.df.read_only,false);
- assert.strictEqual(f.requests.filter(r=>r.method==='save_link').length,0);
-}
+console.log('PASS: row isolation, stale response guards, active protection, save-all, parent variation pagination, read-only bulk preview and explicit reviewed application');

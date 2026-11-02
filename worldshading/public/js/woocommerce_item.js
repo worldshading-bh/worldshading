@@ -32,7 +32,7 @@ frappe.ui.form.on('Item', {
             if (frm.is_dirty()) {frappe.msgprint('Save the Item before finding a WooCommerce link.');return;}
             frappe.route_options = {ws_woo_link_seed:{item_code:frm.doc.name,sku:frm.doc.item_code || frm.doc.name}};
             frappe.set_route('ws-woocommerce-link');
-        });
+        }, 'WooCommerce');
         const run = (method, row) => frappe.call({
             method:'worldshading.integration.woocommerce.api.'+method,args:{name:row.name},freeze:true,
             callback(r) {
@@ -67,7 +67,7 @@ frappe.ui.form.on('Item', {
             frappe.prompt([{fieldname:'link',label:'WooCommerce Link',fieldtype:'Select',options:rows.map(row => row.name).join('\n'),reqd:1}],
                 values => run(method,rows.find(row => row.name===values.link)),'Choose WooCommerce Link');
         };
-        frm.add_custom_button('Preview WooCommerce', () => choose('preview_product'));
-        frm.add_custom_button('Sync WooCommerce', () => choose('sync_product'));
+        frm.add_custom_button('Preview WooCommerce', () => choose('preview_product'), 'WooCommerce');
+        frm.add_custom_button('Sync WooCommerce', () => choose('sync_product'), 'WooCommerce');
     }
 });

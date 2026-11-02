@@ -22,6 +22,16 @@ def main():
         frappe.flags.mute_emails=True
         from .sync import run_cycle
         result=run_cycle(changes_only=True)
+        # Catalog matching is recovery-only, never in the immediate stock queue.
+        # Failure here must not undo the order/stock cycle already completed.
+        from .bulk_linking import recover
+        try:result['item_linking']=recover(config)
+        except Exception as exc:
+            frappe.db.rollback()
+            from .common import log
+            log('Item linking','catalog','Failed',str(exc))
+            frappe.db.commit()
+            result['item_linking']=dict(error=str(exc))
         print(json.dumps(result,default=str))
     finally:
         frappe.destroy()

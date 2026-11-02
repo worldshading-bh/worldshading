@@ -20,11 +20,11 @@ frappe.ui.form.on('WS WooCommerce Order', {
                     (result.error ? '<p>'+escape(result.error)+'</p>' : '') +
                     (result.sales_order ? '<p>Sales Order: '+escape(result.sales_order)+'</p>' : '')});
                 frm.reload_doc(); }
-        }));
+        }), 'WooCommerce');
         if (!frm.is_new()) frm.add_custom_button('Ignore Import', () => frappe.prompt({
             fieldname:'reason',fieldtype:'Small Text',label:'Review reason',reqd:1
         }, values => frappe.call({method:'worldshading.integration.woocommerce.api.ignore_order',
             args:{name:frm.doc.name,reason:values.reason},callback() {frm.reload_doc();}}),
-            'Skip this import (does not cancel either order)'));
+            'Skip this import (does not cancel either order)'), 'WooCommerce');
     }
 });
