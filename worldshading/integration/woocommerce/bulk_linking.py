@@ -64,7 +64,9 @@ def catalog_chunk(config,client,page=1,variation_page=1):
     results=[]
     for row in rows:
         vid=_id(row.get('id')) if variable else 0
-        if row.get('parent_id') not in (None,pid):raise ValueError('Variation belongs to another parent')
+        # Standalone products normally have parent_id=0. Only variation rows
+        # must belong to the parent whose variations endpoint was requested.
+        if variable and row.get('parent_id') not in (None,pid):raise ValueError('Variation belongs to another parent')
         sku=row.get('sku')
         if not isinstance(sku,str):raise ValueError('Invalid WooCommerce SKU')
         target=dict(product_id=pid,variation_id=vid,sku=sku,

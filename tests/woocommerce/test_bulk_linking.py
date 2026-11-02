@@ -20,12 +20,25 @@ class BulkLinkTests(unittest.TestCase):
         self.c.settings.return_value=self.config
         self.client=Mock()
         self.m.from_settings=Mock(return_value=self.client)
-        self.client.get.side_effect=lambda path,*args: [dict(id=10,type='simple',sku='CODE',name='Product')] if path=='products' else dict(id=10,type='simple',sku='CODE')
+        self.client.get.side_effect=lambda path,*args: [dict(id=10,type='simple',sku='CODE',name='Product',parent_id=0)] if path=='products' else dict(id=10,type='simple',sku='CODE',parent_id=0)
 
     def test_preview_is_read_only_and_selects_sole_valid_uom(self):
         result=self.m.preview()
         self.assertEqual(result['rows'][0]['sale_uom'],'Each')
         self.assertEqual(result['rows'][0]['status'],'Ready')
+        self.item.save.assert_not_called()
+        self.f.db.commit.assert_not_called()
+
+    def test_simple_product_with_zero_parent_is_previewed_without_writes(self):
+        result=self.m.preview()
+        self.assertEqual(result['rows'][0]['variation_id'],0)
+        self.assertEqual(result['rows'][0]['status'],'Ready')
+        self.item.save.assert_not_called()
+        self.f.db.commit.assert_not_called()
+
+    def test_real_variation_with_another_parent_is_still_rejected(self):
+        self.client.get.side_effect=lambda path,*args: [dict(id=10,type='variable',sku='PARENT',parent_id=0)] if path=='products' else [dict(id=11,sku='CODE',parent_id=999)]
+        with self.assertRaisesRegex(ValueError,'Variation belongs to another parent'):self.m.preview()
         self.item.save.assert_not_called()
         self.f.db.commit.assert_not_called()
 
