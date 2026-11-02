@@ -4,6 +4,8 @@ frappe.WSWooLinkForm = class {
         this.page = frappe.ui.make_app_page({parent:wrapper,title:'Link WooCommerce Item',single_column:true});
         this.body = $('<div class="ws-woo-link-form" style="max-width:960px;padding:15px 0"></div>').appendTo(this.page.main);
         this.heading = $('<p class="text-muted">Choose a website variation, then its ERPNext Item and selling unit.</p>').appendTo(this.body);
+        this.skuField = this.control('Data','woo_sku','Find WooCommerce Product by SKU',this.body,() => {},null);
+        this.skuField.df.reqd = 0; this.skuField.refresh();
         this.targetField = this.control('Select','variation','WooCommerce Product / Variation',this.body,() => this.choose_target());
         this.identity = $('<div></div>').appendTo(this.body);
         const row = $('<div class="row"></div>').appendTo(this.body);
@@ -13,6 +15,7 @@ frappe.WSWooLinkForm = class {
         this.status = $('<p role="status" aria-live="polite"></p>').appendTo(this.body);
         this.pager = $('<div class="btn-group"></div>').appendTo(this.body);
         this.page.set_primary_action('Save Link',() => this.save());
+        this.page.add_inner_button('Find by SKU',() => this.find_sku());
         this.page.add_inner_button('Reload',() => {if (!this.busy) this.show_route();});
         this.page.add_inner_button('Open ERPNext Item',() => {
             if (this.itemField.get_value()) frappe.set_route('Form','Item',this.itemField.get_value());
@@ -42,10 +45,22 @@ frappe.WSWooLinkForm = class {
         this.update_save();
     }
     show_route() {
+        const seed = frappe.route_options && frappe.route_options.ws_woo_link_seed;
+        if (seed) {
+            this.seedItem = seed.item_code;
+            this.skuField.set_value(seed.sku || '');
+            frappe.route_options = null;
+        } else this.seedItem = null;
         const route = frappe.get_route();
         const id = route[1];
         const variation = route[2] === 'all' ? undefined : route[2];
         const source = route[3];
+        if (!id) {
+            ++this.loadEpoch; this.loading = false; this.clear_selection(); this.set_busy(false);
+            this.heading.text('Enter the WooCommerce SKU and click Find by SKU.');
+            if (seed && seed.sku) this.find_sku();
+            return;
+        }
         if (!source || !/^[a-zA-Z0-9.-]+$/.test(source) || !/^[1-9][0-9]{0,11}$/.test(id || '') || (variation != null && !/^[0-9]{1,12}$/.test(variation))) {
             ++this.loadEpoch;
             this.loading = false;
@@ -59,6 +74,36 @@ frappe.WSWooLinkForm = class {
         this.sourceHost = source;
         this.load(1,variation);
     }
+    render_targets(data) {
+        this.loading = false;
+        this.targets = data.targets;
+        this.heading.text(data.product_name+' · '+data.store_url);
+        this.targetField.df.options = this.targets.map(t => t.variation_id+': '+String(t.label).replace(/[\r\n]/g,' ')).join('\n');
+        this.targetField.refresh();
+        this.targetField.set_value(this.targets.length ? this.targetField.df.options.split('\n')[0] : '');
+        this.choose_target();
+        this.set_busy(!!this.busy);
+    }
+    find_sku() {
+        if (this.busy || this.loading) return;
+        const sku = this.skuField.get_value();
+        if (!sku) {this.status.text('Enter a WooCommerce SKU first.');return;}
+        const epoch = ++this.loadEpoch;
+        this.loading = true; this.clear_selection(); this.set_busy(false);
+        this.heading.text('Finding WooCommerce product…');
+        let found = false;
+        this.call('find_by_sku',{sku:sku},data => {
+            if (epoch !== this.loadEpoch || sku !== this.skuField.get_value()) return;
+            found = true;
+            this.sourceHost = data.source_host;
+            this.productId = data.targets[0].product_id;
+            this.render_targets(data);
+        },() => {
+            if (epoch !== this.loadEpoch) return;
+            this.loading = false; this.set_busy(false);
+            if (!found) this.status.text('No usable unique SKU match. Check the SKU or select the variation from WooCommerce.');
+        });
+    }
     load(page,variation) {
         const epoch = ++this.loadEpoch;
         this.loading = true;
@@ -67,14 +112,7 @@ frappe.WSWooLinkForm = class {
         let loaded = false;
         this.call('product_targets',{product_id:this.productId,page:page,variation_id:variation,source_host:this.sourceHost},data => {
             if (epoch !== this.loadEpoch) return;
-            loaded = true; this.loading = false;
-            this.targets = data.targets;
-            this.heading.text(data.product_name+' · '+data.store_url);
-            this.targetField.df.options = this.targets.map(t => t.variation_id+': '+String(t.label).replace(/[\r\n]/g,' ')).join('\n');
-            this.targetField.refresh();
-            this.targetField.set_value(this.targets.length ? this.targetField.df.options.split('\n')[0] : '');
-            this.choose_target();
-            this.set_busy(!!this.busy);
+            loaded = true; this.render_targets(data);
             this.pager.empty();
             if (data.page > 1) $('<button type="button" class="btn btn-default">Previous variations</button>').appendTo(this.pager).on('click',() => this.load(data.page-1));
             if (data.has_more) $('<button type="button" class="btn btn-default">More variations</button>').appendTo(this.pager).on('click',() => this.load(data.page+1));
@@ -101,15 +139,32 @@ frappe.WSWooLinkForm = class {
         this.identity.empty();
         if (this.target) {
             const t = this.target;
-            this.identity.html('<table class="table table-bordered"><thead><tr><th>Product ID</th><th>Variation ID</th><th>SKU</th></tr></thead><tbody><tr><td>'+this.escape(t.product_id)+'</td><td>'+this.escape(t.variation_id)+'</td><td>'+this.escape(t.sku)+'</td></tr></tbody></table>');
+            this.identity.html('<p>Woo SKU: <strong>'+this.escape(t.sku)+'</strong></p><details><summary>Connection details</summary><table class="table table-bordered"><thead><tr><th>Product ID</th><th>Variation ID</th></tr></thead><tbody><tr><td>'+this.escape(t.product_id)+'</td><td>'+this.escape(t.variation_id)+'</td></tr></tbody></table></details>');
             this.status.text(!t.linkable ? 'Set a SKU in WooCommerce before linking.' : t.link ?
                 (t.link.enabled ? 'Linked and active. Edit this link in the ERPNext Item.' : 'Linked, inactive. Review and enable it in the ERPNext Item when ready.') :
                 'A new link will be saved inactive. Review it in ERPNext before enabling stock or price sync.');
         }
-        const item = this.target && this.target.link ? this.target.link.item_code : '';
+        const item = this.target && this.target.link ? this.target.link.item_code : this.seedItem || '';
         this.itemField.set_value(item);
         if (item) this.choose_item();
+        else if (this.target && this.target.linkable) {
+            if (this.target.sku_inherited) this.status.text('No own SKU for this variation. Choose its ERPNext Item manually.');
+            else this.suggest_item();
+        }
         this.update_save();
+    }
+    suggest_item() {
+        const target = this.target;
+        const epoch = ++this.itemEpoch;
+        if (!target || target.link || this.itemField.get_value()) return;
+        this.call('match_item',{product_id:target.product_id,variation_id:target.variation_id,source_host:this.sourceHost},data => {
+            if (epoch !== this.itemEpoch || target !== this.target || this.itemField.get_value()) return;
+            this.status.text(data.reason);
+            if (data.item_code) {
+                this.itemField.set_value(data.item_code);
+                this.choose_item();
+            }
+        });
     }
     choose_item() {
         const epoch = ++this.itemEpoch;
@@ -138,6 +193,7 @@ frappe.WSWooLinkForm = class {
     }
     set_busy(value) {
         this.busy = value;
+        this.skuField.df.read_only = !!(value || this.loading); this.skuField.refresh();
         this.targetField.df.read_only = !!(value || this.loading);
         this.targetField.refresh();
         this.itemField.df.read_only = !!(value || this.loading || this.target && this.target.link);
