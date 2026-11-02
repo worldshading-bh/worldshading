@@ -28,6 +28,11 @@ frappe.ui.form.on('Item', {
         };
         status();
         if (frm.is_new() || !manager) return;
+        frm.add_custom_button('Link WooCommerce', () => {
+            if (frm.is_dirty()) {frappe.msgprint('Save the Item before finding a WooCommerce link.');return;}
+            frappe.route_options = {ws_woo_link_seed:{item_code:frm.doc.name,sku:frm.doc.item_code || frm.doc.name}};
+            frappe.set_route('ws-woocommerce-link');
+        });
         const run = (method, row) => frappe.call({
             method:'worldshading.integration.woocommerce.api.'+method,args:{name:row.name},freeze:true,
             callback(r) {

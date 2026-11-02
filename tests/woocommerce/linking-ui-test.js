@@ -8,6 +8,7 @@ function field(value='') {return {value,df:{},get_value(){return this.value;},se
 function fixture() {
  const f=Object.create(context.frappe.WSWooLinkForm.prototype);
  f.itemEpoch=0;f.loadEpoch=0;f.itemField=field('A');f.uomField=field('Nos');f.targetField=field('first');
+ f.skuField=field('SKU');
  f.target={product_id:1,variation_id:2,sku:'SKU',linkable:true};
  f.itemOptions={item_code:'A',modified:'timestamp',uoms:[{uom:'Nos'}]};
  f.status={value:'',text(v){this.value=v;}};
@@ -49,3 +50,42 @@ function fixture() {
  assert.ok(f.status.value.includes('Reload'),'failed load lacks retry guidance');
 }
 console.log('PASS: stale Item callbacks, active-link protection, stale selection and save locking');
+{
+ const f=fixture();f.itemField.value='';f.suggest_item();
+ assert.strictEqual(f.requests[0].method,'match_item');
+ f.itemField.value='MANUAL';f.requests[0].done({item_code:'AUTO',reason:'matched'});
+ assert.strictEqual(f.itemField.value,'MANUAL','late suggestion replaced manual Item choice');
+}
+{
+ const f=fixture();f.itemField.value='';f.suggest_item();
+ f.requests[0].done({item_code:'AUTO',reason:'matched'});
+ assert.strictEqual(f.itemField.value,'AUTO');
+ assert.strictEqual(f.requests[1].method,'item_uoms');
+ assert.strictEqual(f.requests.filter(r=>r.method==='save_link').length,0,'suggestion saved automatically');
+}
+{
+ const f=fixture();f.render_targets=data=>{f.rendered=data;};f.find_sku();
+ assert.strictEqual(f.requests[0].method,'find_by_sku');
+ assert.strictEqual(f.skuField.df.read_only,true,'SKU editable during lookup');
+ ++f.loadEpoch;f.requests[0].done({source_host:'wrong',targets:[{product_id:9}]});f.requests[0].always();
+ assert.strictEqual(f.rendered,undefined,'stale SKU response accepted');
+}
+console.log('PASS: SKU lookup locking, stale suggestions and read-only automatic matching');
+{
+ const f=fixture();f.itemField.value='';f.suggest_item();
+ f.target={product_id:1,variation_id:3};f.requests[0].done({item_code:'OLD',reason:'old target'});
+ assert.strictEqual(f.itemField.value,'','old variation suggestion accepted');
+}
+{
+ const f=fixture();f.choose_item();
+ f.requests[0].done({item_code:'A',modified:'new',uoms:[{uom:'Nos'},{uom:'Box'}]});
+ assert.strictEqual(f.uomField.value,'','ambiguous selling UOM was guessed');
+ assert.strictEqual(f.page.btn_primary.prop('disabled'),true);
+}
+{
+ const f=fixture();f.render_targets=data=>{f.rendered=data;};f.find_sku();
+ f.requests[0].done({source_host:'shop.example.com',targets:[{product_id:1}]});f.requests[0].always();
+ assert.strictEqual(f.sourceHost,'shop.example.com');assert.strictEqual(f.productId,1);
+ assert.ok(f.rendered);assert.strictEqual(f.skuField.df.read_only,false);
+ assert.strictEqual(f.requests.filter(r=>r.method==='save_link').length,0);
+}
