@@ -47,6 +47,7 @@ def execute():
     for slug in DOCTYPES:
         frappe.reload_doc('worldshading','doctype',slug,force=True)
     frappe.reload_doc('worldshading','page','ws_woocommerce_guide',force=True)
+    frappe.reload_doc('worldshading','page','ws_woocommerce_link',force=True)
     create_custom_fields(CUSTOM_FIELDS,update=True)
     frappe.clear_cache()
     migrate_order_cutoff()
@@ -120,3 +121,14 @@ def upgrade_refinements():
     frappe.clear_cache()
     frappe.db.commit()
     return dict(updated=True, cutoff_preserved=True, automatic_sync_changed=False)
+
+
+def upgrade_linking():
+    """Install the authenticated linking Page; no DocType or core field reload."""
+    preflight()
+    if not frappe.db.exists('DocType', 'WS WooCommerce Item Link'):
+        raise ValueError('Install the WooCommerce connector before adding its linking Page')
+    frappe.reload_doc('worldshading', 'page', 'ws_woocommerce_link', force=True)
+    frappe.clear_cache()
+    frappe.db.commit()
+    return dict(updated=True, page='ws-woocommerce-link', automatic_sync_changed=False)

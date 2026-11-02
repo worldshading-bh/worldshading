@@ -52,6 +52,9 @@ def item_price_changed(doc,method=None):
 
 
 def item_changed(doc,method=None):
+    # The authenticated linking endpoint only edits an inactive mapping.
+    # Preserve Item validation and other hooks without waking sibling publishers.
+    if doc.flags.get('ws_woo_link_only'):return
     mark_items([doc.get('name')],'all')
 
 

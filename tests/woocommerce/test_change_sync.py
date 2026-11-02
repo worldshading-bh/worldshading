@@ -7,6 +7,14 @@ from test_item_links import Doc
 
 
 class ChangeMarkerTests(unittest.TestCase):
+    def test_link_only_save_does_not_wake_enabled_sibling_mapping(self):
+        with adapter('changes') as (m,f,c,o):
+            m.mark_items=Mock()
+            m.item_changed(Doc(name='A',flags=Doc(ws_woo_link_only=True)))
+            m.mark_items.assert_not_called()
+            m.item_changed(Doc(name='A',flags=Doc()))
+            m.mark_items.assert_called_once_with(['A'],'all')
+
     def test_stock_event_marks_only_enabled_stock_links_without_commit_or_network(self):
         with adapter('changes') as (m,f,c,o):
             m.mark_items=Mock()
