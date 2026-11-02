@@ -45,7 +45,7 @@ Files: ws_woocommerce_link.js, linking-ui-test.js.
 Files: docs/woocommerce/PRODUCTION-HARDENING.md, production/linking guide and affected old deployment instructions.
 - [x] Document Fusion schedule evidence, actual recovery timings/limits, targeted upgrade, timer retirement, rollback and live acceptance checklist.
 - [x] Run no-site Python, JS, PHP checks and Python 3.6 syntax compatibility; inspect full diff and perform independent code review.
-- [ ] Commit release and create/attach PR for user deployment. Do not claim live acceptance from local test results.
+- [x] Commit release and create/attach PR for user deployment. Do not claim live acceptance from local test results.
 
 ## Execution record
 
@@ -56,3 +56,5 @@ Files: docs/woocommerce/PRODUCTION-HARDENING.md, production/linking guide and af
 - Saved preview is explicitly browser-local rather than a new server DocType, keeping this release small and avoiding new schema. It expires after 24 hours and all saves revalidate.
 
 Final verification: 247 no-site Python tests, both JavaScript harnesses, JavaScript syntax, Python 3.6 AST syntax (23 connector/hook files), and git diff whitespace checks passed. No PHP files changed.
+
+Release PR: https://github.com/worldshading-bh/worldshading/pull/50. Published feature branch only; main and live ERP were not changed.
