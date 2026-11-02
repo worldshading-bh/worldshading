@@ -12,6 +12,7 @@ from adapter_support import adapter, PACKAGE
 class ControlTests(unittest.TestCase):
     def test_worker_in_manual_mode_does_not_run_sync(self):
         with adapter('worker') as (worker, frappe, common, orders):
+            worker.site_is_allowed=Mock(return_value=True)
             common.settings.return_value = types.SimpleNamespace(enabled=1, automatic_sync=0)
             sync = types.ModuleType(PACKAGE + '.sync')
             sync.run_cycle = Mock(return_value={})
@@ -23,6 +24,7 @@ class ControlTests(unittest.TestCase):
 
     def test_worker_in_automatic_mode_runs_sync(self):
         with adapter('worker') as (worker, frappe, common, orders):
+            worker.site_is_allowed=Mock(return_value=True)
             common.settings.return_value = types.SimpleNamespace(enabled=1, automatic_sync=1, integration_user='connector', get=lambda key:0)
             sync = types.ModuleType(PACKAGE + '.sync')
             sync.run_cycle = Mock(return_value={})

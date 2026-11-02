@@ -16,10 +16,12 @@ class BulkLinkTests(unittest.TestCase):
         self.f.get_list=Mock(return_value=[Doc(name='CODE',item_code='CODE')])
         self.f.db.exists.return_value=False
         self.f.db.get_value.return_value=None
+        self.f.conf=Doc(host_name='https://demo.worldshading.com')
         self.config=Doc(store_url='https://shop.example.com',enabled=1,automatic_sync=0,auto_link_skus=0)
         self.c.settings.return_value=self.config
         self.client=Mock()
         self.m.from_settings=Mock(return_value=self.client)
+        self.m.persist=Mock()
         self.client.get.side_effect=lambda path,*args: [dict(id=10,type='simple',sku='CODE',name='Product',parent_id=0)] if path=='products' else dict(id=10,type='simple',sku='CODE',parent_id=0)
 
     def test_preview_is_read_only_and_selects_sole_valid_uom(self):
@@ -63,12 +65,20 @@ class BulkLinkTests(unittest.TestCase):
         self.assertTrue(all(r['status']=='Skipped' for r in result['rows']))
         self.f.get_doc.assert_not_called()
 
+    def test_preview_from_previous_store_cannot_be_applied(self):
+        row=self.m.preview()['rows'][0]
+        row['source_host']='another.example.com'
+        result=self.m.apply([row])
+        self.assertEqual(result['rows'][0]['status'],'Failed')
+        self.m.persist.assert_not_called()
+
     def test_apply_revalidates_sku_uom_and_timestamp_before_creating_active_stock_only(self):
         row=self.m.preview()['rows'][0]
-        self.m.apply([row])
+        result=self.m.apply([row])
+        self.assertEqual(result['rows'][0]['status'],'Linked')
         saved=self.item.ws_woocommerce_links[0]
         self.assertEqual((saved.enabled,saved.sync_stock,saved.sync_price),(1,1,0))
-        self.item.save.assert_called_once()
+        self.m.persist.assert_called_once()
 
     def test_apply_rejects_tampered_preview_and_stale_item(self):
         row=self.m.preview()['rows'][0]

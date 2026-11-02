@@ -5,7 +5,8 @@ import frappe
 from frappe.utils import get_datetime
 from .common import manager_only, settings, lock
 from .client import from_settings
-from .item_links import LINK, TABLE, normalize
+from .link_persistence import persist
+from .item_links import LINK, TABLE, CONFIG_FIELDS, normalize
 
 
 def _check_source(config, source_host):
@@ -251,18 +252,14 @@ def save_link(item_code, sale_uom, product_id, variation_id, expected_sku, expec
             raise ValueError('Disable this link in the ERPNext Item before changing its SKU or UOM')
         if not expected_modified or get_datetime(expected_modified) != get_datetime(item.modified):
             raise ValueError('The Item changed; select it again to reload its current UOMs before saving')
+        before={key:row.get(key) for key in CONFIG_FIELDS} if row else None
         if row:
             row.set('sku',sku)
             row.set('sale_uom',sale_uom)
         else:
-            item.append(TABLE,dict(product_id=product_id,variation_id=variation_id,sku=sku,sale_uom=sale_uom,
+            row=item.append(TABLE,dict(product_id=product_id,variation_id=variation_id,sku=sku,sale_uom=sale_uom,
                                    enabled=0,sync_stock=1,sync_price=0,clear_sale_price=0))
-        previous = item.flags.get('ws_woo_link_only')
-        item.flags['ws_woo_link_only'] = True
-        try:
-            item.save()
-        finally:
-            item.flags['ws_woo_link_only'] = previous
+        persist(item,row,expected_modified,before)
         frappe.db.commit()  # Persist before releasing the target lock.
         return dict(item_code=item.name,sale_uom=sale_uom,enabled=False,unchanged=False,modified=str(item.modified))
 

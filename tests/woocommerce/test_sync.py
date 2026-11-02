@@ -20,6 +20,31 @@ class SyncTests(unittest.TestCase):
         self.sync.stock_holds = Mock(side_effect=lambda: self.holds)
         self.sync.stock_warehouses = Mock(return_value=['Warehouse'])
         self.sync.check_price_configuration = Mock()
+        self.frappe.get_all.side_effect=lambda dt,**kwargs:[Doc(name=name,requested_version=0) for name in kwargs['filters']['name'][1]] if dt=='WS WooCommerce Sync State' else []
+
+    def test_manual_sync_acknowledges_only_captured_revision(self):
+        mapping=dict(name='one',item_code='A',product_id=10,variation_id=0,sku='A',sync_stock=1,sync_price=0)
+        state=Doc(requested_version=3,synced_version=2)
+        store=Mock();store.prepare.return_value={'one':state}
+        self.common.mappings.return_value=[mapping]
+        def publish(*args,**kwargs):
+            state['requested_version']=4
+            return dict(status='Updated',payload=dict(stock_quantity=8))
+        self.sync.sync_product=Mock(side_effect=publish)
+        from unittest.mock import patch
+        with patch('worldshading.integration.woocommerce.sync_state.StateStore',return_value=store):
+            self.sync.run_cycle(mapping_name='one')
+        self.assertEqual(store.ack.call_args[0][1],3)
+        self.assertEqual(state.requested_version,4)
+
+    def test_manual_failure_records_backoff_instead_of_immediate_retry(self):
+        store=Mock();store.prepare.return_value={'one':Doc(requested_version=2),'two':Doc(requested_version=7)}
+        self.sync.sync_product=Mock(return_value=dict(status='Failed',error='missing price'))
+        from unittest.mock import patch
+        with patch('worldshading.integration.woocommerce.sync_state.StateStore',return_value=store):
+            self.sync.run_cycle(mapping_name='one')
+        self.assertEqual(store.fail.call_args[0][:3],('one',2,'missing price'))
+        store.ack.assert_not_called()
 
     def test_selected_mapping_does_not_export_other_products(self):
         self.sync.sync_product = Mock(return_value={'status': 'Unchanged'})

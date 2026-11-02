@@ -1,9 +1,9 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const frappe={pages:{'ws-woocommerce-link':{}},utils:{escape_html:String},confirm(message,yes){this.confirmation={message,yes};}};
-vm.runInNewContext(fs.readFileSync('worldshading/worldshading/page/ws_woocommerce_link/ws_woocommerce_link.js','utf8'),{frappe});
+vm.runInNewContext(fs.readFileSync('worldshading/worldshading/page/ws_woocommerce_link/ws_woocommerce_link.js','utf8'),{frappe,window:{location:{host:'erp.test'},localStorage:{values:{},setItem(k,v){this.values[k]=v;},getItem(k){return this.values[k]||null;}}}});
 function element(){const props={};return {value:'',text(v){if(arguments.length){this.value=v;return this;}return this.value;},html(){return this;},empty(){return this;},show(){return this;},hide(){return this;},toggle(){return this;},prop(k,v){if(arguments.length===1)return props[k];props[k]=v;return this;}};}
 function field(value=''){return {value,df:{},get_value(){return this.value;},set_value(v){this.value=v;},refresh(){},$wrapper:element()};}
-function row(code='A'){return {epoch:0,dirty:true,target:{product_id:1,variation_id:2,sku:'SKU',linkable:true},
+function row(code='A'){return {epoch:0,dirty:true,selected:true,target:{product_id:1,variation_id:2,sku:'SKU',linkable:true},
  itemField:field(code),uomField:field('Each'),options:{item_code:code,modified:'old',default_uom:'Each',uoms:[{uom:'Each'}]},status:element()};}
 function fixture(){const f=Object.create(frappe.WSWooLinkForm.prototype);Object.assign(f,{epoch:1,rows:[],ready:true,bulk:false,requests:[],
  page:{btn_primary:element()},status:element(),heading:element(),table:element(),moreButton:element(),stopButton:element(),findButton:element(),scanButton:element(),skuField:field('SKU')});
@@ -37,7 +37,7 @@ function fixture(){const f=Object.create(frappe.WSWooLinkForm.prototype);Object.
  const f=fixture();f.bulk=true;f.scan();assert.strictEqual(f.requests[0].method,'preview');
  f.requests[0].done({rows:[{status:'Ready',product_id:1,variation_id:0,item_code:'A',sale_uom:'Each',sku:'A',modified:'old'}],page:2,variation_page:1,done:false});
  assert.strictEqual(f.requests.filter(r=>r.method==='apply').length,0,'preview writes');
- f.stopRequested=true;f.requests[1].done({rows:[],done:false,page:3,variation_page:1});assert.strictEqual(f.reviewed,true);
+ f.rows[0].selected=true;f.stopRequested=true;f.requests[1].done({rows:[],done:false,page:3,variation_page:1});assert.strictEqual(f.reviewed,true);
  f.save();assert.strictEqual(f.requests.filter(r=>r.method==='apply').length,0,'confirmation bypassed');
  frappe.confirmation.yes();assert.strictEqual(f.requests[2].method,'apply');assert.strictEqual(f.requests[2].module,'bulk_linking');
  f.requests[2].done({rows:[{status:'Linked'}]});f.requests[2].always();assert.strictEqual(f.rows[0].statusText,'Linked');assert.strictEqual(f.busy,false);
@@ -45,4 +45,42 @@ function fixture(){const f=Object.create(frappe.WSWooLinkForm.prototype);Object.
 {
  const f=fixture();f.bulk=true;f.reviewed=false;f.rows=[{statusText:'Ready'}];f.save();assert.strictEqual(f.requests.length,0,'unreviewed preview applied');
 }
-console.log('PASS: row isolation, stale response guards, active protection, save-all, parent variation pagination, read-only bulk preview and explicit reviewed application');
+console.log('PASS: row isolation, stale response guards, active protection, selected save, parent variation pagination, read-only bulk preview and explicit reviewed application');
+const beforeBatch=fixture();beforeBatch.bulk=true;beforeBatch.scan();
+beforeBatch.requests[0].done({rows:Array.from({length:25},(_,i)=>({status:'Ready',product_id:i+1,variation_id:0,sku:'X'+i})),page:2,variation_page:1,done:false});
+assert.strictEqual(beforeBatch.loading,false,'preview did not pause at 25');
+assert.strictEqual(beforeBatch.requests.length,1,'preview scanned beyond review batch');
+assert.strictEqual(beforeBatch.rows.some(r=>r.selected),false,'suggestions selected without review');
+{
+ const f=fixture();f.bulk=true;f.reviewed=true;f.rows=[{statusText:'Ready',selected:false}];frappe.confirmation=null;f.save();
+ assert.strictEqual(frappe.confirmation,null,'unselected row offered for saving');
+}
+{
+ const f=fixture(),a=row();a.selected=false;f.rows=[a];f.save();assert.strictEqual(f.requests.length,0,'prefilled unselected sibling saved');
+}
+{
+ const f=fixture();f.productId=1;f.sourceHost='shop';f.load(1);f.requests[0].done({product_name:'Empty',targets:[],page:1,has_more:false});
+ assert.ok(f.status.value.includes('Set up its variations'),'empty product has no actionable explanation');
+}
+
+{
+ const f=fixture();f.bulk=true;f.scan();
+ for(let i=0;i<10;i++)f.requests[i].done({rows:[],page:i+2,variation_page:1,done:false});
+ assert.strictEqual(f.requests.length,10,'empty catalog scan never paused');assert.strictEqual(f.loading,false);
+}
+{
+ const f=fixture();f.bulk=true;f.scan();
+ f.requests[0].done({rows:Array.from({length:20},(_,i)=>({status:'Ready',sku:'X'+i})),page:2,variation_page:1,done:false});
+ f.requests[1].done({rows:Array.from({length:20},(_,i)=>({status:'Ready',sku:'Y'+i})),page:3,variation_page:1,done:false});
+ assert.strictEqual(f.rows.length,25);assert.strictEqual(f.pendingRows.length,15);
+ f.scan(true);assert.strictEqual(f.rows.length,15);assert.strictEqual(f.requests[2].args.page,3,'continuation rescanned an earlier page');
+}
+{
+ frappe.session={user:'manager'};
+ const f=fixture();f.bulk=true;f.scan();f.requests[0].done({rows:[{status:'Ready',sku:'A',item_code:'A',product_id:1,variation_id:0}],page:2,variation_page:1,done:true});
+ f.rows[0].selected=true;f.save_preview();
+ const resumed=fixture();resumed.bulk=true;resumed.restore_preview();
+ assert.strictEqual(resumed.rows[0].sku,'A');assert.strictEqual(resumed.rows[0].selected,true);assert.strictEqual(resumed.catalogDone,true);
+ frappe.session.user='other';const other=fixture();other.bulk=true;other.restore_preview();assert.strictEqual(other.rows.length,0,'another user restored private preview');
+}
+console.log('PASS: bounded batches, pending rows, selected-only save, empty state, saved-preview resume and user isolation');
