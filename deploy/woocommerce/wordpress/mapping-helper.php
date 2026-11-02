@@ -7,8 +7,6 @@ class WSC_ERP_Product_Mapping {
         add_action( 'admin_bar_menu', array( __CLASS__, 'toolbar' ), 81 );
         add_action( 'admin_menu', array( __CLASS__, 'menu' ) );
         add_action( 'add_meta_boxes_product', array( __CLASS__, 'metabox' ) );
-        add_action( 'wp_footer', array( __CLASS__, 'popup_script' ), 100 );
-        add_action( 'admin_footer', array( __CLASS__, 'popup_script' ), 100 );
     }
 
     private static function allowed( $id ) {
@@ -30,33 +28,6 @@ class WSC_ERP_Product_Mapping {
         }
         return rtrim( $origin, '/' ) . '/desk#ws-woocommerce-link/' . absint( $id ) .
             '/' . ( null === $variation_id ? 'all' : absint( $variation_id ) ) . '/' . rawurlencode( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
-    }
-
-    public static function popup_script() {
-        if ( ! current_user_can( 'manage_woocommerce' ) ) { return; }
-        if ( is_admin() ) {
-            $screen = get_current_screen();
-            $mapping_page = isset( $_GET['page'] ) && 'wsc-erp-mapping' === $_GET['page'];
-            $id = $mapping_page ? self::number( 'product_id' ) : ( $screen && 'post' === $screen->base && 'product' === $screen->post_type ? get_the_ID() : 0 );
-        } else {
-            $id = function_exists( 'is_product' ) && is_product() ? get_queried_object_id() : 0;
-        }
-        if ( ! self::allowed( $id ) ) { return; }
-        ?>
-        <script>
-        (function () {
-            document.addEventListener('click', function (event) {
-                var link = event.target.closest('#wp-admin-bar-wsc-erp-mapping > a, a.wsc-erp-popup');
-                if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-                var popup = window.open('about:blank', '_blank', 'popup=yes,width=1060,height=820');
-                if (!popup) return; // Normal link still works when popups are blocked.
-                popup.opener = null;
-                popup.location.href = link.href;
-                event.preventDefault();
-            });
-        }());
-        </script>
-        <?php
     }
 
     public static function toolbar( $bar ) {
@@ -107,8 +78,8 @@ class WSC_ERP_Product_Mapping {
         $page = min( $pages, max( 1, self::number( 'mapping_page' ) ) );
         $ids = array_slice( $children, ( $page - 1 ) * 25, 25 );
         echo '<div class="wrap"><h1>ERPNext Mapping</h1><h2>' . esc_html( $product->get_name( 'edit' ) ) . '</h2>';
-        echo '<p><a class="button button-primary wsc-erp-popup" target="_blank" rel="noopener" href="' . esc_url( self::erp_url( $id ) ) . '">Open Linking Popup</a></p>';
-        echo '<p>Select an existing ERPNext Item and selling UOM in the popup. Your ERPNext login is required.</p>';
+        echo '<p><a class="button button-primary wsc-erp-popup" target="_blank" rel="noopener" href="' . esc_url( self::erp_url( $id ) ) . '">Link with ERPNext</a></p>';
+        echo '<p>Select an existing ERPNext Item and selling UOM in ERPNext. Your ERPNext login is required.</p>';
         echo '<p><a href="' . esc_url( add_query_arg( array( 'post' => $id, 'action' => 'edit' ), admin_url( 'post.php' ) ) ) . '">Edit product</a></p>';
         echo '<div style="overflow-x:auto"><table class="widefat striped" id="wsc-erp-mapping-table"><thead><tr>';
         foreach ( array( 'Product / Variation', 'Parent Product ID', 'Variation ID', 'SKU', 'ERPNext Item' ) as $title ) {
