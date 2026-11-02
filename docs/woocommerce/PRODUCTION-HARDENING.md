@@ -7,11 +7,11 @@ This release refines the existing connector. It does not create or modify Woo ca
 | Path | When | Work |
 | --- | --- | --- |
 | Normal Item/stock/price/reservation changes | After a successful ERP transaction | One coalesced short-queue notification for committed changed links; absolute Woo quantities are recomputed after reconciling orders. |
-| Recovery | Native cron `*/5 * * * *` | A small callback enqueues one long-queue job. Poll missed orders/retries, compare local hashes, and publish changed targets only. No unconditional full product PUT. |
+| Recovery | Native cron `*/10 * * * *` | A small callback enqueues one long-queue job. Poll missed orders/retries, compare local hashes, and publish changed targets only. No unconditional full product PUT. |
 | Remote verification | Once an individual link has not been verified for an hour | Recovery verifies remote values, within the same 25-product/90-second product-work limits. Large queues can take longer; this is not an exact hourly deadline. |
 | Optional automatic SKU linking | Recovery only, separate opt-in switch | Existing bounded catalog discovery. A completed scan waits one hour. Never scans the catalog in response to a stock event. |
 
-Frappe scheduler tick, worker backlog and Woo latency affect actual start times. The job is not guaranteed to finish every five minutes. HTTP operations/pagination can be slow. Native recovery has a 1500-second job timeout and a 1560-second notification lease. If it times out before polling advances, the stable order window is retried; order IDs and absolute stock writes remain idempotent. Recovery is serialized with the old CLI entry point and all exports share the existing cycle/product locks. Existing unrelated scheduled tasks are preserved.
+Frappe scheduler tick, worker backlog and Woo latency affect actual start times. The job is not guaranteed to finish every ten minutes. HTTP operations/pagination can be slow. Native recovery has a 1500-second job timeout and a 1560-second notification lease. If it times out before polling advances, the stable order window is retried; order IDs and absolute stock writes remain idempotent. Recovery is serialized with the old CLI entry point and all exports share the existing cycle/product locks. Existing unrelated scheduled tasks are preserved.
 
 Fusion comparison (source reviewed at `ab71a15`): Fusion combines document event hooks, hourly inbound product/order checks, daily stock/price tasks, and a one-minute optional batch-queue check. Its batch flush interval is configurable. It does not use one universal five-minute full sync. See [Fusion hooks](https://github.com/Starktail/woocommerce_fusion/blob/ab71a15d322232fff58d93fa0aa469812bfa9a30/woocommerce_fusion/hooks.py) and [batch queue](https://github.com/Starktail/woocommerce_fusion/blob/ab71a15d322232fff58d93fa0aa469812bfa9a30/woocommerce_fusion/tasks/batch/queue_manager.py).
 
@@ -49,7 +49,7 @@ The targeted upgrade reloads only connector Settings and the two connector Pages
 
 4. Confirm the existing ERP scheduler is enabled and both short and long workers run. Do not enable global scheduling blindly if the server intentionally has it disabled: all existing ERP schedules would then run too. This release does not enable the global scheduler itself.
 5. Keep optional Automatically Link Matching SKUs off during catalog cleanup. Preview one approved mapping and check its unit, expected available quantity, price configuration and image references. Check saved preview, row selection and a stopped/continued batch before creating approved links.
-6. Turn Automatic Sync on only for accepted mappings. Make one normal business stock/reservation/price change and verify the immediate background result. Check Settings and logs after the next five-minute boundary for recovery. A quiet product does not require a new Product sync log every five minutes.
+6. Turn Automatic Sync on only for accepted mappings. Make one normal business stock/reservation/price change and verify the immediate background result. Check Settings and logs after the next ten-minute boundary for recovery. A quiet product does not require a new Product sync log every ten minutes.
 7. Check one controlled Woo order end to end, signed webhook handling, draft order holds, VAT/total preservation, duplicate delivery and retry behavior. Add approved products gradually.
 
 ## Acceptance and rollback
@@ -57,3 +57,5 @@ The targeted upgrade reloads only connector Settings and the two connector Pages
 Local no-site tests are not a live load test or proof of the production queue installation. Before broad activation, verify native scheduling, child persistence/audit, stock reservations, failure recovery and signed webhooks on a disposable clone or an approved controlled production test. Do not run bench test/run-tests against business data.
 
 For rollback, turn Automatic Sync off, drain running connector jobs, revert the application commit through the normal process, clear cache and restart. Preserve connector records and audit/logs. If returning to a release that requires the old external timer, re-enable that timer only after the native recovery hook is removed/refreshed. Do not run both by design. Reverting code does not undo Woo writes or ERP orders already created.
+
+Recovery interval refinement: the user selected ten minutes to halve scheduled recovery frequency compared with five minutes. Immediate event processing stays the same. Missed webhooks, retries and changes bypassing hooks can wait up to the next recovery run, plus queue/HTTP time. This does not halve total connector load.

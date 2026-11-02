@@ -142,14 +142,14 @@ class ReleaseHookTests(unittest.TestCase):
                 else:
                     for expression,jobs in handlers.items():
                         self.assertEqual(namespace['scheduler_events']['cron'][expression][:len(jobs)],jobs)
-            recovery=namespace['scheduler_events']['cron']['*/5 * * * *']
+            recovery=namespace['scheduler_events']['cron']['*/10 * * * *']
             self.assertIn(PACKAGE+'.worker.scheduled_recovery',recovery)
             self.assertEqual(namespace['after_migrate'][:-1],original['after_migrate'])
             # Repeat registration must not duplicate hooks or scripts.
             block=source.split('# BEGIN WS WOOCOMMERCE CONNECTOR')[1]
             exec(compile(block,str(path),'exec'),namespace)
             self.assertEqual(namespace['doctype_js']['Item'].count('public/js/woocommerce_item.js'),1)
-            self.assertEqual(namespace['scheduler_events']['cron']['*/5 * * * *'].count(PACKAGE+'.worker.scheduled_recovery'),1)
+            self.assertEqual(namespace['scheduler_events']['cron']['*/10 * * * *'].count(PACKAGE+'.worker.scheduled_recovery'),1)
 
 
 if __name__=='__main__':unittest.main()

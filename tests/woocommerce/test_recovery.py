@@ -60,7 +60,7 @@ class RecoveryTests(unittest.TestCase):
             m.preflight=Mock();f.db.exists.return_value=True
             f.reload_doc=Mock();f.clear_cache=Mock();f.cache=Mock()
             result=m.upgrade_hardening()
-            self.assertEqual(result['recovery_cron'],'*/5 * * * *')
+            self.assertEqual(result['recovery_cron'],'*/10 * * * *')
             f.cache.return_value.delete_value.assert_called_once_with('scheduler_events')
             self.assertEqual(len(f.reload_doc.call_args_list),3)
             f.db.set_value.assert_not_called();m.create_custom_fields.assert_not_called()

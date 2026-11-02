@@ -576,9 +576,9 @@ if _ws_woo_installer not in after_migrate:
     after_migrate = after_migrate + [_ws_woo_installer]
 _ws_woo_cron = scheduler_events.setdefault('cron', {})
 _ws_woo_recovery = 'worldshading.integration.woocommerce.worker.scheduled_recovery'
-_ws_woo_jobs = _ws_woo_cron.get('*/5 * * * *', [])
+_ws_woo_jobs = _ws_woo_cron.get('*/10 * * * *', [])
 if isinstance(_ws_woo_jobs, str):
     _ws_woo_jobs = [_ws_woo_jobs]
 if _ws_woo_recovery not in _ws_woo_jobs:
-    _ws_woo_cron['*/5 * * * *'] = _ws_woo_jobs + [_ws_woo_recovery]
+    _ws_woo_cron['*/10 * * * *'] = _ws_woo_jobs + [_ws_woo_recovery]
 # END WS WOOCOMMERCE CONNECTOR

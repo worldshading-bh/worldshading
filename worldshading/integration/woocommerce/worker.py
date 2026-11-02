@@ -1,4 +1,4 @@
-"""Native five-minute recovery plus a compatible optional CLI entry point."""
+"""Native ten-minute recovery plus a compatible optional CLI entry point."""
 import argparse
 import json
 from uuid import uuid4

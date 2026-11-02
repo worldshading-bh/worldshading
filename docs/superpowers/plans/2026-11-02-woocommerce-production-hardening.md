@@ -2,13 +2,13 @@
 
 > Execute inline with the executing-plans, test-driven-development and verification-before-completion skills. This implements the user-approved consolidation of tested defects and the Fusion-informed linking/scheduling direction.
 
-**Goal:** Ship a focused release preserving business Item data, making reviewed linking manageable, and registering five-minute native recovery without full migrate.
+**Goal:** Ship a focused release preserving business Item data, making reviewed linking manageable, and registering ten-minute native recovery without full migrate.
 
 **Architecture:** Existing transactional change markers and post-commit queue remain authoritative. Native Frappe v12 cron wakes a long-queue recovery job. Product-level SQL locks serialize publishers. Mapping edits persist only the connector child and Item modification/audit metadata. Browser previews pause after 25 results or ten catalog chunks and may be explicitly saved locally for later review; server application always revalidates.
 
 **Constraints:** Python 3.6, Frappe 12.16.3, ERPNext 12.26.0; no live writes, no bench tests, no full migrate, no catalog/image sync, no new dependencies. Existing settings and manual mappings preserved. Meter/Roll business correctness remains the catalog owner's review.
 
-**Approaches:** Retain external timer (extra server setup), republish entire catalog every five minutes (unnecessary API traffic), or native recovery over existing change hashes (chosen for this release). Derive parents from ERP templates as Fusion does, or retain Woo-derived IDs for legacy independent Items (retain existing model). Bypass all Item rules globally, or use an authenticated narrow mapping write with validation, timestamp checks, SQL row locking and Version audit (narrow write).
+**Approaches:** Retain external timer (extra server setup), republish entire catalog every ten minutes (unnecessary API traffic), or native recovery over existing change hashes (chosen for this release). Derive parents from ERP templates as Fusion does, or retain Woo-derived IDs for legacy independent Items (retain existing model). Bypass all Item rules globally, or use an authenticated narrow mapping write with validation, timestamp checks, SQL row locking and Version audit (narrow write).
 
 ## Review focus
 - Queue timeout, disabled settings and overlap must not cause duplicate recovery or alter unrelated jobs.
