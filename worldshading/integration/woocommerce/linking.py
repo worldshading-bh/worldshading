@@ -202,7 +202,8 @@ def item_uoms(item_code):
         except ValueError:
             continue
         uoms.append(dict(uom=uom,conversion_factor=normalized['conversion_factor']))
-    return dict(item_code=item.name,item_name=item.item_name,modified=str(item.modified),uoms=uoms)
+    return dict(item_code=item.name,item_name=item.item_name,modified=str(item.modified),uoms=uoms,
+                default_uom=item.get('sales_uom') if any(u['uom']==item.get('sales_uom') for u in uoms) else uoms[0]['uom'] if len(uoms)==1 else '')
 
 
 def _remote_identity(client, product_id, variation_id):
@@ -264,3 +265,14 @@ def save_link(item_code, sale_uom, product_id, variation_id, expected_sku, expec
             item.flags['ws_woo_link_only'] = previous
         frappe.db.commit()  # Persist before releasing the target lock.
         return dict(item_code=item.name,sale_uom=sale_uom,enabled=False,unchanged=False,modified=str(item.modified))
+
+
+@frappe.whitelist()
+def product_sheet(product_id, source_host, page=1):
+    """One bounded page of a parent product, irrespective of the launching variation."""
+    data=product_targets(product_id,page=page,source_host=source_host)
+    from .bulk_linking import candidate
+    for target in data['targets']:
+        if not target['link']:
+            target['suggestion']=candidate(target)
+    return data

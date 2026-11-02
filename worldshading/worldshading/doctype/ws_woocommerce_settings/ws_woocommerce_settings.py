@@ -6,7 +6,7 @@ from worldshading.integration.woocommerce.environment import validate_store,webh
 class WSWooCommerceSettings(Document):
     def validate(self):
         # Editing a stale settings form must not roll the polling cursor backwards.
-        for field in ['poll_cursor','last_run','last_result','item_links_migrated']:
+        for field in ['poll_cursor','last_run','last_result','item_links_migrated','sku_link_cursor']:
             self.set(field,frappe.db.get_single_value(self.doctype,field))
         from worldshading.integration.woocommerce.timezones import update_order_cutoff
         update_order_cutoff(self)

@@ -226,6 +226,25 @@
    "read_only": 1
   },
   {
+   "fieldname": "linking_section",
+   "fieldtype": "Section Break",
+   "label": "Item Linking"
+  },
+  {
+   "fieldname": "auto_link_skus",
+   "fieldtype": "Check",
+   "label": "Automatically Link Matching SKUs",
+   "default": "0",
+   "description": "Opt in after reviewing the bulk preview. Future exact SKU / Item Code matches create active stock-only links. Requires Automatic Sync and the recovery service. Price sync remains off."
+  },
+  {
+   "fieldname": "sku_link_cursor",
+   "fieldtype": "Small Text",
+   "label": "SKU Scan Cursor",
+   "hidden": 1,
+   "read_only": 1
+  },
+  {
    "fieldname": "operations",
    "fieldtype": "Section Break",
    "label": "Sync Status"
@@ -329,6 +348,9 @@
   "webhook_secret",
   "webhooks_column",
   "webhook_url",
+  "linking_section",
+  "auto_link_skus",
+  "sku_link_cursor",
   "operations",
   "dashboard",
   "last_sync_section",

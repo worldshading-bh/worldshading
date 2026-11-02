@@ -132,3 +132,16 @@ def upgrade_linking():
     frappe.clear_cache()
     frappe.db.commit()
     return dict(updated=True, page='ws-woocommerce-link', automatic_sync_changed=False)
+
+
+def upgrade_bulk_linking():
+    """Reload connector Settings and linking Page only; never run migrate or tests."""
+    preflight()
+    if not frappe.db.exists('DocType','WS WooCommerce Item Link'):
+        raise ValueError('Install the connector first')
+    frappe.reload_doc('worldshading','doctype','ws_woocommerce_settings',force=True)
+    frappe.reload_doc('worldshading','page','ws_woocommerce_link',force=True)
+    frappe.reload_doc('worldshading','page','ws_woocommerce_guide',force=True)
+    frappe.clear_cache()
+    frappe.db.commit()
+    return dict(updated=True,automatic_sync_changed=False,auto_link_skus_changed=False)

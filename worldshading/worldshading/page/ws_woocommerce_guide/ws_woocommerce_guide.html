@@ -47,6 +47,8 @@
                 <tr><td>Clear Sale Price</td><td>When price sync is enabled, tick only if ERPNext should remove the Woo promotional sale price. Otherwise an existing Woo sale price can still affect the selling price.</td></tr>
             </tbody>
         </table></div>
+        <p><strong>Bulk linking:</strong> give every sellable website product or variation its own SKU, matching the ERP Item Code exactly. Open Settings &rarr; WooCommerce &rarr; Link Matching Items, run the preview, review Ready and Review rows, then Create Reviewed Links. These links are active for stock only; price sync remains off. A valid Sales UOM is preferred; otherwise only a sole valid unit is used. Existing links are preserved.</p>
+        <p><strong>Manual linking:</strong> the WooCommerce manager link opens all variations together. Choose an ERP Item and selling unit per row, then Save Links. New manual links remain inactive for review.</p>
         <p>Find IDs and SKUs in the WooCommerce product editor; variations have their own IDs and SKUs. Link each Woo target once. Each ERP Item supports one enabled stock-sync link.</p>
         <div class="guide-note"><strong>No approved ERP price yet?</strong> Start with <strong>Sync Stock</strong> on and <strong>Sync Price</strong> off. Add the price later; do not enter a guessed price to complete the setup.</div>
     </section>
@@ -54,9 +56,9 @@
     <section data-guide-section="preview" tabindex="-1">
         <h2>3. Preview, then sync</h2>
         <ol>
-            <li>Save the Item and click <strong>Preview WooCommerce</strong>. Compare <strong>WooCommerce now</strong> with <strong>ERPNext value</strong>, and check the warehouse list.</li>
+            <li>Save the Item and open <strong>WooCommerce &rarr; Preview WooCommerce</strong>. Compare <strong>WooCommerce now</strong> with <strong>ERPNext value</strong>, and check the warehouse list.</li>
             <li>Use <strong>Open product in WooCommerce</strong> in the preview to confirm the correct product.</li>
-            <li>If the values are right, click <strong>Sync WooCommerce</strong>. Preview again to confirm they match.</li>
+            <li>If the values are right, open <strong>WooCommerce &rarr; Sync WooCommerce</strong>. Preview again to confirm they match.</li>
         </ol>
         <p>Preview changes nothing. Sync checks recent website orders before publishing stock. Item status shows the last website attempt or successful check.</p>
     </section>
@@ -102,6 +104,7 @@
             <li><strong>Recovery:</strong> a five-minute check catches failures and changes that bypass normal events, including ERPNext v12 order close/reopen. Hourly verification catches website-side changes.</li>
             <li><strong>Orders:</strong> an arriving Woo webhook wakes import processing. Delivery depends on the website background services; polling also recovers missed orders.</li>
         </ul>
+        <p><strong>Optional SKU matching:</strong> Automatically Link Matching SKUs is off by default. After accepting the bulk preview, enable it if future exact matches should be linked without another preview. The recovery service scans bounded catalog batches and revisits completed scans after an hour. It never scans the catalog on a stock-change event.</p>
         <p>Turning Automatic Sync off pauses automatic imports and exports. You can still use the manual buttons. This guide is static: check Settings for the current operating mode.</p>
     </section>
 

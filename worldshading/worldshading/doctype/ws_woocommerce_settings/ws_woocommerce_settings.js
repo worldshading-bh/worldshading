@@ -1,6 +1,10 @@
 frappe.ui.form.on('WS WooCommerce Settings', {
     refresh(frm) {
-        frm.add_custom_button('Connector Guide', () => frappe.set_route('ws-woocommerce-guide'));
+        frm.add_custom_button('Connector Guide', () => frappe.set_route('ws-woocommerce-guide'), 'WooCommerce');
+        frm.add_custom_button('Link Matching Items', () => {
+            if (frm.is_dirty()) {frappe.msgprint('Save Settings before opening the bulk preview.');return;}
+            frappe.set_route('ws-woocommerce-link','bulk');
+        }, 'WooCommerce');
         const warehouseFilters=() => ({filters:{company:frm.doc.company,is_group:0,disabled:0}});
         frm.set_query('warehouse',warehouseFilters);
         frm.set_query('warehouse','stock_warehouses',warehouseFilters);
@@ -44,11 +48,11 @@ frappe.ui.form.on('WS WooCommerce Settings', {
                 }
             });
         };
-        frm.add_custom_button('Test Connection', () => call('test_connection'));
-        frm.add_custom_button('Import Orders', () => call('import_orders'));
-        frm.add_custom_button('Sync Prices and Stock', () => call('reconcile'));
+        frm.add_custom_button('Test Connection', () => call('test_connection'), 'WooCommerce');
+        frm.add_custom_button('Import Orders', () => call('import_orders'), 'WooCommerce');
+        frm.add_custom_button('Sync Prices and Stock', () => call('reconcile'), 'WooCommerce');
         for (const [label, type] of [['Items','Item'],['Order Inbox','WS WooCommerce Order'],['Sync Logs','WS WooCommerce Sync Log']]) {
-            frm.add_custom_button(label, () => frappe.set_route('List',type));
+            frm.add_custom_button(label, () => frappe.set_route('List',type), 'WooCommerce');
         }
         frappe.call({method:'worldshading.integration.woocommerce.api.dashboard',callback(r) {
             if (!r.message) return;
