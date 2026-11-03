@@ -22,6 +22,33 @@ IMPORTANCE_DECREASE_WEIGHT = 0.45
 IMPORTANCE_INACTIVITY_WEIGHT = 0.10
 
 
+def normalize_item_groups(value):
+	if not value:
+		return []
+	if isinstance(value, str):
+		if value.lstrip().startswith("["):
+			raw_value = value
+			try:
+				value = frappe.parse_json(value)
+			except ValueError:
+				value = [raw_value]
+		else:
+			value = [value]
+	elif isinstance(value, tuple):
+		value = list(value)
+	elif not isinstance(value, list):
+		frappe.throw("Invalid Item Group filter")
+
+	item_groups = []
+	seen = set()
+	for item_group in value:
+		if not item_group or not isinstance(item_group, str) or item_group in seen:
+			continue
+		seen.add(item_group)
+		item_groups.append(item_group)
+	return item_groups
+
+
 def normalize_filters(filters, current_year=None):
 	filters = frappe._dict(filters or {})
 	current_year = cint(current_year or today()[0:4])
@@ -44,7 +71,7 @@ def normalize_filters(filters, current_year=None):
 		1 if previous_years in (None, "") else previous_years
 	)
 	filters.retention_status = filters.get("retention_status") or ""
-	filters.item_group = filters.get("item_group") or ""
+	filters.item_group = normalize_item_groups(filters.get("item_group"))
 	filters.customer_type = filters.get("customer_type") or "All"
 	filters.minimum_historical_sales = flt(filters.get("minimum_historical_sales") or 0)
 	filters.top_results = str("100" if top_results in (None, "") else top_results)
@@ -344,8 +371,8 @@ def get_sales_activity(filters):
 		inner join `tabItem` item on item.name = sii.item_code
 		inner join `tabCustomer` customer on customer.name = si.customer"""
 		sales_expression = "sum(sii.base_net_amount)"
-		conditions.append("item.item_group = %(item_group)s")
-		values["item_group"] = filters.item_group
+		conditions.append("item.item_group in %(item_groups)s")
+		values["item_groups"] = tuple(filters.item_group)
 
 	# Aggregate SQL is required here to process several calendar years in one
 	# database pass and avoid one query per Customer.
@@ -393,9 +420,9 @@ def get_last_invoice_dates(filters, customers):
 			from `tabSales Invoice Item` sii
 			inner join `tabItem` item on item.name = sii.item_code
 			where sii.parent = si.name
-				and item.item_group = %(item_group)s
+				and item.item_group in %(item_groups)s
 		)""")
-		values["item_group"] = filters.item_group
+		values["item_groups"] = tuple(filters.item_group)
 
 	rows = frappe.db.sql("""
 		select si.customer, max(si.posting_date) as last_invoice_date
@@ -445,8 +472,8 @@ def get_item_group_context(filters, customers):
 		"customers": tuple(customers),
 	}
 	if filters.get("item_group"):
-		conditions.append("item.item_group = %(item_group)s")
-		values["item_group"] = filters.item_group
+		conditions.append("item.item_group in %(item_groups)s")
+		values["item_groups"] = tuple(filters.item_group)
 
 	rows = frappe.db.sql("""
 		select
@@ -509,6 +536,43 @@ def get_overall_sales_context(filters, customers):
 	return context
 
 
+def get_selected_item_group_sales_context(filters, customers):
+	if not filters.get("item_group") or not customers:
+		return {}
+	start_date, end_date = get_period_bounds(filters)
+	rows = frappe.db.sql("""
+		select
+			si.customer,
+			year(si.posting_date) as sales_year,
+			item.item_group,
+			sum(sii.base_net_amount) as sales
+		from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		inner join `tabItem` item on item.name = sii.item_code
+		where si.company = %(company)s
+			and si.docstatus = 1
+			and si.posting_date between %(start_date)s and %(end_date)s
+			and year(si.posting_date) in %(reporting_years)s
+			and si.customer in %(customers)s
+			and item.item_group in %(item_groups)s
+		group by si.customer, year(si.posting_date), item.item_group
+	""", {
+		"company": filters.company,
+		"start_date": start_date,
+		"end_date": end_date,
+		"reporting_years": tuple(get_reporting_years(filters)),
+		"customers": tuple(customers),
+		"item_groups": tuple(filters.item_group),
+	}, as_dict=True)
+
+	context = {}
+	for row in rows:
+		context.setdefault(row["customer"], {}).setdefault(
+			cint(row["sales_year"]), {}
+		)[row["item_group"]] = flt(row.get("sales"))
+	return context
+
+
 def get_campaign_context(customers):
 	if not customers:
 		return {}
@@ -564,6 +628,7 @@ def enrich_rows(rows, filters):
 	customers = [row["customer"] for row in rows]
 	item_group_context = get_item_group_context(filters, customers)
 	overall_sales_context = get_overall_sales_context(filters, customers)
+	selected_group_sales_context = get_selected_item_group_sales_context(filters, customers)
 	campaign_context = get_campaign_context(customers)
 	rows = apply_customer_context(rows, item_group_context, campaign_context)
 	period = ", ".join(
@@ -572,12 +637,22 @@ def enrich_rows(rows, filters):
 	for row in rows:
 		row["item_group_sales_period"] = period
 		if filters.get("item_group"):
-			row["selected_item_group"] = filters.item_group
+			row["selected_item_groups"] = list(filters.item_group)
 			row["analysis_year"] = filters.analysis_year
 			row["comparison_year"] = filters.comparison_year
 			customer_sales = overall_sales_context.get(row["customer"], {})
+			customer_group_sales = selected_group_sales_context.get(row["customer"], {})
+			row["selected_item_group_sales"] = {}
 			for year in get_reporting_years(filters):
 				row["overall_sales_{0}".format(year)] = flt(customer_sales.get(year))
+				year_group_sales = customer_group_sales.get(year, {})
+				row["selected_item_group_sales"][str(year)] = [
+					{
+						"item_group": item_group,
+						"sales": flt(year_group_sales.get(item_group)),
+					}
+					for item_group in filters.item_group
+				]
 	return rows
 
 

@@ -23,6 +23,7 @@ global.format_currency = function (value, currency) {
 	return (currency || "") + " " + Number(value || 0).toFixed(3);
 };
 let frappe_calls = [];
+let link_option_calls = [];
 let last_dialog;
 let messages = [];
 global.frappe = {
@@ -41,6 +42,15 @@ global.frappe = {
 	defaults: {
 		get_user_default: function () { return "World Shading"; },
 		get_default: function () { return "BHD"; }
+	},
+	db: {
+		get_link_options: function (doctype, text) {
+			link_option_calls.push([doctype, text]);
+			return Promise.resolve([
+				{value: "PVC 680 GSM", label: "PVC 680 GSM"},
+				{value: "Shade Net", label: "Shade Net"}
+			]);
+		}
 	},
 	utils: {escape_html: escape_html},
 	model: {can_create: function () { return true; }},
@@ -96,6 +106,7 @@ source = source.replace(
 	"global.__cra_test = {build_result_summary_html: build_result_summary_html, " +
 		"update_result_summary: update_result_summary, get_sort_help: get_sort_help, " +
 		"apply_sort_help: apply_sort_help, " +
+		"summary_value: summary_value, " +
 		"get_comparison_year_options: get_comparison_year_options, " +
 		"sync_comparison_year_filter: sync_comparison_year_filter, " +
 		"restore_prepared_filters: restore_prepared_filters, " +
@@ -110,8 +121,13 @@ assert.deepStrictEqual(
 );
 const filter_definitions = {};
 report.filters.forEach(function (filter) { filter_definitions[filter.fieldname] = filter; });
-assert.strictEqual(filter_definitions.item_group.fieldtype, "Link");
+assert.strictEqual(filter_definitions.item_group.fieldtype, "MultiSelectList");
 assert.strictEqual(filter_definitions.item_group.options, "Item Group");
+assert.strictEqual(typeof filter_definitions.item_group.get_data, "function");
+const item_group_options_promise = filter_definitions.item_group.get_data("PVC").then(function (options) {
+	assert.deepStrictEqual(link_option_calls, [["Item Group", "PVC"]]);
+	assert.strictEqual(options[0].value, "PVC 680 GSM");
+});
 assert(filter_definitions.customer_type);
 assert.strictEqual(filter_definitions.customer_type.fieldtype, "Select");
 assert.strictEqual(filter_definitions.customer_type.options, "All\nCompany\nIndividual");
@@ -120,6 +136,9 @@ assert.strictEqual(filter_definitions.comparison_year.fieldtype, "Select");
 assert.strictEqual(filter_definitions.comparison_year.reqd, 1);
 assert(filter_definitions.sort_by.options.indexOf("Comparison Sales") !== -1);
 assert(filter_definitions.sort_by.options.indexOf("Previous Sales") === -1);
+assert.strictEqual(global.__cra_test.summary_value({
+	get_filter_value: function () { return ["PVC 680 GSM", "Shade Net"]; }
+}, "item_group"), "PVC 680 GSM, Shade Net");
 
 function make_comparison_report(analysis_year, comparison_year) {
 	let current_analysis_year = analysis_year;
@@ -196,6 +215,32 @@ const unfiltered_sales = report.formatter(
 	default_formatter
 );
 assert.strictEqual(unfiltered_sales, "<a>25</a>");
+
+const combined_sales_tooltip = report.formatter(
+	25,
+	null,
+	{fieldname: "current_sales"},
+	{
+		selected_item_groups: ["PVC 680 GSM", "Shade Net", "No Sales Group"],
+		selected_item_group_sales: {
+			"2026": [
+				{item_group: "PVC 680 GSM", sales: 20},
+				{item_group: "Shade Net", sales: 5},
+				{item_group: "No Sales Group", sales: 0}
+			]
+		},
+		analysis_year: 2026,
+		overall_sales_2026: 100,
+		report_currency: "BHD"
+	},
+	default_formatter
+);
+assert(combined_sales_tooltip.indexOf("PVC 680 GSM: BHD 20.000") !== -1);
+assert(combined_sales_tooltip.indexOf("Shade Net: BHD 5.000") !== -1);
+assert(combined_sales_tooltip.indexOf("No Sales Group: BHD 0.000") !== -1);
+assert(combined_sales_tooltip.indexOf("Selected Groups Total (2026): BHD 25.000") !== -1);
+assert(combined_sales_tooltip.indexOf("Total Customer Sales (2026): BHD 100.000") !== -1);
+assert(combined_sales_tooltip.indexOf("Combined Share of Total: 25.0%") !== -1);
 
 const tooltip = report.formatter(
 	"Outdoor & Shade",
@@ -334,6 +379,11 @@ const prepared_filters = ["analysis_year", "comparison_year", "item_group", "sor
 			prepared_order.push(fieldname + ":" + value);
 			prepared_filter_values[fieldname] = value;
 		},
+		set_value: function (value) {
+			prepared_order.push(fieldname + "_value:" + JSON.stringify(value));
+			prepared_filter_values[fieldname] = value;
+			return Promise.resolve();
+		},
 		refresh: function () {
 			if (fieldname === "comparison_year") {
 				prepared_order.push("comparison_options:" + this.df.options.replace(/\n/g, ","));
@@ -385,7 +435,9 @@ function assert_clean_layout() {
 }
 
 reset_dom();
-core_restore_report.refresh().then(function (result) {
+item_group_options_promise.then(function () {
+	return core_restore_report.refresh();
+}).then(function (result) {
 	assert.strictEqual(result, "core-result");
 	assert.strictEqual(core_sort_value, "Comparison Sales");
 	return report.onload(make_report(false));
@@ -400,7 +452,8 @@ core_restore_report.refresh().then(function (result) {
 		"comparison_options:2023,2022,2021,2020,2019",
 		"comparison_year:2021"
 	]);
-	assert.strictEqual(prepared_filter_values.item_group, "PVC 680 GSM");
+	assert.deepStrictEqual(prepared_filter_values.item_group, ["PVC 680 GSM"]);
+	assert(prepared_order.indexOf('item_group_value:["PVC 680 GSM"]') !== -1);
 	assert.strictEqual(prepared_filter_values.sort_by, "Comparison Sales");
 	frappe.call = function (options) {
 		frappe_calls.push(options);

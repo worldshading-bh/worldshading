@@ -231,7 +231,26 @@
 
 	function summary_value(report, fieldname) {
 		var value = report.get_filter_value(fieldname);
+		if (Array.isArray(value)) {
+			return value.length ? value.join(", ") : __("All");
+		}
 		return value === undefined || value === null || value === "" ? __("All") : String(value);
+	}
+
+	function normalize_item_group_values(value) {
+		if (!value) { return []; }
+		if (Array.isArray(value)) {
+			return value.filter(function (item_group) { return Boolean(item_group); });
+		}
+		if (typeof value === "string" && value.trim().charAt(0) === "[") {
+			try {
+				var parsed = JSON.parse(value);
+				return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+			} catch (unused_error) {
+				return [value];
+			}
+		}
+		return [value];
 	}
 
 	function update_filter_summary(report) {
@@ -241,7 +260,7 @@
 			["analysis_year", __("Analysis Year")],
 			["comparison_year", __("Comparison Year")],
 			["previous_years", __("Previous Years")],
-			["item_group", __("Item Group")],
+			["item_group", __("Item Groups")],
 			["customer_type", __("Customer Type")],
 			["retention_status", __("Status")],
 			["sort_by", __("Sort By")],
@@ -329,6 +348,7 @@
 			args: {prepared_report_name: params.prepared_report_name}
 		}).then(function (response) {
 			var values = response.message || {};
+			var pending = [];
 			if (values.sort_by === "Previous Sales") {
 				values.sort_by = "Comparison Sales";
 			}
@@ -343,11 +363,19 @@
 					return;
 				}
 				if (Object.prototype.hasOwnProperty.call(values, fieldname)) {
-					filter.set_input(values[fieldname]);
+					if (fieldname === "item_group" && filter.set_value) {
+						pending.push(filter.set_value(
+							normalize_item_group_values(values[fieldname])
+						));
+					} else {
+						filter.set_input(values[fieldname]);
+					}
 				}
 			});
-			update_filter_summary(report);
-			apply_sort_help(report);
+			return Promise.all(pending).then(function () {
+				update_filter_summary(report);
+				apply_sort_help(report);
+			});
 		});
 	}
 
@@ -651,7 +679,14 @@
 			{fieldname: "customer", label: __("Customer"), fieldtype: "Link", options: "Customer"},
 			{fieldname: "customer_group", label: __("Customer Group"), fieldtype: "Link", options: "Customer Group"},
 			{fieldname: "customer_type", label: __("Customer Type"), fieldtype: "Select", options: "All\nCompany\nIndividual", "default": "All"},
-			{fieldname: "item_group", label: __("Item Group"), fieldtype: "Link", options: "Item Group", description: __("When selected, all sales, invoice activity, status, ranking, and inactivity calculations are limited to this exact Item Group.")},
+			{
+				fieldname: "item_group", label: __("Item Groups"),
+				fieldtype: "MultiSelectList", options: "Item Group",
+				get_data: function (txt) {
+					return frappe.db.get_link_options("Item Group", txt);
+				},
+				description: __("When selected, all sales, invoice activity, status, ranking, and inactivity calculations are limited to these exact Item Groups.")
+			},
 			{fieldname: "territory", label: __("Territory"), fieldtype: "Link", options: "Territory"},
 			{fieldname: "retention_status", label: __("Retention Status"), fieldtype: "Select", options: "\nLost\nDecreased\nStable\nIncreased\nNew\nReactivated"},
 			{fieldname: "minimum_historical_sales", label: __("Minimum Historical Sales"), fieldtype: "Currency", "default": 0},
@@ -664,6 +699,35 @@
 			var fieldname = column && column.fieldname;
 			var sales_year = data && get_yearly_sales_year(fieldname, data);
 			var overall_field = "overall_sales_" + sales_year;
+			var selected_group_sales = data && data.selected_item_group_sales &&
+				data.selected_item_group_sales[String(sales_year)];
+			if (sales_year && Array.isArray(data.selected_item_groups) &&
+					Array.isArray(selected_group_sales) &&
+					Object.prototype.hasOwnProperty.call(data, overall_field)) {
+				var combined_sales = parseFloat(value || 0);
+				var customer_sales = parseFloat(data[overall_field] || 0);
+				var combined_tooltip = selected_group_sales.map(function (group) {
+					return group.item_group + ": " +
+						format_currency(parseFloat(group.sales || 0), data.report_currency);
+				});
+				combined_tooltip.push(
+					__("Selected Groups Total") + " (" + sales_year + "): " +
+					format_currency(combined_sales, data.report_currency)
+				);
+				combined_tooltip.push(
+					__("Total Customer Sales") + " (" + sales_year + "): " +
+					format_currency(customer_sales, data.report_currency)
+				);
+				if (customer_sales > 0) {
+					combined_tooltip.push(
+						__("Combined Share of Total") + ": " +
+						(combined_sales / customer_sales * 100).toFixed(1) + "%"
+					);
+				}
+				return "<span class='cra-sales-scope-tooltip' title=\"" +
+					frappe.utils.escape_html(combined_tooltip.join("\n")) + "\">" +
+					formatted + "</span>";
+			}
 			if (sales_year && data.selected_item_group &&
 					Object.prototype.hasOwnProperty.call(data, overall_field)) {
 				var selected_sales = parseFloat(value || 0);
