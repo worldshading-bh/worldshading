@@ -162,6 +162,7 @@ app_include_js = [
     "/assets/worldshading/js/customer_quick_entry.js",
     "/assets/worldshading/js/customer_quick_entry_sijilat.js",
     "/assets/worldshading/js/global_list_patch.js",
+    "/assets/worldshading/js/report_download_visibility.js",
     "/assets/worldshading/js/pbx_call_popup_test.js",
     "/assets/worldshading/js/notification_sound.js"
 ]
