@@ -2,6 +2,7 @@ from __future__ import unicode_literals
 
 import json
 import os
+import subprocess
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -268,6 +269,17 @@ class TestSalesTargetOverlap(TestSalesTargetValidation):
 		with patch.object(sales_target, "_validate_no_overlap") as validate_overlap:
 			sales_target.SalesTarget.before_submit(doc)
 		self.assertEqual(validate_overlap.call_count, 1)
+
+
+class TestSalesTargetClientContract(unittest.TestCase):
+	def test_client_handlers_apply_defaults_filters_totals_and_read_only_updates(self):
+		script = os.path.join(
+			os.path.dirname(__file__), "test_sales_target_client.js")
+		result = subprocess.run(
+			["node", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+			universal_newlines=True)
+		self.assertEqual(result.returncode, 0, result.stdout)
+		self.assertIn("sales_target client behavior: ok", result.stdout)
 
 
 if __name__ == "__main__":
