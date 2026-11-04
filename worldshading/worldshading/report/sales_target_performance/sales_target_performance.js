@@ -1,3 +1,5 @@
+var sales_target_performance_report = null;
+
 frappe.query_reports["Sales Target Performance"] = {
     filters: [
         {
@@ -37,6 +39,23 @@ frappe.query_reports["Sales Target Performance"] = {
     ],
 
     onload: function(report) {
+        sales_target_performance_report = report;
+        if (!report.$sales_target_team_summary) {
+            report.$sales_target_team_summary = $(
+                '<div class="sales-target-team-summary row"></div>'
+            ).insertBefore(report.$report);
+        }
+        clear_team_summary(report);
+
+        if (!report.sales_target_summary_refresh_wrapped) {
+            var original_refresh = report.refresh;
+            report.refresh = function() {
+                clear_team_summary(report);
+                return original_refresh.apply(report, arguments);
+            };
+            report.sales_target_summary_refresh_wrapped = true;
+        }
+
         report.$report.off("click.sales_target_performance");
         report.$report.on(
             "click.sales_target_performance",
@@ -52,6 +71,10 @@ frappe.query_reports["Sales Target Performance"] = {
                 });
             }
         );
+    },
+
+    after_datatable_render: function() {
+        render_team_summary(sales_target_performance_report);
     },
 
     formatter: function(value, row, column, data, default_formatter) {
@@ -86,6 +109,42 @@ frappe.query_reports["Sales Target Performance"] = {
     }
 };
 
+function clear_team_summary(report) {
+    if (report && report.$sales_target_team_summary) {
+        report.$sales_target_team_summary.empty().toggle(false);
+    }
+}
+
+function render_team_summary(report) {
+    if (!report || !report.$sales_target_team_summary) {
+        return;
+    }
+
+    var summary = report.raw_data && report.raw_data.report_summary || [];
+    report.$sales_target_team_summary.empty();
+
+    summary.forEach(function(item) {
+        var formatted_value = frappe.format(item.value, {
+            fieldtype: item.datatype,
+            options: "currency"
+        }, {
+            only_value: true
+        }, {
+            currency: item.currency
+        });
+        report.$sales_target_team_summary.append(
+            '<div class="col-sm-2" style="margin-bottom: 10px;">' +
+                '<div class="text-muted small">' + escape_html(item.label) + '</div>' +
+                '<div class="h4" style="margin-top: 4px;">' +
+                    escape_html(formatted_value) +
+                '</div>' +
+            '</div>'
+        );
+    });
+
+    report.$sales_target_team_summary.toggle(Boolean(summary.length));
+}
+
 function build_invoice_link(value, data) {
     return '<a href="#" class="sales-target-invoice-link"' +
         ' data-company="' + safe_route_attribute(data.company) + '"' +
@@ -100,7 +159,8 @@ function safe_route_attribute(value) {
 }
 
 function escape_html(value) {
-    return String(value || "").replace(/[&<>"']/g, function(character) {
+    value = value == null ? "" : value;
+    return String(value).replace(/[&<>"']/g, function(character) {
         return {
             "&": "&amp;",
             "<": "&lt;",

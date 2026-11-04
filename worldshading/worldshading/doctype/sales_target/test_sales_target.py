@@ -30,6 +30,7 @@ class TestSalesTargetMetadata(unittest.TestCase):
 		fields = self.field_map(metadata)
 
 		self.assertEqual(metadata["name"], "Sales Target Detail")
+		self.assertNotEqual(metadata["modified"], "2026-11-04 00:00:00.000000")
 		self.assertEqual(metadata["istable"], 1)
 		self.assertEqual(metadata["permissions"], [])
 		self.assertEqual(fields["sales_employee"]["options"], "Employee")
@@ -68,6 +69,7 @@ class TestSalesTargetMetadata(unittest.TestCase):
 		fields = self.field_map(metadata)
 
 		self.assertEqual(metadata["name"], "Sales Target")
+		self.assertNotEqual(metadata["modified"], "2026-11-04 00:00:00.000000")
 		self.assertEqual(metadata["autoname"], "ST-WS-.YYYY.-.#####")
 		self.assertEqual(metadata["is_submittable"], 1)
 		self.assertEqual(metadata["track_changes"], 1)

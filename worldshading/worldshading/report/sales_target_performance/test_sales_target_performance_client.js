@@ -4,16 +4,55 @@ const path = require("path");
 const vm = require("vm");
 
 const routes = [];
+const formatCalls = [];
+let summaryContainer = null;
 const sandbox = {
     console: console,
     __: function(value) { return value; },
     encodeURIComponent: encodeURIComponent,
     decodeURIComponent: decodeURIComponent,
-    $: function(value) { return value; },
+    $: function(value) {
+        if (typeof value !== "string") {
+            return value;
+        }
+        summaryContainer = {
+            items: [],
+            visible: false,
+            insertedBefore: null,
+            insertBefore: function(target) {
+                this.insertedBefore = target;
+                return this;
+            },
+            empty: function() {
+                this.items = [];
+                return this;
+            },
+            append: function(html) {
+                this.items.push(html);
+                return this;
+            },
+            toggle: function(value) {
+                this.visible = Boolean(value);
+                return this;
+            }
+        };
+        return summaryContainer;
+    },
     frappe: {
         query_reports: {},
         datetime: {get_today: function() { return "2026-11-04"; }},
-        set_route: function() { routes.push(Array.prototype.slice.call(arguments)); }
+        set_route: function() { routes.push(Array.prototype.slice.call(arguments)); },
+        format: function(value, field, options, doc) {
+            formatCalls.push({field: field, options: options, doc: doc});
+            let formatted = String(value);
+            if (field.fieldtype === "Currency") {
+                formatted += " " + doc[field.options];
+            } else if (field.fieldtype === "Percent") {
+                formatted += "%";
+            }
+            return options && options.only_value ? formatted :
+                "<div style='text-align: right'>" + formatted + "</div>";
+        }
     }
 };
 
@@ -85,6 +124,12 @@ let delegatedEvent = null;
 let delegatedSelector = null;
 let delegatedHandler = null;
 const report = {
+    raw_data: null,
+    refresh_count: 0,
+    refresh: function() {
+        this.refresh_count += 1;
+        return "refreshed";
+    },
     $report: {
         off: function() { return this; },
         on: function(event, selector, handler) {
@@ -99,6 +144,35 @@ config.onload(report);
 assert.strictEqual(delegatedEvent, "click.sales_target_performance");
 assert.strictEqual(delegatedSelector, ".sales-target-invoice-link");
 assert.strictEqual(typeof delegatedHandler, "function");
+assert.ok(summaryContainer);
+assert.strictEqual(summaryContainer.insertedBefore, report.$report);
+assert.strictEqual(typeof config.after_datatable_render, "function");
+
+report.raw_data = {
+    report_summary: [
+        {label: "Team Target", value: 400, datatype: "Currency", currency: "BHD"},
+        {label: "Team Achieved", value: 210, datatype: "Currency", currency: "BHD"},
+        {label: "Team Achievement %", value: 52.5, datatype: "Percent"},
+        {label: "Achieved", value: 1, datatype: "Int"},
+        {label: "On Track", value: 1, datatype: "Int"},
+        {label: "Behind", value: 1, datatype: "Int"}
+    ]
+};
+config.after_datatable_render();
+assert.strictEqual(summaryContainer.visible, true);
+assert.strictEqual(summaryContainer.items.length, 6);
+assert.ok(summaryContainer.items[0].indexOf("Team Target") !== -1);
+assert.ok(summaryContainer.items[0].indexOf("400 BHD") !== -1);
+assert.ok(summaryContainer.items[0].indexOf("&lt;div") === -1);
+assert.strictEqual(formatCalls.length, 6);
+assert.strictEqual(formatCalls[0].field.options, "currency");
+assert.strictEqual(formatCalls[0].options.only_value, true);
+assert.strictEqual(formatCalls[0].doc.currency, "BHD");
+
+assert.strictEqual(report.refresh(), "refreshed");
+assert.strictEqual(report.refresh_count, 1);
+assert.strictEqual(summaryContainer.visible, false);
+assert.strictEqual(summaryContainer.items.length, 0);
 
 const attributes = {
     "data-company": encodeURIComponent(row.company),
