@@ -2,16 +2,25 @@ frappe.ui.form.on("Sales Target", {
     refresh: function(frm) {
         set_employee_query(frm);
         update_frequency_totals(frm);
+        if (frm.doc.company) {
+            frm.sales_target_previous_company = frm.doc.company;
+        }
     },
 
     company: function(frm) {
+        var previous_company = frm.sales_target_previous_company;
         set_employee_query(frm);
 
         if (!frm.doc.company) {
             return;
         }
 
-        if ((frm.doc.targets || []).length) {
+        frm.sales_target_previous_company = frm.doc.company;
+        var has_selected_employee = (frm.doc.targets || []).some(function(row) {
+            return Boolean(row.sales_employee);
+        });
+        if (previous_company && previous_company !== frm.doc.company &&
+                has_selected_employee) {
             frappe.msgprint(__(
                 "Company changed. Please confirm that every selected employee belongs to the new company."
             ));

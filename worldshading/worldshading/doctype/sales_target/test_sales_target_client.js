@@ -16,7 +16,7 @@ const sandbox = {
         db: {
             get_value: function(doctype, name, fieldname, callback) {
                 assert.strictEqual(doctype, "Company");
-                assert.strictEqual(name, "World Shading");
+                assert.ok(name);
                 assert.strictEqual(fieldname, "default_currency");
                 callback({default_currency: "BHD"});
             },
@@ -46,7 +46,7 @@ assert.strictEqual(handlers["Sales Target Detail"].target_amount, undefined);
 assert.strictEqual(source.includes("set_period_defaults"), false);
 assert.strictEqual(source.includes("pad_date_part"), false);
 
-function makeForm() {
+function makeForm(targets) {
     const values = [];
     const queries = [];
     const doc = {
@@ -54,7 +54,7 @@ function makeForm() {
         currency: null,
         from_date: "2026-01-01",
         to_date: "2026-12-31",
-        targets: [
+        targets: targets || [
             {
                 sales_employee: "EMP-001", currency: null,
                 daily_target: 1.2345, weekly_target: 10,
@@ -109,7 +109,14 @@ for (const event of [
     assert.deepStrictEqual(frm.values.map(function(value) { return value[0]; }), totalFields);
 }
 
+const openingForm = makeForm([{sales_employee: null, currency: null}]);
+handlers["Sales Target"].company(openingForm);
+assert.strictEqual(messages.length, 0);
+
 const originalDates = [frm.doc.from_date, frm.doc.to_date];
+handlers["Sales Target"].company(frm);
+assert.strictEqual(messages.length, 0);
+frm.doc.company = "Another Company";
 handlers["Sales Target"].company(frm);
 assert.strictEqual(frm.doc.currency, "BHD");
 assert.deepStrictEqual(frm.doc.targets.map(row => row.currency), ["BHD", "BHD"]);
