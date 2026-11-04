@@ -182,7 +182,7 @@
 			".cra-summary-chip{display:inline-flex;align-items:center;min-height:26px;padding:3px 9px;border:1px solid #dfe3e6;border-radius:13px;background:#f8f9fa;white-space:nowrap;}" +
 			".cra-summary-chip.indicator{padding-left:21px;}" +
 			".cra-summary-risk{border-color:#f4cccc;background:#fff5f5;color:#9b2c2c;}" +
-			".cra-table .cra-sticky-header{z-index:30!important;background:#f7fafc!important;}" +
+			".cra-table .cra-sticky-header{z-index:30!important;background:#f7fafc!important;isolation:isolate;}" +
 			".cra-table .cra-sticky-header .dt-cell__content{position:relative;z-index:1;background:#f7fafc;}" +
 			".cra-table .cra-sticky-footer{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}" +
 			".cra-table .cra-sticky-edge{box-shadow:2px 0 2px rgba(0,0,0,.08);}" +
@@ -414,12 +414,184 @@
 		return matched ? cint(matched[1]) : 0;
 	}
 
+	function get_column_index(element) {
+		if (!element) { return null; }
+		var dataset_index = element.dataset && element.dataset.colIndex;
+		if (dataset_index !== undefined && /^\d+$/.test(String(dataset_index))) {
+			return parseInt(dataset_index, 10);
+		}
+		var class_match = String(element.className || "").match(/dt-cell--col-(\d+)/);
+		return class_match ? parseInt(class_match[1], 10) : null;
+	}
+
+	function get_extra_sticky_fieldnames(datatable) {
+		if (!datatable) { return []; }
+		if (!Array.isArray(datatable.cra_extra_sticky_fieldnames)) {
+			datatable.cra_extra_sticky_fieldnames = [];
+		}
+		return datatable.cra_extra_sticky_fieldnames;
+	}
+
+	function get_sticky_column_count(datatable) {
+		return 3 + get_extra_sticky_fieldnames(datatable).length;
+	}
+
+	function can_move_column(dragged_index, related_index, sticky_column_count) {
+		sticky_column_count = typeof sticky_column_count === "number"
+			? sticky_column_count : 3;
+		return typeof dragged_index === "number" &&
+			dragged_index >= sticky_column_count &&
+			typeof related_index === "number" &&
+			related_index >= sticky_column_count;
+	}
+
+	function get_datatable_column(datatable, fieldname) {
+		var matched = null;
+		var columns = datatable && datatable.datamanager &&
+			datatable.datamanager.getColumns
+			? datatable.datamanager.getColumns() : [];
+		(columns || []).forEach(function (column) {
+			if ((column.fieldname || column.id) === fieldname) { matched = column; }
+		});
+		return matched;
+	}
+
+	function align_extra_sticky_columns(datatable) {
+		var fieldnames = get_extra_sticky_fieldnames(datatable);
+		var valid_fieldnames = [];
+		fieldnames.forEach(function (fieldname) {
+			if (["customer", "customer_name"].indexOf(fieldname) !== -1 ||
+					valid_fieldnames.indexOf(fieldname) !== -1) {
+				return;
+			}
+			if (get_datatable_column(datatable, fieldname)) {
+				valid_fieldnames.push(fieldname);
+			}
+		});
+		datatable.cra_extra_sticky_fieldnames = valid_fieldnames;
+		if (datatable.cra_sticky_alignment_pending) { return false; }
+		for (var index = 0; index < valid_fieldnames.length; index += 1) {
+			var column = get_datatable_column(datatable, valid_fieldnames[index]);
+			var target_index = 3 + index;
+			if (column && column.colIndex !== target_index) {
+				if (!datatable.columnmanager ||
+						typeof datatable.columnmanager.switchColumn !== "function") {
+					datatable.cra_extra_sticky_fieldnames = [];
+					return true;
+				}
+				datatable.cra_sticky_alignment_pending = true;
+				datatable.columnmanager.switchColumn(column.colIndex, target_index);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	function toggle_sticky_column(datatable, column) {
+		var fieldname = column && (column.fieldname || column.id);
+		var fieldnames = get_extra_sticky_fieldnames(datatable);
+		if (!fieldname || ["_rowIndex", "customer", "customer_name"].indexOf(fieldname) !== -1) {
+			if (fieldname && fieldname !== "_rowIndex") {
+				frappe.msgprint(__("Customer and Customer Name are always sticky."));
+			}
+			return;
+		}
+		var existing_index = fieldnames.indexOf(fieldname);
+		if (existing_index === -1) {
+			fieldnames.push(fieldname);
+		} else {
+			fieldnames.splice(existing_index, 1);
+		}
+		datatable.cra_sticky_alignment_pending = false;
+		if (align_extra_sticky_columns(datatable)) {
+			apply_sticky_columns(datatable);
+		}
+	}
+
+	function protect_permanent_columns(datatable) {
+		if (!datatable || datatable.cra_permanent_columns_protected ||
+				typeof datatable.removeColumn !== "function") {
+			return;
+		}
+		var original_remove_column = datatable.removeColumn;
+		datatable.removeColumn = function (column_index) {
+			var columns = datatable.datamanager && datatable.datamanager.getColumns
+				? datatable.datamanager.getColumns() : [];
+			var column = columns[column_index];
+			var fieldname = column && (column.fieldname || column.id);
+			if (["_rowIndex", "customer", "customer_name"].indexOf(fieldname) !== -1) {
+				if (fieldname !== "_rowIndex") {
+					frappe.msgprint(__("Customer and Customer Name cannot be removed."));
+				}
+				return;
+			}
+			return original_remove_column.apply(datatable, arguments);
+		};
+		datatable.cra_permanent_columns_protected = true;
+	}
+
+	function enable_guarded_column_reordering(datatable) {
+		var sortable = datatable && datatable.columnmanager &&
+			datatable.columnmanager.sortable;
+		if (!sortable || typeof sortable.option !== "function") { return; }
+		sortable.option("onMove", function (event) {
+			return can_move_column(
+				get_column_index(event && event.dragged),
+				get_column_index(event && event.related),
+				get_sticky_column_count(datatable)
+			);
+		});
+		sortable.option(
+			"filter", ".dt-cell__resize-handle, .dt-dropdown, .cra-sticky-header"
+		);
+		sortable.option("preventOnFilter", false);
+		sortable.option("disabled", false);
+	}
+
+	function observe_sticky_header_rebuild(datatable, refresh_callback) {
+		if (!datatable || !datatable.header ||
+				typeof MutationObserver === "undefined" ||
+				typeof refresh_callback !== "function") { return; }
+		if (datatable.cra_header_rebuild_observer) {
+			datatable.cra_header_rebuild_observer.disconnect();
+		}
+		datatable.cra_header_rebuild_observer = new MutationObserver(function () {
+			refresh_callback();
+		});
+		datatable.cra_header_rebuild_observer.observe(
+			datatable.header, {childList: true, subtree: true}
+		);
+	}
+
+	function bind_sticky_observer_cleanup(datatable) {
+		if (!datatable || datatable.cra_sticky_observer_cleanup_bound ||
+				typeof datatable.on !== "function") { return; }
+		datatable.cra_sticky_observer_cleanup_bound = true;
+		datatable.on("onDestroy", function () {
+			if (datatable.cra_header_rebuild_observer) {
+				datatable.cra_header_rebuild_observer.disconnect();
+				datatable.cra_header_rebuild_observer = null;
+			}
+			if (datatable.cra_row_highlight_observer) {
+				datatable.cra_row_highlight_observer.disconnect();
+				datatable.cra_row_highlight_observer = null;
+			}
+		});
+	}
+
 	function apply_sticky_columns(datatable) {
 		if (!datatable || !datatable.wrapper || !datatable.bodyScrollable ||
 				!datatable.datamanager) { return; }
+		protect_permanent_columns(datatable);
+		bind_sticky_observer_cleanup(datatable);
+		if (!align_extra_sticky_columns(datatable)) { return; }
 		var wrapper_element = datatable.wrapper;
 		var wrapper = $(wrapper_element);
 		wrapper.addClass("cra-table");
+		wrapper.find(".cra-sticky-header")
+			.removeClass("cra-sticky-header").css("transform", "");
+		wrapper.find(".cra-sticky-footer")
+			.removeClass("cra-sticky-footer").css("transform", "");
 
 		function get_column(fieldname) {
 			var matched = null;
@@ -444,10 +616,20 @@
 				}
 			});
 		}
-		if (!customer_column || !customer_name_column) { return; }
-		var sticky_indices = [
-			0, customer_column.colIndex, customer_name_column.colIndex
+		if (!customer_column || !customer_name_column) {
+			$("#cra-dynamic-style").remove();
+			return;
+		}
+		var sticky_columns = [
+			{colIndex: 0, width: 50}, customer_column, customer_name_column
 		];
+		get_extra_sticky_fieldnames(datatable).forEach(function (fieldname) {
+			var column = get_column(fieldname);
+			if (column) { sticky_columns.push(column); }
+		});
+		var sticky_indices = sticky_columns.map(function (column) {
+			return column.colIndex;
+		});
 		var sticky_header_selector = sticky_indices.map(function (index) {
 			return ".dt-header .dt-cell--col-" + index;
 		}).join(", ");
@@ -505,25 +687,41 @@
 			)[0];
 			return cell ? cell.getBoundingClientRect().width : fallback_width;
 		}
+		var sticky_layout = [];
 		function update_sticky_offsets() {
-			wrapper_element.style.setProperty("--cra-row-index-width", "50px");
-			wrapper_element.style.setProperty(
-				"--cra-customer-width", get_column_width(customer_column.colIndex, 140) + "px"
-			);
+			var left_offset = 0;
+			sticky_layout = sticky_columns.map(function (column, index) {
+				var width = index === 0 ? 50 : get_column_width(
+					column.colIndex,
+					column.width || (index === 1 ? 140 : (index === 2 ? 190 : 110))
+				);
+				var layout = {
+					colIndex: column.colIndex,
+					left: left_offset,
+					width: width
+				};
+				left_offset += width;
+				return layout;
+			});
 		}
 		function update_sticky_rules() {
-			var customer_class = ".dt-cell--col-" + customer_column.colIndex;
-			var name_class = ".dt-cell--col-" + customer_name_column.colIndex;
 			var header_filter = sticky_indices.map(function (index) {
 				return ".cra-table .dt-row-header .dt-cell--col-" + index +
 					",.cra-table .dt-row-filter .dt-cell--col-" + index;
 			}).join(",");
-			var rules = [
-				".cra-table .dt-cell--col-0{position:sticky;left:0;z-index:4;background:#fff;width:50px;min-width:50px;max-width:50px;flex:0 0 50px;}",
-				".cra-table " + customer_class + "{position:sticky;left:var(--cra-row-index-width);z-index:4;background:#fff;}",
-				".cra-table " + name_class + "{position:sticky;left:calc(var(--cra-row-index-width) + var(--cra-customer-width));z-index:4;background:#fff;box-shadow:2px 0 2px rgba(0,0,0,.08);}",
-				header_filter + "{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}"
-			];
+			var rules = sticky_layout.map(function (layout, index) {
+				var fixed_width = index === 0
+					? "width:50px;min-width:50px;max-width:50px;flex:0 0 50px;" : "";
+				var sticky_edge = index === sticky_layout.length - 1
+					? "box-shadow:2px 0 2px rgba(0,0,0,.08);" : "";
+				return ".cra-table .dt-cell--col-" + layout.colIndex +
+					"{position:sticky;left:" + layout.left +
+					"px;z-index:4;background:#fff;" + fixed_width + sticky_edge + "}";
+			});
+			rules.push(
+				header_filter +
+				"{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;}"
+			);
 			$("#cra-dynamic-style").remove();
 			$("<style id='cra-dynamic-style'>" + rules.join("") + "</style>").appendTo("head");
 		}
@@ -612,22 +810,38 @@
 				update_sticky_rules();
 				refresh_empty_filter_layout();
 				update_sticky_header();
+				enable_guarded_column_reordering(datatable);
 				queue_selected_row_restore();
 			});
 		};
+		observe_sticky_header_rebuild(
+			datatable, datatable.cra_refresh_sticky_columns
+		);
 		if (!datatable.cra_sticky_events_bound) {
 			datatable.cra_sticky_events_bound = true;
-			["onSortColumn", "onSwitchColumn", "onRemoveColumn"].forEach(function (event_name) {
-				datatable.on(event_name, function () {
-					if (datatable.cra_refresh_sticky_columns) {
-						datatable.cra_refresh_sticky_columns();
-					}
+			datatable.on("onSortColumn", function () {
+				if (datatable.cra_refresh_sticky_columns) {
+					datatable.cra_refresh_sticky_columns();
+				}
+			});
+			datatable.on("onRemoveColumn", function (column) {
+				var fieldname = column && (column.fieldname || column.id);
+				var fieldnames = get_extra_sticky_fieldnames(datatable);
+				var pinned_index = fieldnames.indexOf(fieldname);
+				if (pinned_index !== -1) { fieldnames.splice(pinned_index, 1); }
+				datatable.cra_sticky_alignment_pending = false;
+				window.requestAnimationFrame(function () {
+					apply_sticky_columns(datatable);
+				});
+			});
+			datatable.on("onSwitchColumn", function () {
+				datatable.cra_sticky_alignment_pending = false;
+				window.requestAnimationFrame(function () {
+					apply_sticky_columns(datatable);
 				});
 			});
 		}
-		if (datatable.columnmanager && datatable.columnmanager.sortable) {
-			datatable.columnmanager.sortable.option("disabled", true);
-		}
+		enable_guarded_column_reordering(datatable);
 
 		var important_columns = {
 			"retention_status": "#f7f5ff",
@@ -671,6 +885,15 @@
 	}
 
 	frappe.query_reports["Customer Retention Analysis"] = {
+		get_datatable_options: function (options) {
+			options.headerDropdown = [
+				{
+					label: __("Pin / Unpin Column"),
+					action: function (column) { toggle_sticky_column(this, column); }
+				}
+			];
+			return options;
+		},
 		filters: [
 			{fieldname: "company", label: __("Company"), fieldtype: "Link", options: "Company", reqd: 1, "default": frappe.defaults.get_user_default("Company")},
 			{fieldname: "analysis_year", label: __("Analysis Year"), fieldtype: "Int", reqd: 1, "default": get_current_year(), on_change: analysis_year_changed},

@@ -70,6 +70,7 @@ global.frappe = {
 };
 let dom_elements = {};
 let dom_insertions = [];
+let created_html = [];
 
 function make_element(selector, length) {
 	return {
@@ -92,6 +93,7 @@ function make_element(selector, length) {
 global.$ = function (value) {
 	if (dom_elements[value]) { return dom_elements[value]; }
 	if (typeof value === "string" && value.charAt(0) === "<") {
+		created_html.push(value);
 		const class_match = value.match(/class=['\"]([^'\"]+)/);
 		const selector = class_match ? "." + class_match[1].split(" ")[0] : value;
 		return make_element(selector, 1);
@@ -106,15 +108,299 @@ source = source.replace(
 	"global.__cra_test = {build_result_summary_html: build_result_summary_html, " +
 		"update_result_summary: update_result_summary, get_sort_help: get_sort_help, " +
 		"apply_sort_help: apply_sort_help, " +
+		"install_styles: install_styles, " +
 		"summary_value: summary_value, " +
 		"get_comparison_year_options: get_comparison_year_options, " +
 		"sync_comparison_year_filter: sync_comparison_year_filter, " +
 		"restore_prepared_filters: restore_prepared_filters, " +
-		"install_refresh_filter_compatibility: install_refresh_filter_compatibility};}());"
+		"install_refresh_filter_compatibility: install_refresh_filter_compatibility, " +
+		"get_column_index: get_column_index, " +
+		"can_move_column: can_move_column, " +
+		"enable_guarded_column_reordering: enable_guarded_column_reordering, " +
+		"get_extra_sticky_fieldnames: get_extra_sticky_fieldnames, " +
+		"get_sticky_column_count: get_sticky_column_count, " +
+		"align_extra_sticky_columns: align_extra_sticky_columns, " +
+		"toggle_sticky_column: toggle_sticky_column, " +
+		"protect_permanent_columns: typeof protect_permanent_columns === 'function' " +
+			"? protect_permanent_columns : null, " +
+		"bind_sticky_observer_cleanup: typeof bind_sticky_observer_cleanup === 'function' " +
+			"? bind_sticky_observer_cleanup : null, " +
+		"observe_sticky_header_rebuild: typeof observe_sticky_header_rebuild === 'function' " +
+			"? observe_sticky_header_rebuild : null};}());"
 );
 vm.runInThisContext(source, {filename: script_path});
 
 const report = frappe.query_reports["Customer Retention Analysis"];
+
+assert.strictEqual(
+	typeof global.__cra_test.observe_sticky_header_rebuild,
+	"function",
+	"sticky headers must observe Frappe header rebuilds"
+);
+let disconnected_header_observer = false;
+let observed_header = null;
+let observed_header_options = null;
+let rebuild_refresh_count = 0;
+let header_observer_callback = null;
+global.MutationObserver = function (callback) {
+	header_observer_callback = callback;
+	this.observe = function (element, options) {
+		observed_header = element;
+		observed_header_options = options;
+	};
+};
+const rebuilt_header = {};
+const header_datatable = {
+	header: rebuilt_header,
+	cra_header_rebuild_observer: {
+		disconnect: function () { disconnected_header_observer = true; }
+	}
+};
+global.__cra_test.observe_sticky_header_rebuild(header_datatable, function () {
+	rebuild_refresh_count += 1;
+});
+assert.strictEqual(disconnected_header_observer, true);
+assert.strictEqual(observed_header, rebuilt_header);
+assert.deepStrictEqual(observed_header_options, {childList: true, subtree: true});
+header_observer_callback();
+assert.strictEqual(rebuild_refresh_count, 1);
+
+assert.strictEqual(
+	typeof global.__cra_test.bind_sticky_observer_cleanup,
+	"function",
+	"sticky observers must be disconnected when DataTable is destroyed"
+);
+let sticky_destroy_callback = null;
+let header_cleanup_count = 0;
+let row_cleanup_count = 0;
+const cleanup_datatable = {
+	on: function (event_name, callback) {
+		if (event_name === "onDestroy") { sticky_destroy_callback = callback; }
+	},
+	cra_header_rebuild_observer: {
+		disconnect: function () { header_cleanup_count += 1; }
+	},
+	cra_row_highlight_observer: {
+		disconnect: function () { row_cleanup_count += 1; }
+	}
+};
+global.__cra_test.bind_sticky_observer_cleanup(cleanup_datatable);
+global.__cra_test.bind_sticky_observer_cleanup(cleanup_datatable);
+assert.strictEqual(typeof sticky_destroy_callback, "function");
+sticky_destroy_callback();
+assert.strictEqual(header_cleanup_count, 1);
+assert.strictEqual(row_cleanup_count, 1);
+assert.strictEqual(cleanup_datatable.cra_header_rebuild_observer, null);
+assert.strictEqual(cleanup_datatable.cra_row_highlight_observer, null);
+
+global.__cra_test.install_styles();
+const static_style_html = created_html.filter(function (html) {
+	return html.indexOf("id='cra-static-style'") !== -1;
+})[0];
+assert(static_style_html);
+assert(
+	static_style_html.indexOf("isolation:isolate;") !== -1,
+	"sticky headers must isolate their stacking context after sort redraws"
+);
+
+function make_column_element(index, include_dataset) {
+	return {
+		className: "dt-cell dt-cell--col-" + index + " dt-cell--header",
+		dataset: include_dataset ? {colIndex: String(index)} : {}
+	};
+}
+
+assert.strictEqual(global.__cra_test.get_column_index(make_column_element(7, true)), 7);
+assert.strictEqual(global.__cra_test.get_column_index(make_column_element(8, false)), 8);
+assert.strictEqual(global.__cra_test.get_column_index(null), null);
+[0, 1, 2].forEach(function (anchored_index) {
+	assert.strictEqual(global.__cra_test.can_move_column(anchored_index, 5), false);
+	assert.strictEqual(global.__cra_test.can_move_column(5, anchored_index), false);
+});
+assert.strictEqual(global.__cra_test.can_move_column(4, 7), true);
+assert.strictEqual(global.__cra_test.can_move_column(7, 3), true);
+assert.strictEqual(global.__cra_test.can_move_column(null, 5), false);
+assert.doesNotThrow(function () {
+	global.__cra_test.enable_guarded_column_reordering({});
+});
+
+const sortable_options = {};
+const sortable = {
+	option: function (name, value) {
+		sortable_options[name] = value;
+	}
+};
+global.__cra_test.enable_guarded_column_reordering({
+	columnmanager: {sortable: sortable}
+});
+assert.strictEqual(sortable_options.disabled, false);
+assert.strictEqual(
+	sortable_options.filter,
+	".dt-cell__resize-handle, .dt-dropdown, .cra-sticky-header"
+);
+assert.strictEqual(sortable_options.preventOnFilter, false);
+assert.strictEqual(typeof sortable_options.onMove, "function");
+assert.strictEqual(sortable_options.onMove({
+	dragged: make_column_element(2, true),
+	related: make_column_element(5, true)
+}), false);
+assert.strictEqual(sortable_options.onMove({
+	dragged: make_column_element(5, true),
+	related: make_column_element(1, true)
+}), false);
+assert.strictEqual(sortable_options.onMove({
+	dragged: make_column_element(5, true),
+	related: make_column_element(8, true)
+}), true);
+
+function make_sticky_datatable(fieldnames) {
+	const columns = fieldnames.map(function (fieldname, index) {
+		return {fieldname: fieldname, id: fieldname, colIndex: index};
+	});
+	const switches = [];
+	const datatable = {
+		datamanager: {
+			getColumns: function () { return columns; }
+		},
+		columnmanager: {
+			switchColumn: function (old_index, new_index) {
+				switches.push([old_index, new_index]);
+				const old_column = columns[old_index];
+				columns[old_index] = columns[new_index];
+				columns[new_index] = old_column;
+				columns[old_index].colIndex = old_index;
+				columns[new_index].colIndex = new_index;
+			}
+		}
+	};
+	datatable.columns = columns;
+	datatable.switches = switches;
+	return datatable;
+}
+
+const sticky_datatable = make_sticky_datatable([
+	"_rowIndex", "customer", "customer_name", "customer_group",
+	"territory", "current_sales", "previous_sales"
+]);
+assert.deepStrictEqual(
+	global.__cra_test.get_extra_sticky_fieldnames(sticky_datatable), []
+);
+assert.strictEqual(global.__cra_test.get_sticky_column_count(sticky_datatable), 3);
+global.__cra_test.toggle_sticky_column(sticky_datatable, sticky_datatable.columns[5]);
+assert.deepStrictEqual(sticky_datatable.cra_extra_sticky_fieldnames, ["current_sales"]);
+assert.deepStrictEqual(sticky_datatable.switches, [[5, 3]]);
+sticky_datatable.cra_sticky_alignment_pending = false;
+assert.strictEqual(global.__cra_test.align_extra_sticky_columns(sticky_datatable), true);
+global.__cra_test.toggle_sticky_column(sticky_datatable, sticky_datatable.columns[4]);
+assert.deepStrictEqual(
+	sticky_datatable.cra_extra_sticky_fieldnames,
+	["current_sales", "territory"]
+);
+assert.strictEqual(global.__cra_test.get_sticky_column_count(sticky_datatable), 5);
+assert.strictEqual(sticky_datatable.columns[3].fieldname, "current_sales");
+assert.strictEqual(sticky_datatable.columns[4].fieldname, "territory");
+global.__cra_test.toggle_sticky_column(sticky_datatable, sticky_datatable.columns[3]);
+assert.deepStrictEqual(sticky_datatable.cra_extra_sticky_fieldnames, ["territory"]);
+assert.deepStrictEqual(sticky_datatable.switches, [[5, 3], [4, 3]]);
+sticky_datatable.cra_sticky_alignment_pending = false;
+assert.strictEqual(global.__cra_test.align_extra_sticky_columns(sticky_datatable), true);
+assert.strictEqual(sticky_datatable.columns[3].fieldname, "territory");
+
+const identity_datatable = make_sticky_datatable([
+	"_rowIndex", "customer", "customer_name", "territory"
+]);
+global.__cra_test.toggle_sticky_column(identity_datatable, identity_datatable.columns[1]);
+assert.deepStrictEqual(identity_datatable.cra_extra_sticky_fieldnames, []);
+assert.deepStrictEqual(identity_datatable.switches, []);
+
+assert.strictEqual(
+	typeof global.__cra_test.protect_permanent_columns,
+	"function",
+	"permanent identity columns must have a removal guard"
+);
+const protected_datatable = make_sticky_datatable([
+	"_rowIndex", "customer", "customer_name", "territory"
+]);
+const removed_column_indexes = [];
+protected_datatable.removeColumn = function (index) {
+	removed_column_indexes.push(index);
+	return "removed";
+};
+global.__cra_test.protect_permanent_columns(protected_datatable);
+const message_count_before_protected_removal = messages.length;
+assert.strictEqual(protected_datatable.removeColumn(0), undefined);
+assert.strictEqual(protected_datatable.removeColumn(1), undefined);
+assert.strictEqual(protected_datatable.removeColumn(2), undefined);
+assert.deepStrictEqual(removed_column_indexes, []);
+assert.strictEqual(messages.length, message_count_before_protected_removal + 2);
+assert.strictEqual(protected_datatable.removeColumn(3), "removed");
+assert.deepStrictEqual(removed_column_indexes, [3]);
+global.__cra_test.protect_permanent_columns(protected_datatable);
+assert.strictEqual(protected_datatable.removeColumn(3), "removed");
+assert.deepStrictEqual(removed_column_indexes, [3, 3]);
+
+const rebuilt_datatable = make_sticky_datatable([
+	"_rowIndex", "customer", "customer_name", "territory",
+	"sales_2025", "current_sales"
+]);
+rebuilt_datatable.cra_extra_sticky_fieldnames = ["current_sales", "missing_field"];
+assert.strictEqual(global.__cra_test.align_extra_sticky_columns(rebuilt_datatable), false);
+assert.deepStrictEqual(rebuilt_datatable.cra_extra_sticky_fieldnames, ["current_sales"]);
+assert.deepStrictEqual(rebuilt_datatable.switches, [[5, 3]]);
+rebuilt_datatable.cra_sticky_alignment_pending = false;
+assert.strictEqual(global.__cra_test.align_extra_sticky_columns(rebuilt_datatable), true);
+assert.strictEqual(rebuilt_datatable.columns[3].fieldname, "current_sales");
+
+assert.strictEqual(global.__cra_test.can_move_column(4, 7, 5), false);
+assert.strictEqual(global.__cra_test.can_move_column(7, 4, 5), false);
+assert.strictEqual(global.__cra_test.can_move_column(5, 7, 5), true);
+
+assert.strictEqual(typeof report.get_datatable_options, "function");
+const native_header_dropdown = [
+	{
+		label: "Sort Ascending",
+		action: function (column) { this.sortColumn(column.colIndex, "asc"); }
+	},
+	{
+		label: "Sort Descending",
+		action: function (column) { this.sortColumn(column.colIndex, "desc"); }
+	},
+	{
+		label: "Reset sorting",
+		action: function (column) { this.sortColumn(column.colIndex, "none"); }
+	},
+	{
+		label: "Remove column",
+		action: function (column) { this.removeColumn(column.colIndex); }
+	}
+];
+const menu_options = report.get_datatable_options({});
+const final_header_dropdown = native_header_dropdown.concat(menu_options.headerDropdown || []);
+assert.deepStrictEqual(final_header_dropdown.map(function (item) {
+	return item.label;
+}), [
+	"Sort Ascending", "Sort Descending", "Reset sorting", "Remove column",
+	"Pin / Unpin Column"
+]);
+const menu_calls = [];
+const menu_datatable = make_sticky_datatable([
+	"_rowIndex", "customer", "customer_name", "territory"
+]);
+menu_datatable.sortColumn = function (index, direction) {
+	menu_calls.push(["sort", index, direction]);
+};
+menu_datatable.removeColumn = function (index) {
+	menu_calls.push(["remove", index]);
+};
+final_header_dropdown.slice(0, 4).forEach(function (item) {
+	item.action.call(menu_datatable, menu_datatable.columns[3]);
+});
+assert.deepStrictEqual(menu_calls, [
+	["sort", 3, "asc"], ["sort", 3, "desc"], ["sort", 3, "none"], ["remove", 3]
+]);
+final_header_dropdown[4].action.call(menu_datatable, menu_datatable.columns[3]);
+assert.deepStrictEqual(menu_datatable.cra_extra_sticky_fieldnames, ["territory"]);
+
 assert.deepStrictEqual(
 	global.__cra_test.get_comparison_year_options(2026),
 	[2025, 2024, 2023, 2022, 2021]
