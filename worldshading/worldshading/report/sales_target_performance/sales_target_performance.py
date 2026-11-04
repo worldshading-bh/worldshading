@@ -5,37 +5,64 @@ import frappe
 from frappe import _
 from frappe.utils import date_diff, flt, getdate, nowdate
 
+from worldshading.worldshading.sales_target_utils import (
+	get_frequency_config,
+	get_occurrence,
+)
+
 
 def execute(filters=None):
 	filters = filters or {}
 	target_name = filters.get("sales_target")
+	frequency = filters.get("frequency")
 	if not target_name:
 		frappe.throw(_("Sales Target is required."))
+	if not frequency:
+		frappe.throw(_("Frequency is required."))
 
 	target = frappe.get_doc("Sales Target", target_name)
 	target.check_permission("read")
 	if target.docstatus != 1:
 		frappe.throw(_("Select a submitted Sales Target."))
+	if target.target_model != "Recurring Plan":
+		frappe.throw(_("Select a recurring Sales Target plan."))
 
-	as_of_date = filters.get("as_of_date") or nowdate()
-	if getdate(as_of_date) < getdate(target.from_date):
-		aggregates = {}
-	else:
-		effective_to_date = (
-			target.to_date
-			if getdate(as_of_date) >= getdate(target.to_date)
-			else as_of_date
-		)
-		aggregates = get_sales_aggregates(
-			target.company, target.from_date, effective_to_date)
+	frequency_config = get_frequency_config(frequency)
+	if not frequency_config:
+		frappe.throw(_("Select a valid Frequency."))
 
-	rows = build_rows(
-		target,
-		aggregates,
-		as_of_date,
-		filters.get("sales_employee")
+	current_date = nowdate()
+	as_of_date = filters.get("as_of_date") or current_date
+	if getdate(as_of_date) > getdate(current_date):
+		frappe.throw(_("As of Date cannot be in the future."))
+
+	occurrence = get_occurrence(
+		frequency, as_of_date, target.from_date, target.to_date)
+	child_field = frequency_config[1]
+	employee_ids = tuple(
+		row.sales_employee for row in target.targets
+		if flt(getattr(row, child_field, 0)) > 0
 	)
-	return get_columns(), rows
+
+	aggregates = {}
+	if not occurrence["not_started"] and employee_ids:
+		aggregates = get_sales_aggregates(
+			target.company,
+			occurrence["from_date"],
+			occurrence["effective_to_date"],
+			employee_ids
+		)
+
+	team_rows = build_rows(
+		target, frequency, occurrence, aggregates, as_of_date, current_date)
+	summary = get_report_summary(team_rows, target.currency)
+
+	rows = team_rows
+	if filters.get("sales_employee"):
+		rows = [row for row in team_rows
+			if row.get("sales_employee") == filters.get("sales_employee")]
+
+	return get_columns(), rows, None, None, summary, 1
 
 
 def get_columns():
@@ -44,7 +71,7 @@ def get_columns():
 		{"label": _("Sales Employee"), "fieldname": "sales_employee",
 			"fieldtype": "Link", "options": "Employee", "width": 130},
 		{"label": _("Employee Name"), "fieldname": "employee_name", "width": 170},
-		{"label": _("Period Type"), "fieldname": "period_type", "width": 100},
+		{"label": _("Frequency"), "fieldname": "frequency", "width": 90},
 		{"label": _("From Date"), "fieldname": "from_date",
 			"fieldtype": "Date", "width": 95},
 		{"label": _("To Date"), "fieldname": "to_date",
@@ -66,6 +93,8 @@ def get_columns():
 		{"label": _("Required Daily Run Rate"),
 			"fieldname": "required_daily_run_rate", "fieldtype": "Currency",
 			"options": "currency", "width": 165},
+		{"label": _("Contribution %"), "fieldname": "contribution_percent",
+			"fieldtype": "Percent", "width": 115},
 		{"label": _("Invoice Count"), "fieldname": "invoice_count",
 			"fieldtype": "Int", "width": 100},
 		{"label": _("Status"), "fieldname": "status", "width": 105}
@@ -73,12 +102,13 @@ def get_columns():
 
 
 def calculate_metrics(target_amount, achieved_amount, from_date, to_date,
-		as_of_date):
+		as_of_date, current_date=None):
 	target = flt(target_amount)
 	achieved = flt(achieved_amount)
 	start = getdate(from_date)
 	end = getdate(to_date)
 	as_of = getdate(as_of_date)
+	current = getdate(current_date or nowdate())
 
 	if as_of < start:
 		return {
@@ -101,10 +131,11 @@ def calculate_metrics(target_amount, achieved_amount, from_date, to_date,
 	over_target = max(achieved - target, 0)
 	remaining_days = max(date_diff(end, effective_date), 0)
 	required_daily = remaining / remaining_days if remaining_days and remaining else 0
+	occurrence_ended = as_of > end or (as_of == end and end < current)
 
 	if achieved >= target:
 		status = "Achieved"
-	elif as_of >= end:
+	elif occurrence_ended:
 		status = "Not Achieved"
 	elif achieved >= expected:
 		status = "On Track"
@@ -123,7 +154,7 @@ def calculate_metrics(target_amount, achieved_amount, from_date, to_date,
 	}
 
 
-def get_sales_aggregates(company, from_date, effective_to_date):
+def get_sales_aggregates(company, from_date, effective_to_date, employee_ids):
 	rows = frappe.db.sql("""
 		select
 			si.pb_sales_employee as sales_employee,
@@ -133,12 +164,13 @@ def get_sales_aggregates(company, from_date, effective_to_date):
 		where si.docstatus = 1
 			and si.company = %(company)s
 			and si.posting_date between %(from_date)s and %(to_date)s
-			and ifnull(si.pb_sales_employee, '') != ''
+			and si.pb_sales_employee in %(employee_ids)s
 		group by si.pb_sales_employee
 	""", {
 		"company": company,
 		"from_date": from_date,
-		"to_date": effective_to_date
+		"to_date": effective_to_date,
+		"employee_ids": tuple(employee_ids)
 	}, as_dict=True)
 
 	return dict((row.get("sales_employee"), {
@@ -147,18 +179,25 @@ def get_sales_aggregates(company, from_date, effective_to_date):
 	}) for row in rows)
 
 
-def build_rows(target, aggregates, as_of_date, sales_employee=None):
+def build_rows(target, frequency, occurrence, aggregates, as_of_date,
+		current_date):
+	frequency_config = get_frequency_config(frequency)
+	child_field = frequency_config[1]
 	rows = []
-	effective_to_date = str(min(getdate(as_of_date), getdate(target.to_date)))
 
 	for target_row in target.targets:
+		target_amount = flt(getattr(target_row, child_field, 0))
+		if target_amount <= 0:
+			continue
+
 		aggregate = aggregates.get(target_row.sales_employee, {})
 		metrics = calculate_metrics(
-			target_row.target_amount,
+			target_amount,
 			aggregate.get("achieved_amount", 0),
-			target.from_date,
-			target.to_date,
-			as_of_date
+			occurrence["from_date"],
+			occurrence["to_date"],
+			as_of_date,
+			current_date
 		)
 		row = {
 			"sales_target": target.name,
@@ -166,15 +205,22 @@ def build_rows(target, aggregates, as_of_date, sales_employee=None):
 			"currency": target.currency,
 			"sales_employee": target_row.sales_employee,
 			"employee_name": target_row.employee_name,
-			"period_type": target.period_type,
-			"from_date": target.from_date,
-			"to_date": target.to_date,
-			"effective_to_date": effective_to_date,
-			"target_amount": flt(target_row.target_amount),
+			"frequency": frequency,
+			"from_date": str(occurrence["from_date"]),
+			"to_date": str(occurrence["to_date"]),
+			"effective_to_date": str(occurrence["effective_to_date"]),
+			"target_amount": target_amount,
 			"invoice_count": int(aggregate.get("invoice_count", 0))
 		}
 		row.update(metrics)
 		rows.append(row)
+
+	team_achieved = sum(flt(row.get("achieved_amount")) for row in rows)
+	for row in rows:
+		row["contribution_percent"] = (
+			flt(row.get("achieved_amount")) / team_achieved * 100
+			if team_achieved else 0
+		)
 
 	rows.sort(key=lambda row: (
 		-flt(row.get("achievement_percent")),
@@ -184,7 +230,26 @@ def build_rows(target, aggregates, as_of_date, sales_employee=None):
 	for index, row in enumerate(rows):
 		row["rank"] = index + 1
 
-	if sales_employee:
-		rows = [row for row in rows if row.get("sales_employee") == sales_employee]
-
 	return rows
+
+
+def get_report_summary(rows, currency):
+	team_target = sum(flt(row.get("target_amount")) for row in rows)
+	team_achieved = sum(flt(row.get("achieved_amount")) for row in rows)
+	team_percent = team_achieved / team_target * 100 if team_target else 0
+	achieved_count = sum(1 for row in rows if row.get("status") == "Achieved")
+	on_track_count = sum(1 for row in rows if row.get("status") == "On Track")
+	behind_count = sum(1 for row in rows
+		if row.get("status") in ("Behind", "Not Achieved"))
+
+	return [
+		{"label": _("Team Target"), "value": team_target,
+			"datatype": "Currency", "currency": currency},
+		{"label": _("Team Achieved"), "value": team_achieved,
+			"datatype": "Currency", "currency": currency},
+		{"label": _("Team Achievement %"), "value": team_percent,
+			"datatype": "Percent"},
+		{"label": _("Achieved"), "value": achieved_count, "datatype": "Int"},
+		{"label": _("On Track"), "value": on_track_count, "datatype": "Int"},
+		{"label": _("Behind"), "value": behind_count, "datatype": "Int"}
+	]

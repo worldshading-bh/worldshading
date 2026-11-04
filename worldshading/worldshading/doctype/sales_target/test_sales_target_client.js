@@ -7,30 +7,12 @@ const handlers = {};
 const messages = [];
 let databaseWrites = 0;
 
-function addDays(value, days) {
-    const date = new Date(value + "T00:00:00Z");
-    date.setUTCDate(date.getUTCDate() + days);
-    return date.toISOString().slice(0, 10);
-}
-
 const sandbox = {
     console: console,
     flt: function(value) { return Number(value || 0); },
     __: function(value) { return value; },
     frappe: {
-        ui: {
-            form: {
-                on: function(doctype, events) {
-                    handlers[doctype] = events;
-                }
-            }
-        },
-        datetime: {
-            get_today: function() { return "2026-11-04"; },
-            add_days: addDays,
-            month_start: function() { return "2026-11-01"; },
-            month_end: function() { return "2026-11-30"; }
-        },
+        ui: {form: {on: function(doctype, events) { handlers[doctype] = events; }}},
         db: {
             get_value: function(doctype, name, fieldname, callback) {
                 assert.strictEqual(doctype, "Company");
@@ -50,25 +32,41 @@ vm.runInNewContext(source, sandbox, {filename: scriptPath});
 
 assert.ok(handlers["Sales Target"]);
 assert.ok(handlers["Sales Target Detail"]);
-for (const event of ["refresh", "company", "period_type"]) {
+for (const event of ["refresh", "company"]) {
     assert.strictEqual(typeof handlers["Sales Target"][event], "function");
 }
-for (const event of ["target_amount", "targets_add", "targets_remove"]) {
+assert.strictEqual(handlers["Sales Target"].period_type, undefined);
+for (const event of [
+    "daily_target", "weekly_target", "monthly_target",
+    "quarterly_target", "annual_target", "targets_add", "targets_remove"
+]) {
     assert.strictEqual(typeof handlers["Sales Target Detail"][event], "function");
 }
+assert.strictEqual(handlers["Sales Target Detail"].target_amount, undefined);
+assert.strictEqual(source.includes("set_period_defaults"), false);
+assert.strictEqual(source.includes("pad_date_part"), false);
 
-function makeForm(periodType) {
+function makeForm() {
     const values = [];
     const queries = [];
     const doc = {
         company: "World Shading",
         currency: null,
-        period_type: periodType,
-        from_date: null,
-        to_date: null,
+        from_date: "2026-01-01",
+        to_date: "2026-12-31",
         targets: [
-            {sales_employee: "EMP-001", currency: null, target_amount: 10.125},
-            {sales_employee: "EMP-002", currency: null, target_amount: "20.250"}
+            {
+                sales_employee: "EMP-001", currency: null,
+                daily_target: 1.2345, weekly_target: 10,
+                monthly_target: "100.125", quarterly_target: 1000,
+                annual_target: 10000
+            },
+            {
+                sales_employee: "EMP-002", currency: null,
+                daily_target: 2.3456, weekly_target: null,
+                monthly_target: "", quarterly_target: 2000,
+                annual_target: 20000
+            }
         ]
     };
     return {
@@ -86,49 +84,38 @@ function makeForm(periodType) {
     };
 }
 
-const expectedDates = {
-    Daily: ["2026-11-04", "2026-11-04"],
-    Weekly: ["2026-11-04", "2026-11-10"],
-    Monthly: ["2026-11-01", "2026-11-30"],
-    Quarterly: ["2026-10-01", "2026-12-31"],
-    Annual: ["2026-01-01", "2026-12-31"]
-};
-
-for (const periodType of Object.keys(expectedDates)) {
-    const frm = makeForm(periodType);
-    sandbox.set_period_defaults(frm);
-    assert.deepStrictEqual(
-        [frm.doc.from_date, frm.doc.to_date], expectedDates[periodType]);
-}
-
-const customForm = makeForm("Custom");
-sandbox.set_period_defaults(customForm);
-assert.strictEqual(customForm.doc.from_date, null);
-assert.strictEqual(customForm.doc.to_date, null);
-
-const preservedForm = makeForm("Daily");
-preservedForm.doc.from_date = "2026-12-10";
-preservedForm.doc.to_date = "2026-12-11";
-sandbox.set_period_defaults(preservedForm);
-assert.deepStrictEqual(
-    [preservedForm.doc.from_date, preservedForm.doc.to_date],
-    ["2026-12-10", "2026-12-11"]);
-
-const frm = makeForm("Monthly");
-sandbox.set_employee_query(frm);
+const frm = makeForm();
+handlers["Sales Target"].refresh(frm);
 assert.strictEqual(frm.queries[0].fieldname, "sales_employee");
 assert.strictEqual(frm.queries[0].childTable, "targets");
 assert.strictEqual(frm.queries[0].result.filters.status, "Active");
 assert.strictEqual(frm.queries[0].result.filters.company, "World Shading");
+assert.strictEqual(frm.doc.total_daily_target, 3.58);
+assert.strictEqual(frm.doc.total_weekly_target, 10);
+assert.strictEqual(frm.doc.total_monthly_target, 100.125);
+assert.strictEqual(frm.doc.total_quarterly_target, 3000);
+assert.strictEqual(frm.doc.total_annual_target, 30000);
 
-sandbox.update_target_total(frm);
-assert.strictEqual(frm.doc.total_target_amount, 30.375);
+const totalFields = [
+    "total_daily_target", "total_weekly_target", "total_monthly_target",
+    "total_quarterly_target", "total_annual_target"
+];
+for (const event of [
+    "daily_target", "weekly_target", "monthly_target",
+    "quarterly_target", "annual_target", "targets_add", "targets_remove"
+]) {
+    frm.values.length = 0;
+    handlers["Sales Target Detail"][event](frm);
+    assert.deepStrictEqual(frm.values.map(function(value) { return value[0]; }), totalFields);
+}
 
+const originalDates = [frm.doc.from_date, frm.doc.to_date];
 handlers["Sales Target"].company(frm);
 assert.strictEqual(frm.doc.currency, "BHD");
 assert.deepStrictEqual(frm.doc.targets.map(row => row.currency), ["BHD", "BHD"]);
+assert.deepStrictEqual([frm.doc.from_date, frm.doc.to_date], originalDates);
 assert.strictEqual(messages.length, 1);
 assert.strictEqual(frm.doc.targets.length, 2);
 assert.strictEqual(databaseWrites, 0);
 
-console.log("sales_target client behavior: ok");
+console.log("sales_target recurring client behavior: ok");
