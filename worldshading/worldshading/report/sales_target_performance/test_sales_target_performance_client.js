@@ -74,10 +74,10 @@ assert.strictEqual(filters.sales_target.get_query().filters.docstatus, 1);
 assert.strictEqual(
     filters.sales_target.get_query().filters.target_model, "Recurring Plan");
 assert.strictEqual(filters.frequency.fieldtype, "Select");
-assert.strictEqual(filters.frequency.reqd, 1);
+assert.ok(!filters.frequency.reqd);
 assert.deepStrictEqual(
     filters.frequency.options.split("\n"),
-    ["Daily", "Weekly", "Monthly", "Quarterly", "Annual"]);
+    ["", "Daily", "Weekly", "Monthly", "Quarterly", "Annual"]);
 assert.strictEqual(filters.sales_employee.fieldtype, "Link");
 assert.strictEqual(filters.sales_employee.options, "Employee");
 assert.ok(!filters.sales_employee.reqd);
@@ -94,6 +94,19 @@ for (let index = 0; index < statuses.length; index += 1) {
     assert.ok(renderedStatuses[index].indexOf('class="indicator ') !== -1);
     assert.ok(renderedStatuses[index].indexOf("indicator-pill") === -1);
 }
+
+const achievementGreen = config.formatter(
+    100, null, {fieldname: "achievement_percent"},
+    {achievement_percent: 100}, defaultFormatter);
+const achievementRed = config.formatter(
+    99.99, null, {fieldname: "achievement_percent"},
+    {achievement_percent: 99.99}, defaultFormatter);
+const achievementZero = config.formatter(
+    0, null, {fieldname: "achievement_percent"},
+    {achievement_percent: 0}, defaultFormatter);
+assert.ok(achievementGreen.indexOf('class="indicator green"') !== -1);
+assert.ok(achievementRed.indexOf('class="indicator red"') !== -1);
+assert.ok(achievementZero.indexOf('class="indicator red"') !== -1);
 
 const maliciousEmployee = 'EMP-" onclick="danger()';
 const row = {
@@ -150,24 +163,23 @@ assert.strictEqual(typeof config.after_datatable_render, "function");
 
 report.raw_data = {
     report_summary: [
-        {label: "Team Target", value: 400, datatype: "Currency", currency: "BHD"},
-        {label: "Team Achieved", value: 210, datatype: "Currency", currency: "BHD"},
-        {label: "Team Achievement %", value: 52.5, datatype: "Percent"},
-        {label: "Achieved", value: 1, datatype: "Int"},
-        {label: "On Track", value: 1, datatype: "Int"},
-        {label: "Behind", value: 1, datatype: "Int"}
+        {label: "Daily Achievement %", value: 100, datatype: "Percent", indicator: "green"},
+        {label: "Weekly Achievement %", value: 52.5, datatype: "Percent", indicator: "red"}
     ]
 };
 config.after_datatable_render();
 assert.strictEqual(summaryContainer.visible, true);
-assert.strictEqual(summaryContainer.items.length, 6);
-assert.ok(summaryContainer.items[0].indexOf("Team Target") !== -1);
-assert.ok(summaryContainer.items[0].indexOf("400 BHD") !== -1);
+assert.strictEqual(summaryContainer.items.length, 2);
+assert.ok(summaryContainer.items[0].indexOf("Daily Achievement %") !== -1);
+assert.ok(summaryContainer.items[0].indexOf("100%") !== -1);
+assert.ok(summaryContainer.items[0].indexOf("sales-target-summary-card") !== -1);
+assert.ok(summaryContainer.items[0].indexOf("indicator green") !== -1);
+assert.ok(summaryContainer.items[1].indexOf("indicator red") !== -1);
 assert.ok(summaryContainer.items[0].indexOf("&lt;div") === -1);
-assert.strictEqual(formatCalls.length, 6);
+assert.strictEqual(formatCalls.length, 2);
 assert.strictEqual(formatCalls[0].field.options, "currency");
 assert.strictEqual(formatCalls[0].options.only_value, true);
-assert.strictEqual(formatCalls[0].doc.currency, "BHD");
+assert.strictEqual(formatCalls[0].doc.currency, undefined);
 
 assert.strictEqual(report.refresh(), "refreshed");
 assert.strictEqual(report.refresh_count, 1);

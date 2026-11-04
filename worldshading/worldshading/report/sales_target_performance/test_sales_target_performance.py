@@ -121,12 +121,9 @@ class TestPerformanceMetrics(unittest.TestCase):
 	def test_columns_cover_recurring_performance_view(self):
 		fieldnames = [column["fieldname"] for column in report.get_columns()]
 		self.assertEqual(fieldnames, [
-			"rank", "sales_employee", "employee_name", "frequency",
-			"from_date", "to_date", "target_amount", "achieved_amount",
-			"achievement_percent", "expected_amount", "progress_variance",
-			"remaining_amount", "over_target_amount",
-			"required_daily_run_rate", "contribution_percent", "invoice_count",
-			"status"
+			"sales_employee", "employee_name", "frequency", "period",
+			"target_amount", "achieved_amount", "achievement_percent",
+			"remaining_amount", "invoice_count", "status"
 		])
 
 
@@ -254,6 +251,7 @@ class TestPerformanceReport(unittest.TestCase):
 		self.assertEqual(rows[2]["frequency"], "Monthly")
 		self.assertEqual(rows[2]["from_date"], "2026-11-01")
 		self.assertEqual(rows[2]["effective_to_date"], "2026-11-15")
+		self.assertEqual(rows[2]["period"], "2026-11-01 to 2026-11-30")
 
 	def test_rows_skip_employees_without_positive_selected_frequency(self):
 		target = self.target(targets=[

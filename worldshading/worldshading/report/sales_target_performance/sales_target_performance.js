@@ -21,8 +21,7 @@ frappe.query_reports["Sales Target Performance"] = {
             fieldname: "frequency",
             label: __("Frequency"),
             fieldtype: "Select",
-            options: "Daily\nWeekly\nMonthly\nQuarterly\nAnnual",
-            reqd: 1
+            options: "\nDaily\nWeekly\nMonthly\nQuarterly\nAnnual"
         },
         {
             fieldname: "sales_employee",
@@ -97,6 +96,12 @@ frappe.query_reports["Sales Target Performance"] = {
             return '<span class="indicator ' + indicator + '">' + value + '</span>';
         }
 
+        if (column.fieldname === "achievement_percent") {
+            var achievement_indicator = Number(raw_value) >= 100 ? "green" : "red";
+            return '<span class="indicator ' + achievement_indicator + '">' +
+                value + '</span>';
+        }
+
         if (column.fieldname === "sales_employee") {
             return build_invoice_link(escape_html(raw_value), data);
         }
@@ -124,6 +129,9 @@ function render_team_summary(report) {
     report.$sales_target_team_summary.empty();
 
     summary.forEach(function(item) {
+        var allowed_indicators = ["green", "red", "orange", "blue", "grey"];
+        var indicator = allowed_indicators.indexOf(item.indicator) !== -1 ?
+            item.indicator : "blue";
         var formatted_value = frappe.format(item.value, {
             fieldtype: item.datatype,
             options: "currency"
@@ -133,10 +141,15 @@ function render_team_summary(report) {
             currency: item.currency
         });
         report.$sales_target_team_summary.append(
-            '<div class="col-sm-2" style="margin-bottom: 10px;">' +
-                '<div class="text-muted small">' + escape_html(item.label) + '</div>' +
-                '<div class="h4" style="margin-top: 4px;">' +
-                    escape_html(formatted_value) +
+            '<div class="col-sm-2" style="margin-bottom: 10px; min-width: 180px;">' +
+                '<div class="sales-target-summary-card" ' +
+                    'style="border: 1px solid #d1d8dd; border-radius: 6px; ' +
+                    'padding: 10px 12px; background: #fff;">' +
+                    '<div class="text-muted small">' + escape_html(item.label) + '</div>' +
+                    '<div class="h4 indicator ' + indicator + '" ' +
+                        'style="margin: 6px 0 0;">' +
+                        escape_html(formatted_value) +
+                    '</div>' +
                 '</div>' +
             '</div>'
         );
