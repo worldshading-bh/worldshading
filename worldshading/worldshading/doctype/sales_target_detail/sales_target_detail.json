@@ -7,12 +7,17 @@
   "sales_employee",
   "employee_name",
   "currency",
+  "daily_target",
+  "weekly_target",
+  "monthly_target",
+  "quarterly_target",
+  "annual_target",
   "target_amount",
   "remarks"
  ],
  "fields": [
   {
-   "columns": 3,
+   "columns": 2,
    "fieldname": "sales_employee",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -21,7 +26,7 @@
    "reqd": 1
   },
   {
-   "columns": 3,
+   "columns": 2,
    "fetch_from": "sales_employee.employee_name",
    "fieldname": "employee_name",
    "fieldtype": "Data",
@@ -39,18 +44,51 @@
   },
   {
    "columns": 2,
-   "fieldname": "target_amount",
+   "fieldname": "daily_target",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Target Amount",
-   "options": "currency",
-   "reqd": 1
+   "label": "Daily Target",
+   "options": "currency"
   },
   {
-   "columns": 4,
+   "columns": 2,
+   "fieldname": "weekly_target",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Weekly Target",
+   "options": "currency"
+  },
+  {
+   "columns": 2,
+   "fieldname": "monthly_target",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Monthly Target",
+   "options": "currency"
+  },
+  {
+   "fieldname": "quarterly_target",
+   "fieldtype": "Currency",
+   "label": "Quarterly Target",
+   "options": "currency"
+  },
+  {
+   "fieldname": "annual_target",
+   "fieldtype": "Currency",
+   "label": "Annual Target",
+   "options": "currency"
+  },
+  {
+   "fieldname": "target_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Target Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
-   "in_list_view": 1,
    "label": "Remarks"
   }
  ],

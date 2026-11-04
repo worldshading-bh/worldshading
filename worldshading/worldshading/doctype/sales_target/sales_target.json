@@ -8,18 +8,33 @@
   "target_name",
   "company",
   "currency",
+  "target_model",
   "period_column",
   "period_type",
   "from_date",
   "to_date",
   "targets_section",
   "targets",
+  "frequency_totals_section",
+  "total_daily_target",
+  "total_weekly_target",
+  "total_monthly_target",
+  "frequency_totals_column",
+  "total_quarterly_target",
+  "total_annual_target",
   "total_target_amount",
   "notes_section",
   "notes",
   "amended_from"
  ],
  "fields": [
+  {
+   "fieldname": "target_model",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Target Model",
+   "read_only": 1
+  },
   {
    "fieldname": "target_name",
    "fieldtype": "Data",
@@ -52,11 +67,10 @@
   {
    "fieldname": "period_type",
    "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
+   "hidden": 1,
    "label": "Period Type",
    "options": "Daily\nWeekly\nMonthly\nQuarterly\nAnnual\nCustom",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "from_date",
@@ -87,9 +101,53 @@
    "reqd": 1
   },
   {
+   "fieldname": "frequency_totals_section",
+   "fieldtype": "Section Break",
+   "label": "Frequency Totals"
+  },
+  {
+   "fieldname": "total_daily_target",
+   "fieldtype": "Currency",
+   "label": "Total Daily Target",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_weekly_target",
+   "fieldtype": "Currency",
+   "label": "Total Weekly Target",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_monthly_target",
+   "fieldtype": "Currency",
+   "label": "Total Monthly Target",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "frequency_totals_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_quarterly_target",
+   "fieldtype": "Currency",
+   "label": "Total Quarterly Target",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_annual_target",
+   "fieldtype": "Currency",
+   "label": "Total Annual Target",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
    "fieldname": "total_target_amount",
    "fieldtype": "Currency",
-   "in_list_view": 1,
+   "hidden": 1,
    "label": "Total Target Amount",
    "options": "currency",
    "read_only": 1
@@ -172,7 +230,7 @@
    "role": "Accounts Manager"
   }
  ],
- "search_fields": "target_name,period_type,company",
+ "search_fields": "target_name,company",
  "sort_field": "from_date",
  "sort_order": "DESC",
  "title_field": "target_name",

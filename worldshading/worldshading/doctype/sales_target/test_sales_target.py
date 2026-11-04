@@ -23,7 +23,7 @@ class TestSalesTargetMetadata(unittest.TestCase):
 	def permission_map(self, metadata):
 		return dict((row["role"], row) for row in metadata["permissions"])
 
-	def test_child_metadata_supports_employee_targets_in_company_currency(self):
+	def test_child_metadata_supports_recurring_targets_in_company_currency(self):
 		metadata = self.load_metadata(
 			"sales_target_detail", "sales_target_detail.json")
 		fields = self.field_map(metadata)
@@ -39,11 +39,30 @@ class TestSalesTargetMetadata(unittest.TestCase):
 		self.assertEqual(fields["currency"]["options"], "Currency")
 		self.assertEqual(fields["currency"]["read_only"], 1)
 		self.assertEqual(fields["currency"]["hidden"], 1)
+		for fieldname in (
+				"daily_target", "weekly_target", "monthly_target",
+				"quarterly_target", "annual_target"):
+			self.assertEqual(fields[fieldname]["fieldtype"], "Currency")
+			self.assertEqual(fields[fieldname]["options"], "currency")
 		self.assertEqual(fields["target_amount"]["fieldtype"], "Currency")
 		self.assertEqual(fields["target_amount"]["options"], "currency")
-		self.assertEqual(fields["target_amount"]["reqd"], 1)
+		self.assertEqual(fields["target_amount"]["hidden"], 1)
+		self.assertEqual(fields["target_amount"]["read_only"], 1)
+		self.assertNotEqual(fields["target_amount"].get("reqd"), 1)
 
-	def test_parent_metadata_is_submittable_and_has_required_period_fields(self):
+		inline_fields = [
+			field["fieldname"] for field in metadata["fields"]
+			if field.get("in_list_view")
+		]
+		self.assertEqual(inline_fields, [
+			"sales_employee", "employee_name", "daily_target",
+			"weekly_target", "monthly_target"
+		])
+		self.assertLessEqual(sum(
+			field.get("columns", 0) for field in metadata["fields"]
+			if field.get("in_list_view")), 10)
+
+	def test_parent_metadata_is_submittable_and_has_recurring_plan_fields(self):
 		metadata = self.load_metadata("sales_target", "sales_target.json")
 		fields = self.field_map(metadata)
 
@@ -53,12 +72,19 @@ class TestSalesTargetMetadata(unittest.TestCase):
 		self.assertEqual(metadata["track_changes"], 1)
 		self.assertEqual(metadata["title_field"], "target_name")
 		self.assertNotEqual(metadata.get("quick_entry"), 1)
-		self.assertEqual(
-			fields["period_type"]["options"],
-			"Daily\nWeekly\nMonthly\nQuarterly\nAnnual\nCustom")
-		for fieldname in ("company", "currency", "target_name", "period_type",
-				"from_date", "to_date", "targets"):
+		for fieldname in (
+				"company", "currency", "target_name", "from_date", "to_date",
+				"targets"):
 			self.assertEqual(fields[fieldname]["reqd"], 1)
+		self.assertEqual(fields["target_model"]["hidden"], 1)
+		self.assertEqual(fields["target_model"]["read_only"], 1)
+		for fieldname in (
+				"total_daily_target", "total_weekly_target",
+				"total_monthly_target", "total_quarterly_target",
+				"total_annual_target"):
+			self.assertEqual(fields[fieldname]["fieldtype"], "Currency")
+			self.assertEqual(fields[fieldname]["options"], "currency")
+			self.assertEqual(fields[fieldname]["read_only"], 1)
 		self.assertEqual(fields["currency"]["options"], "Currency")
 		self.assertEqual(fields["currency"]["read_only"], 1)
 		self.assertEqual(fields["targets"]["fieldtype"], "Table")
@@ -66,6 +92,10 @@ class TestSalesTargetMetadata(unittest.TestCase):
 		self.assertEqual(fields["total_target_amount"]["fieldtype"], "Currency")
 		self.assertEqual(fields["total_target_amount"]["options"], "currency")
 		self.assertEqual(fields["total_target_amount"]["read_only"], 1)
+		for fieldname in ("period_type", "total_target_amount"):
+			self.assertEqual(fields[fieldname]["hidden"], 1)
+			self.assertEqual(fields[fieldname]["read_only"], 1)
+			self.assertNotEqual(fields[fieldname].get("reqd"), 1)
 
 	def test_parent_permissions_match_management_access_policy(self):
 		metadata = self.load_metadata("sales_target", "sales_target.json")
