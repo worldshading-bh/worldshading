@@ -119,6 +119,7 @@ Fields:
 | --- | --- | --- |
 | Sales Employee | Link / Employee | Required; must be active and belong to the parent company |
 | Employee Name | Data | Read-only fetch from Employee |
+| Currency | Link / Currency | Hidden/read-only; mirrors parent Currency for v12 child-row formatting |
 | Target Amount | Currency | Required; must be greater than zero |
 | Remarks | Small Text | Optional row-specific context |
 
