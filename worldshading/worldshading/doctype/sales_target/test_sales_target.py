@@ -403,14 +403,14 @@ class TestSalesTargetOverlap(TestSalesTargetValidation):
 
 
 class TestSalesTargetClientContract(unittest.TestCase):
-	def test_client_handlers_apply_defaults_filters_totals_and_read_only_updates(self):
+	def test_client_handlers_apply_recurring_totals_filters_and_safe_currency_updates(self):
 		script = os.path.join(
 			os.path.dirname(__file__), "test_sales_target_client.js")
 		result = subprocess.run(
 			["node", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
 			universal_newlines=True)
 		self.assertEqual(result.returncode, 0, result.stdout)
-		self.assertIn("sales_target client behavior: ok", result.stdout)
+		self.assertIn("sales_target recurring client behavior: ok", result.stdout)
 
 
 if __name__ == "__main__":
