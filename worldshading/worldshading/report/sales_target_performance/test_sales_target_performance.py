@@ -1,5 +1,8 @@
 from __future__ import unicode_literals
 
+import json
+import os
+import subprocess
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -228,6 +231,36 @@ class TestPerformanceReport(unittest.TestCase):
 
 		aggregate.assert_not_called()
 		self.assertEqual(set(row["status"] for row in rows), {"Not Started"})
+
+
+class TestPerformanceReportMetadata(unittest.TestCase):
+	def test_report_metadata_registers_management_only_script_report(self):
+		path = os.path.join(
+			os.path.dirname(__file__), "sales_target_performance.json")
+		with open(path) as source:
+			metadata = json.load(source)
+
+		self.assertEqual(metadata["name"], "Sales Target Performance")
+		self.assertEqual(metadata["report_name"], "Sales Target Performance")
+		self.assertEqual(metadata["report_type"], "Script Report")
+		self.assertEqual(metadata["is_standard"], "Yes")
+		self.assertEqual(metadata["module"], "Worldshading")
+		self.assertEqual(metadata["ref_doctype"], "Sales Target")
+		self.assertEqual(metadata["prepared_report"], 0)
+		self.assertEqual(metadata["disable_prepared_report"], 1)
+		self.assertEqual(
+			set(row["role"] for row in metadata["roles"]),
+			{"System Manager", "General Manager", "Sales Manager", "Accounts Manager"})
+
+	def test_report_client_configures_filters_statuses_and_safe_drilldown(self):
+		script = os.path.join(
+			os.path.dirname(__file__), "test_sales_target_performance_client.js")
+		result = subprocess.run(
+			["node", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+			universal_newlines=True)
+		self.assertEqual(result.returncode, 0, result.stdout)
+		self.assertIn(
+			"sales_target_performance client behavior: ok", result.stdout)
 
 
 if __name__ == "__main__":
