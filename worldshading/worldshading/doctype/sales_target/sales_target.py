@@ -4,20 +4,29 @@ from __future__ import unicode_literals
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate
+from frappe.utils import date_diff, flt, getdate
+
+from worldshading.worldshading.sales_target_utils import FREQUENCY_CONFIG
 
 
 class SalesTarget(Document):
+	def before_insert(self):
+		_set_target_model(self)
+
 	def validate(self):
 		_set_company_currency(self)
 		_validate_dates(self)
 		_validate_employee_rows(self)
-		_set_total_target(self)
+		_set_frequency_totals(self)
 
 	def before_submit(self):
 		_validate_amendment_source(self)
 		_lock_company(self.company)
 		_validate_no_overlap(self)
+
+
+def _set_target_model(doc):
+	doc.target_model = "Recurring Plan"
 
 
 def _set_company_currency(doc):
@@ -38,6 +47,9 @@ def _validate_dates(doc):
 	if getdate(doc.to_date) < getdate(doc.from_date):
 		frappe.throw(_("To Date cannot be before From Date."))
 
+	if date_diff(doc.to_date, doc.from_date) + 1 > 366:
+		frappe.throw(_("A recurring Sales Target plan cannot exceed 366 days."))
+
 
 def _validate_employee_rows(doc):
 	rows = doc.targets or []
@@ -53,9 +65,20 @@ def _validate_employee_rows(doc):
 		if row.sales_employee in seen:
 			frappe.throw(_("Sales Employee {0} is entered more than once.").format(
 				row.sales_employee))
-		if flt(row.target_amount) <= 0:
-			frappe.throw(_("Target Amount must be greater than zero for {0}.").format(
-				row.sales_employee))
+
+		has_positive_target = False
+		for frequency, child_field, unused_parent_field in FREQUENCY_CONFIG:
+			value = flt(getattr(row, child_field, 0))
+			if value < 0:
+				frappe.throw(_("{0} Target cannot be negative for {1}.").format(
+					frequency, row.sales_employee))
+			if value > 0:
+				has_positive_target = True
+
+		if not has_positive_target:
+			frappe.throw(_(
+				"Enter at least one positive target for {0}."
+			).format(row.sales_employee))
 		seen.add(row.sales_employee)
 		employee_ids.append(row.sales_employee)
 
@@ -77,9 +100,11 @@ def _validate_employee_rows(doc):
 				employee_id, doc.company))
 
 
-def _set_total_target(doc):
-	doc.total_target_amount = round(
-		sum(flt(row.target_amount) for row in doc.targets or []), 3)
+def _set_frequency_totals(doc):
+	for unused_frequency, child_field, parent_field in FREQUENCY_CONFIG:
+		setattr(doc, parent_field, round(sum(
+			flt(getattr(row, child_field, 0)) for row in doc.targets or []
+		), 3))
 
 
 def _validate_amendment_source(doc):
@@ -112,32 +137,46 @@ def _validate_no_overlap(doc):
 	conflicts = frappe.db.sql("""
 		select
 			p.name,
-			d.sales_employee
+			d.sales_employee,
+			d.daily_target,
+			d.weekly_target,
+			d.monthly_target,
+			d.quarterly_target,
+			d.annual_target
 		from `tabSales Target` p
 		inner join `tabSales Target Detail` d
 			on d.parent = p.name and d.parenttype = 'Sales Target'
 		where p.docstatus = 1
 			and p.name not in %(excluded_names)s
 			and p.company = %(company)s
-			and p.period_type = %(period_type)s
+			and p.target_model = %(target_model)s
 			and p.from_date <= %(to_date)s
 			and p.to_date >= %(from_date)s
 			and d.sales_employee in %(employee_ids)s
 		order by p.from_date, p.name
-		limit 1 for update
+		for update
 	""", {
 		"excluded_names": tuple(excluded_names or [""]),
 		"company": doc.company,
-		"period_type": doc.period_type,
+		"target_model": "Recurring Plan",
 		"from_date": doc.from_date,
 		"to_date": doc.to_date,
 		"employee_ids": tuple(row.sales_employee for row in doc.targets)
 	}, as_dict=True)
 
-	if conflicts:
-		conflict = conflicts[0]
-		frappe.throw(_(
-			"Employee {0} already has an overlapping submitted {1} target in {2}."
-		).format(
-			conflict.get("sales_employee"), doc.period_type,
-			conflict.get("name")))
+	current_rows = dict(
+		(row.sales_employee, row) for row in doc.targets or [])
+	for conflict in conflicts:
+		current_row = current_rows.get(conflict.get("sales_employee"))
+		if not current_row:
+			continue
+
+		for frequency, child_field, unused_parent_field in FREQUENCY_CONFIG:
+			if (flt(getattr(current_row, child_field, 0)) > 0 and
+					flt(conflict.get(child_field)) > 0):
+				frappe.throw(_(
+					"Employee {0} already has an overlapping submitted "
+					"{1} target in {2}."
+				).format(
+					conflict.get("sales_employee"), frequency,
+					conflict.get("name")))

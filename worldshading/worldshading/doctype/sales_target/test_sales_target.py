@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import unittest
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -119,24 +120,37 @@ class TestSalesTargetMetadata(unittest.TestCase):
 
 
 class TestSalesTargetValidation(unittest.TestCase):
-	def row(self, employee="EMP-001", amount=100):
-		return SimpleNamespace(
-			sales_employee=employee,
-			target_amount=amount,
-			currency=None,
-			idx=1
-		)
+	def row(self, employee="EMP-001", **overrides):
+		values = {
+			"sales_employee": employee,
+			"daily_target": 100,
+			"weekly_target": 0,
+			"monthly_target": 0,
+			"quarterly_target": 0,
+			"annual_target": 0,
+			"target_amount": 100,
+			"currency": None,
+			"idx": 1
+		}
+		values.update(overrides)
+		return SimpleNamespace(**values)
 
 	def document(self, **overrides):
 		values = {
 			"name": "ST-WS-2026-00001",
 			"company": "World Shading",
 			"currency": None,
-			"period_type": "Monthly",
+			"target_model": "Recurring Plan",
+			"period_type": None,
 			"from_date": "2026-11-01",
 			"to_date": "2026-11-30",
 			"targets": [self.row()],
 			"total_target_amount": 0,
+			"total_daily_target": 0,
+			"total_weekly_target": 0,
+			"total_monthly_target": 0,
+			"total_quarterly_target": 0,
+			"total_annual_target": 0,
 			"amended_from": None
 		}
 		values.update(overrides)
@@ -151,6 +165,12 @@ class TestSalesTargetValidation(unittest.TestCase):
 	def test_dates_allow_a_single_day(self):
 		doc = self.document(from_date="2026-11-04", to_date="2026-11-04")
 		sales_target._validate_dates(doc)
+
+	def test_dates_allow_366_days_and_reject_367_days(self):
+		sales_target._validate_dates(self.document(
+			from_date="2026-01-01", to_date="2027-01-01"))
+		self.assert_rejected(sales_target._validate_dates, self.document(
+			from_date="2026-01-01", to_date="2027-01-02"))
 
 	def test_dates_reject_an_end_before_the_start(self):
 		doc = self.document(from_date="2026-11-05", to_date="2026-11-04")
@@ -182,12 +202,22 @@ class TestSalesTargetValidation(unittest.TestCase):
 		doc = self.document(targets=[self.row(), self.row()])
 		self.assert_rejected(sales_target._validate_employee_rows, doc)
 
-	def test_employee_rows_reject_non_positive_amounts(self):
-		for amount in (0, -1, None):
-			with self.subTest(amount=amount):
+	def test_employee_rows_require_one_positive_frequency(self):
+		self.assert_rejected(
+			sales_target._validate_employee_rows,
+			self.document(targets=[self.row(
+				daily_target=0, weekly_target=None, monthly_target=0,
+				quarterly_target=None, annual_target=0)]))
+
+	def test_employee_rows_reject_negative_frequency_values(self):
+		for fieldname in (
+				"daily_target", "weekly_target", "monthly_target",
+				"quarterly_target", "annual_target"):
+			values = {fieldname: -1}
+			with self.subTest(fieldname=fieldname):
 				self.assert_rejected(
 					sales_target._validate_employee_rows,
-					self.document(targets=[self.row(amount=amount)]))
+					self.document(targets=[self.row(**values)]))
 
 	def test_employee_rows_reject_missing_inactive_and_wrong_company_employees(self):
 		cases = (
@@ -215,48 +245,75 @@ class TestSalesTargetValidation(unittest.TestCase):
 
 		self.assertEqual(get_all.call_count, 1)
 
-	def test_total_uses_numeric_conversion_and_three_decimal_precision(self):
+	def test_frequency_totals_are_independent_and_use_three_decimal_precision(self):
 		doc = self.document(targets=[
-			self.row("EMP-001", "1.2345"),
-			self.row("EMP-002", "2.3456")
+			self.row("EMP-001", daily_target="1.2345", weekly_target=10,
+				monthly_target=100, quarterly_target=1000, annual_target=10000),
+			self.row("EMP-002", daily_target="2.3456", weekly_target=20,
+				monthly_target=200, quarterly_target=2000, annual_target=20000)
 		])
-		sales_target._set_total_target(doc)
-		self.assertEqual(doc.total_target_amount, 3.58)
+		sales_target._set_frequency_totals(doc)
+		self.assertEqual(doc.total_daily_target, 3.58)
+		self.assertEqual(doc.total_weekly_target, 30)
+		self.assertEqual(doc.total_monthly_target, 300)
+		self.assertEqual(doc.total_quarterly_target, 3000)
+		self.assertEqual(doc.total_annual_target, 30000)
+
+	def test_before_insert_marks_only_the_new_document_as_recurring(self):
+		doc = self.document(target_model=None)
+		sales_target.SalesTarget.before_insert(doc)
+		self.assertEqual(doc.target_model, "Recurring Plan")
 
 	def test_validate_runs_currency_dates_rows_and_total_in_order(self):
 		doc = self.document()
 		calls = []
-		patches = [
-			patch.object(sales_target, name, side_effect=lambda unused, name=name: calls.append(name))
+		with ExitStack() as stack:
 			for name in (
-				"_set_company_currency", "_validate_dates",
-				"_validate_employee_rows", "_set_total_target")
-		]
-		for helper_patch in patches:
-			helper_patch.start()
-		try:
+					"_set_company_currency", "_validate_dates",
+					"_validate_employee_rows", "_set_frequency_totals"):
+				stack.enter_context(patch.object(
+					sales_target, name, create=True,
+					side_effect=lambda unused, name=name: calls.append(name)))
 			sales_target.SalesTarget.validate(doc)
-		finally:
-			for helper_patch in reversed(patches):
-				helper_patch.stop()
 
 		self.assertEqual(calls, [
 			"_set_company_currency", "_validate_dates",
-			"_validate_employee_rows", "_set_total_target"
+			"_validate_employee_rows", "_set_frequency_totals"
 		])
 
 
 class TestSalesTargetOverlap(TestSalesTargetValidation):
-	def test_overlap_rejects_an_inclusive_submitted_conflict(self):
+	def existing_row(self, employee="EMP-001", **overrides):
+		values = {
+			"name": "ST-WS-2026-00002",
+			"sales_employee": employee,
+			"daily_target": 50,
+			"weekly_target": 0,
+			"monthly_target": 0,
+			"quarterly_target": 0,
+			"annual_target": 0
+		}
+		values.update(overrides)
+		return values
+
+	def test_overlap_rejects_shared_employee_and_positive_frequency(self):
 		doc = self.document(from_date="2026-11-01", to_date="2026-11-30")
 		with patch.object(sales_target, "frappe") as frappe_mock:
-			frappe_mock.db.sql.return_value = [{
-				"name": "ST-WS-2026-00002",
-				"sales_employee": "EMP-001"
-			}]
+			frappe_mock.db.sql.return_value = [self.existing_row()]
 			frappe_mock.throw.side_effect = ValueError("overlap")
 			with self.assertRaises(ValueError):
 				sales_target._validate_no_overlap(doc)
+
+	def test_overlap_allows_disjoint_frequency_or_employee(self):
+		cases = (
+			[self.existing_row(daily_target=0, weekly_target=50)],
+			[self.existing_row(employee="EMP-999")]
+		)
+		for rows in cases:
+			with self.subTest(rows=rows), patch.object(
+					sales_target, "frappe") as frappe_mock:
+				frappe_mock.db.sql.return_value = rows
+				sales_target._validate_no_overlap(self.document())
 
 	def test_overlap_query_scopes_every_business_dimension_with_parameters(self):
 		doc = self.document(targets=[self.row("EMP-001"), self.row("EMP-002")])
@@ -268,16 +325,22 @@ class TestSalesTargetOverlap(TestSalesTargetValidation):
 		query = " ".join(query.lower().split())
 		self.assertIn("p.docstatus = 1", query)
 		self.assertIn("p.company = %(company)s", query)
-		self.assertIn("p.period_type = %(period_type)s", query)
+		self.assertIn("p.target_model = %(target_model)s", query)
 		self.assertIn("p.from_date <= %(to_date)s", query)
 		self.assertIn("p.to_date >= %(from_date)s", query)
 		self.assertIn("d.sales_employee in %(employee_ids)s", query)
 		self.assertIn("p.name not in %(excluded_names)s", query)
-		self.assertIn("limit 1 for update", query)
+		for fieldname in (
+				"daily_target", "weekly_target", "monthly_target",
+				"quarterly_target", "annual_target"):
+			self.assertIn("d.{0}".format(fieldname), query)
+		self.assertNotIn("p.period_type", query)
+		self.assertNotIn("limit 1", query)
+		self.assertTrue(query.endswith("for update"))
 		self.assertNotIn("World Shading", query)
 		self.assertNotIn("EMP-001", query)
 		self.assertEqual(values["company"], "World Shading")
-		self.assertEqual(values["period_type"], "Monthly")
+		self.assertEqual(values["target_model"], "Recurring Plan")
 		self.assertEqual(values["from_date"], "2026-11-01")
 		self.assertEqual(values["to_date"], "2026-11-30")
 		self.assertEqual(values["employee_ids"], ("EMP-001", "EMP-002"))
