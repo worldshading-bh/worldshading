@@ -41,7 +41,13 @@ frappe.query_reports["Sales Target Performance"] = {
         sales_target_performance_report = report;
         if (!report.$sales_target_team_summary) {
             report.$sales_target_team_summary = $(
-                '<div class="sales-target-team-summary row"></div>'
+                '<div class="sales-target-team-summary" ' +
+                    'style="display:grid; ' +
+                    'grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); ' +
+                    'gap:10px; padding:12px 14px; margin:0; ' +
+                    'border-top:1px solid #d1d8dd; ' +
+                    'border-bottom:1px solid #d1d8dd; ' +
+                    'background:#f8fafc;"></div>'
             ).insertBefore(report.$report);
         }
         clear_team_summary(report);
@@ -149,15 +155,13 @@ function render_team_summary(report) {
             currency: item.currency
         });
         report.$sales_target_team_summary.append(
-            '<div class="col-sm-2" style="margin-bottom: 10px; min-width: 180px;">' +
-                '<div class="sales-target-summary-card" ' +
-                    'style="border: 1px solid #d1d8dd; border-radius: 6px; ' +
-                    'padding: 10px 12px; background: #fff;">' +
-                    '<div class="text-muted small">' + escape_html(item.label) + '</div>' +
-                    '<div class="h4 indicator ' + indicator + '" ' +
-                        'style="margin: 6px 0 0;">' +
-                        escape_html(formatted_value) +
-                    '</div>' +
+            '<div class="sales-target-summary-card" ' +
+                'style="border:1px solid #d1d8dd; border-radius:6px; ' +
+                'padding:10px 12px; min-width:0; background:#fff;">' +
+                '<div class="text-muted small">' + escape_html(item.label) + '</div>' +
+                '<div class="h4 indicator ' + indicator + '" ' +
+                    'style="margin:6px 0 0;">' +
+                    escape_html(formatted_value) +
                 '</div>' +
             '</div>'
         );

@@ -5,6 +5,7 @@ const vm = require("vm");
 
 const routes = [];
 const formatCalls = [];
+const createdMarkup = [];
 let summaryContainer = null;
 const sandbox = {
     console: console,
@@ -15,6 +16,7 @@ const sandbox = {
         if (typeof value !== "string") {
             return value;
         }
+        createdMarkup.push(value);
         summaryContainer = {
             items: [],
             visible: false,
@@ -173,6 +175,9 @@ assert.strictEqual(typeof delegatedHandler, "function");
 assert.ok(summaryContainer);
 assert.strictEqual(summaryContainer.insertedBefore, report.$report);
 assert.strictEqual(typeof config.after_datatable_render, "function");
+assert.ok(createdMarkup[0].indexOf('class="sales-target-team-summary"') !== -1);
+assert.ok(createdMarkup[0].indexOf('display:grid') !== -1);
+assert.ok(createdMarkup[0].indexOf('sales-target-team-summary row') === -1);
 
 report.raw_data = {
     report_summary: [
@@ -186,6 +191,7 @@ assert.strictEqual(summaryContainer.items.length, 2);
 assert.ok(summaryContainer.items[0].indexOf("Daily Achievement %") !== -1);
 assert.ok(summaryContainer.items[0].indexOf("100%") !== -1);
 assert.ok(summaryContainer.items[0].indexOf("sales-target-summary-card") !== -1);
+assert.ok(summaryContainer.items[0].indexOf("col-sm-") === -1);
 assert.ok(summaryContainer.items[0].indexOf("indicator green") !== -1);
 assert.ok(summaryContainer.items[1].indexOf("indicator red") !== -1);
 assert.ok(summaryContainer.items[0].indexOf("&lt;div") === -1);
