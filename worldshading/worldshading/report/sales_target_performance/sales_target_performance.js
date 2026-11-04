@@ -142,10 +142,12 @@ function apply_sales_target_row_highlights(datatable) {
             .appendTo("head")
             .text(
                 ".sales-target-row-highlights " +
-                    ".sales-target-achieved-row .dt-cell{" +
+                    ".sales-target-achieved-row " +
+                    ".dt-cell:not(.dt-cell--highlight):not(.dt-cell--dragging){" +
                     "background:#edf7ed !important;}" +
                 ".sales-target-row-highlights " +
-                    ".sales-target-below-row .dt-cell{" +
+                    ".sales-target-below-row " +
+                    ".dt-cell:not(.dt-cell--highlight):not(.dt-cell--dragging){" +
                     "background:#fdecec !important;}"
             );
         sales_target_row_highlight_style_added = true;

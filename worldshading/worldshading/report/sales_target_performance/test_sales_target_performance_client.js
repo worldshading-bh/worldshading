@@ -314,8 +314,14 @@ assert.strictEqual(resultRows[4].hasClass("sales-target-achieved-row"), false);
 assert.strictEqual(resultRows[5].hasClass("sales-target-below-row"), false);
 assert.strictEqual(resultRows[6].hasClass("sales-target-below-row"), false);
 assert.strictEqual(resultRows[7].hasClass("sales-target-below-row"), false);
-assert.ok(styleRules[0].indexOf(".sales-target-achieved-row .dt-cell") !== -1);
-assert.ok(styleRules[0].indexOf(".sales-target-below-row .dt-cell") !== -1);
+assert.ok(styleRules[0].indexOf(
+    ".sales-target-achieved-row " +
+    ".dt-cell:not(.dt-cell--highlight):not(.dt-cell--dragging)"
+) !== -1);
+assert.ok(styleRules[0].indexOf(
+    ".sales-target-below-row " +
+    ".dt-cell:not(.dt-cell--highlight):not(.dt-cell--dragging)"
+) !== -1);
 
 resultRows[0].removeClass("sales-target-achieved-row");
 observerInstances[0].callback();
