@@ -1,4 +1,5 @@
 var sales_target_performance_report = null;
+var sales_target_row_highlight_style_added = false;
 
 frappe.query_reports["Sales Target Performance"] = {
     filters: [
@@ -78,8 +79,9 @@ frappe.query_reports["Sales Target Performance"] = {
         );
     },
 
-    after_datatable_render: function() {
+    after_datatable_render: function(datatable) {
         render_team_summary(sales_target_performance_report);
+        apply_sales_target_row_highlights(datatable);
     },
 
     formatter: function(value, row, column, data, default_formatter) {
@@ -127,6 +129,69 @@ frappe.query_reports["Sales Target Performance"] = {
         return value;
     }
 };
+
+function apply_sales_target_row_highlights(datatable) {
+    var wrapper = datatable && datatable.wrapper;
+    if (!wrapper) {
+        return;
+    }
+
+    $(wrapper).addClass("sales-target-row-highlights");
+    if (!sales_target_row_highlight_style_added) {
+        $("<style id='sales-target-row-highlight-style'></style>")
+            .appendTo("head")
+            .text(
+                ".sales-target-row-highlights " +
+                    ".sales-target-achieved-row .dt-cell{" +
+                    "background:#edf7ed !important;}" +
+                ".sales-target-row-highlights " +
+                    ".sales-target-below-row .dt-cell{" +
+                    "background:#fdecec !important;}"
+            );
+        sales_target_row_highlight_style_added = true;
+    }
+
+    if (datatable.sales_target_row_highlight_observer) {
+        datatable.sales_target_row_highlight_observer.disconnect();
+    }
+
+    var restore_row_highlights = function() {
+        var report_rows = frappe.query_report && frappe.query_report.data || [];
+        $(wrapper).find(".dt-row[data-row-index]").each(function() {
+            var row = $(this);
+            row.removeClass("sales-target-achieved-row sales-target-below-row");
+            if (row.hasClass("dt-row-header") || row.hasClass("dt-row-filter") ||
+                    row.closest(".dt-footer").length) {
+                return;
+            }
+
+            var row_index = row.attr("data-row-index");
+            if (!/^\d+$/.test(row_index || "") || !report_rows[Number(row_index)]) {
+                return;
+            }
+
+            var achievement = Number(
+                report_rows[Number(row_index)].achievement_percent
+            );
+            if (!isFinite(achievement)) {
+                return;
+            }
+            row.addClass(achievement >= 100 ?
+                "sales-target-achieved-row" : "sales-target-below-row");
+        });
+    };
+
+    restore_row_highlights();
+    if (datatable.bodyScrollable && window.MutationObserver) {
+        datatable.sales_target_row_highlight_observer =
+            new window.MutationObserver(function() {
+                window.requestAnimationFrame(restore_row_highlights);
+            });
+        datatable.sales_target_row_highlight_observer.observe(
+            datatable.bodyScrollable, {childList: true, subtree: true}
+        );
+    }
+}
 
 function clear_team_summary(report) {
     if (report && report.$sales_target_team_summary) {

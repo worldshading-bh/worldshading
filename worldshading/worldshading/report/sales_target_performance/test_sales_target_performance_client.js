@@ -6,15 +6,97 @@ const vm = require("vm");
 const routes = [];
 const formatCalls = [];
 const createdMarkup = [];
+const styleRules = [];
+const observerInstances = [];
 let summaryContainer = null;
+
+function FakeObserver(callback) {
+    this.callback = callback;
+    this.disconnected = false;
+    this.observed = null;
+    observerInstances.push(this);
+}
+FakeObserver.prototype.observe = function(target, options) {
+    this.observed = {target: target, options: options};
+};
+FakeObserver.prototype.disconnect = function() {
+    this.disconnected = true;
+};
+
+function FakeRow(index, specialClass, inFooter) {
+    this.index = index;
+    this.classes = {};
+    this.inFooter = Boolean(inFooter);
+    if (specialClass) {
+        this.classes[specialClass] = true;
+    }
+}
+FakeRow.prototype.attr = function(name) {
+    return name === "data-row-index" ? this.index : undefined;
+};
+FakeRow.prototype.hasClass = function(name) {
+    return Boolean(this.classes[name]);
+};
+FakeRow.prototype.addClass = function(name) {
+    this.classes[name] = true;
+    return this;
+};
+FakeRow.prototype.removeClass = function(names) {
+    const row = this;
+    names.split(/\s+/).forEach(function(name) { delete row.classes[name]; });
+    return this;
+};
+FakeRow.prototype.closest = function(selector) {
+    return {length: selector === ".dt-footer" && this.inFooter ? 1 : 0};
+};
+
+function FakeCollection(rows) {
+    this.rows = rows;
+}
+FakeCollection.prototype.each = function(callback) {
+    this.rows.forEach(function(row) { callback.call(row); });
+    return this;
+};
+
+function FakeWrapper(rows) {
+    this.rows = rows;
+    this.classes = {};
+}
+FakeWrapper.prototype.addClass = function(name) {
+    this.classes[name] = true;
+    return this;
+};
+FakeWrapper.prototype.find = function(selector) {
+    if (selector === ".dt-row[data-row-index]") {
+        return new FakeCollection(this.rows);
+    }
+    return new FakeCollection([]);
+};
+
 const sandbox = {
     console: console,
     __: function(value) { return value; },
     encodeURIComponent: encodeURIComponent,
     decodeURIComponent: decodeURIComponent,
+    window: {
+        MutationObserver: FakeObserver,
+        requestAnimationFrame: function(callback) {
+            callback();
+            return 1;
+        }
+    },
     $: function(value) {
         if (typeof value !== "string") {
             return value;
+        }
+        if (value.indexOf("<style") === 0) {
+            return {
+                appendTo: function() { return this; },
+                text: function(rules) {
+                    styleRules.push(rules);
+                    return this;
+                }
+            };
         }
         createdMarkup.push(value);
         summaryContainer = {
@@ -199,6 +281,50 @@ assert.strictEqual(formatCalls.length, 2);
 assert.strictEqual(formatCalls[0].field.options, "currency");
 assert.strictEqual(formatCalls[0].options.only_value, true);
 assert.strictEqual(formatCalls[0].doc.currency, undefined);
+
+const resultRows = [
+    new FakeRow("0"),
+    new FakeRow("1"),
+    new FakeRow("2"),
+    new FakeRow("3"),
+    new FakeRow("0", "dt-row-header"),
+    new FakeRow("1", "dt-row-filter"),
+    new FakeRow("2", null, true),
+    new FakeRow("invalid")
+];
+const datatable = {
+    wrapper: new FakeWrapper(resultRows),
+    bodyScrollable: {}
+};
+sandbox.frappe.query_report = {
+    data: [
+        {achievement_percent: 100},
+        {achievement_percent: 99.99},
+        {achievement_percent: 0},
+        {achievement_percent: -5}
+    ]
+};
+config.after_datatable_render(datatable);
+assert.strictEqual(resultRows[0].hasClass("sales-target-achieved-row"), true);
+assert.strictEqual(resultRows[0].hasClass("sales-target-below-row"), false);
+assert.strictEqual(resultRows[1].hasClass("sales-target-below-row"), true);
+assert.strictEqual(resultRows[2].hasClass("sales-target-below-row"), true);
+assert.strictEqual(resultRows[3].hasClass("sales-target-below-row"), true);
+assert.strictEqual(resultRows[4].hasClass("sales-target-achieved-row"), false);
+assert.strictEqual(resultRows[5].hasClass("sales-target-below-row"), false);
+assert.strictEqual(resultRows[6].hasClass("sales-target-below-row"), false);
+assert.strictEqual(resultRows[7].hasClass("sales-target-below-row"), false);
+assert.ok(styleRules[0].indexOf(".sales-target-achieved-row .dt-cell") !== -1);
+assert.ok(styleRules[0].indexOf(".sales-target-below-row .dt-cell") !== -1);
+
+resultRows[0].removeClass("sales-target-achieved-row");
+observerInstances[0].callback();
+assert.strictEqual(resultRows[0].hasClass("sales-target-achieved-row"), true);
+
+const firstObserver = observerInstances[0];
+config.after_datatable_render(datatable);
+assert.strictEqual(firstObserver.disconnected, true);
+assert.strictEqual(observerInstances.length, 2);
 
 assert.strictEqual(report.refresh(), "refreshed");
 assert.strictEqual(report.refresh_count, 1);
