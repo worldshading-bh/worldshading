@@ -70,6 +70,7 @@ class TestSalesTargetMetadata(unittest.TestCase):
 
 		self.assertEqual(metadata["name"], "Sales Target")
 		self.assertNotEqual(metadata["modified"], "2026-11-04 00:00:00.000000")
+		self.assertNotEqual(metadata["modified"], "2026-11-04 12:00:00.000000")
 		self.assertEqual(metadata["autoname"], "ST-WS-.YYYY.-.#####")
 		self.assertEqual(metadata["is_submittable"], 1)
 		self.assertEqual(metadata["track_changes"], 1)
