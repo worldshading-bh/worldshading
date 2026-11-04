@@ -98,8 +98,16 @@ frappe.query_reports["Sales Target Performance"] = {
 
         if (column.fieldname === "achievement_percent") {
             var achievement_indicator = Number(raw_value) >= 100 ? "green" : "red";
-            return '<span class="indicator ' + achievement_indicator + '">' +
-                value + '</span>';
+            var achievement_value = frappe.format(raw_value, {
+                fieldtype: "Percent"
+            }, {
+                only_value: true
+            });
+            return '<div style="text-align: right;">' +
+                '<span class="indicator ' + achievement_indicator + '">' +
+                    escape_html(achievement_value) +
+                '</span>' +
+            '</div>';
         }
 
         if (column.fieldname === "sales_employee") {

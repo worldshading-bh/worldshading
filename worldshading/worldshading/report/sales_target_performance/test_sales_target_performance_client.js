@@ -108,6 +108,19 @@ assert.ok(achievementGreen.indexOf('class="indicator green"') !== -1);
 assert.ok(achievementRed.indexOf('class="indicator red"') !== -1);
 assert.ok(achievementZero.indexOf('class="indicator red"') !== -1);
 
+function v12BlockPercentFormatter(value) {
+    return "<div style='text-align: right'>" + value + "%</div>";
+}
+const v12Achievement = config.formatter(
+    100, null, {fieldname: "achievement_percent"},
+    {achievement_percent: 100}, v12BlockPercentFormatter);
+assert.ok(v12Achievement.indexOf('style="text-align: right;"') !== -1);
+assert.ok(v12Achievement.indexOf('class="indicator green"') !== -1);
+assert.ok(v12Achievement.indexOf("100%") !== -1);
+assert.ok(v12Achievement.indexOf("<span class=\"indicator green\"><div") === -1);
+
+formatCalls.length = 0;
+
 const maliciousEmployee = 'EMP-" onclick="danger()';
 const row = {
     invoice_count: 3,
