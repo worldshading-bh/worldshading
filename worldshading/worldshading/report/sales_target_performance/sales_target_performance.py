@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import date_diff, flt, getdate, nowdate
 
 from worldshading.worldshading.sales_target_utils import (
+	FREQUENCY_CONFIG,
 	get_frequency_config,
 	get_occurrence,
 )
@@ -17,8 +18,6 @@ def execute(filters=None):
 	frequency = filters.get("frequency")
 	if not target_name:
 		frappe.throw(_("Sales Target is required."))
-	if not frequency:
-		frappe.throw(_("Frequency is required."))
 
 	target = frappe.get_doc("Sales Target", target_name)
 	target.check_permission("read")
@@ -27,8 +26,8 @@ def execute(filters=None):
 	if target.target_model != "Recurring Plan":
 		frappe.throw(_("Select a recurring Sales Target plan."))
 
-	frequency_config = get_frequency_config(frequency)
-	if not frequency_config:
+	frequency_config = get_frequency_config(frequency) if frequency else None
+	if frequency and not frequency_config:
 		frappe.throw(_("Select a valid Frequency."))
 
 	current_date = nowdate()
@@ -36,33 +35,60 @@ def execute(filters=None):
 	if getdate(as_of_date) > getdate(current_date):
 		frappe.throw(_("As of Date cannot be in the future."))
 
-	occurrence = get_occurrence(
-		frequency, as_of_date, target.from_date, target.to_date)
-	child_field = frequency_config[1]
-	employee_ids = tuple(
-		row.sales_employee for row in target.targets
-		if flt(getattr(row, child_field, 0)) > 0
-	)
+	frequencies = (
+		[frequency] if frequency else get_configured_frequencies(target))
+	occurrences = dict((label, get_occurrence(
+		label, as_of_date, target.from_date, target.to_date))
+		for label in frequencies)
+	employee_ids = get_target_employee_ids(target, frequencies)
 
-	aggregates = {}
-	if not occurrence["not_started"] and employee_ids:
-		aggregates = get_sales_aggregates(
-			target.company,
-			occurrence["from_date"],
-			occurrence["effective_to_date"],
-			employee_ids
-		)
-
-	team_rows = build_rows(
-		target, frequency, occurrence, aggregates, as_of_date, current_date)
-	summary = get_report_summary(team_rows, target.currency)
+	if frequency:
+		aggregates = {}
+		occurrence = occurrences[frequency]
+		if not occurrence["not_started"] and employee_ids:
+			aggregates = get_sales_aggregates(
+				target.company,
+				occurrence["from_date"],
+				occurrence["effective_to_date"],
+				employee_ids
+			)
+		team_rows = build_rows(
+			target, frequency, occurrence, aggregates, as_of_date, current_date)
+		summary = get_report_summary(team_rows, target.currency)
+	else:
+		date_aggregates = {}
+		if frequencies and employee_ids and not all(
+				occurrences[label]["not_started"] for label in frequencies):
+			date_aggregates = get_sales_aggregates_by_date(
+				target.company,
+				min(occurrences[label]["from_date"] for label in frequencies),
+				max(occurrences[label]["effective_to_date"]
+					for label in frequencies),
+				employee_ids
+			)
+		team_rows = build_frequency_rows(
+			target, frequencies, occurrences, date_aggregates,
+			as_of_date, current_date)
 
 	rows = team_rows
 	if filters.get("sales_employee"):
 		rows = [row for row in team_rows
 			if row.get("sales_employee") == filters.get("sales_employee")]
+	if not frequency:
+		summary = get_frequency_summary(rows, frequencies)
 
 	return get_columns(), rows, None, None, summary, 1
+
+
+def get_configured_frequencies(target):
+	return [config[0] for config in FREQUENCY_CONFIG if any(
+		flt(getattr(row, config[1], 0)) > 0 for row in target.targets)]
+
+
+def get_target_employee_ids(target, frequencies):
+	child_fields = [get_frequency_config(label)[1] for label in frequencies]
+	return tuple(row.sales_employee for row in target.targets if any(
+		flt(getattr(row, fieldname, 0)) > 0 for fieldname in child_fields))
 
 
 def get_columns():
@@ -179,6 +205,62 @@ def get_sales_aggregates(company, from_date, effective_to_date, employee_ids):
 	}) for row in rows)
 
 
+def get_sales_aggregates_by_date(company, from_date, effective_to_date,
+		employee_ids):
+	rows = frappe.db.sql("""
+		select
+			si.pb_sales_employee as sales_employee,
+			si.posting_date,
+			sum(si.base_net_total) as achieved_amount,
+			count(si.name) as invoice_count
+		from `tabSales Invoice` si
+		where si.docstatus = 1
+			and si.company = %(company)s
+			and si.posting_date between %(from_date)s and %(to_date)s
+			and si.pb_sales_employee in %(employee_ids)s
+		group by si.pb_sales_employee, si.posting_date
+	""", {
+		"company": company,
+		"from_date": from_date,
+		"to_date": effective_to_date,
+		"employee_ids": tuple(employee_ids)
+	}, as_dict=True)
+
+	aggregates = {}
+	for row in rows:
+		employee = row.get("sales_employee")
+		posting_date = getdate(row.get("posting_date"))
+		aggregates.setdefault(employee, {})[posting_date] = {
+			"achieved_amount": flt(row.get("achieved_amount")),
+			"invoice_count": int(row.get("invoice_count") or 0)
+		}
+	return aggregates
+
+
+def build_frequency_rows(target, frequencies, occurrences, date_aggregates,
+		as_of_date, current_date):
+	rows = []
+	for frequency in frequencies:
+		occurrence = occurrences[frequency]
+		aggregates = {}
+		if not occurrence["not_started"]:
+			from_date = getdate(occurrence["from_date"])
+			to_date = getdate(occurrence["effective_to_date"])
+			for employee, daily_values in date_aggregates.items():
+				matching = [value for posting_date, value in daily_values.items()
+					if from_date <= getdate(posting_date) <= to_date]
+				if matching:
+					aggregates[employee] = {
+						"achieved_amount": sum(flt(value.get("achieved_amount"))
+							for value in matching),
+						"invoice_count": sum(int(value.get("invoice_count") or 0)
+							for value in matching)
+					}
+		rows.extend(build_rows(
+			target, frequency, occurrence, aggregates, as_of_date, current_date))
+	return rows
+
+
 def build_rows(target, frequency, occurrence, aggregates, as_of_date,
 		current_date):
 	frequency_config = get_frequency_config(frequency)
@@ -253,3 +335,22 @@ def get_report_summary(rows, currency):
 		{"label": _("On Track"), "value": on_track_count, "datatype": "Int"},
 		{"label": _("Behind"), "value": behind_count, "datatype": "Int"}
 	]
+
+
+def get_frequency_summary(rows, frequencies):
+	summary = []
+	for frequency in frequencies:
+		frequency_rows = [row for row in rows
+			if row.get("frequency") == frequency]
+		if not frequency_rows:
+			continue
+		target = sum(flt(row.get("target_amount")) for row in frequency_rows)
+		achieved = sum(flt(row.get("achieved_amount")) for row in frequency_rows)
+		percentage = achieved / target * 100 if target else 0
+		summary.append({
+			"label": _("{0} Achievement %").format(frequency),
+			"value": percentage,
+			"datatype": "Percent",
+			"indicator": "green" if percentage >= 100 else "red"
+		})
+	return summary

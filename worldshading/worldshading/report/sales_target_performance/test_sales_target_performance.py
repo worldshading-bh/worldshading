@@ -208,6 +208,33 @@ class TestPerformanceReport(unittest.TestCase):
 				"World Shading", "2026-11-01", "2026-11-30", ["EMP-A"])
 		self.assertEqual(result["EMP-A"]["achieved_amount"], -25)
 
+	def test_date_aggregate_is_one_parameterized_employee_scoped_query(self):
+		with patch.object(report, "frappe") as frappe_mock:
+			frappe_mock.db.sql.return_value = [{
+				"sales_employee": "EMP-A", "posting_date": getdate("2026-11-04"),
+				"achieved_amount": 125, "invoice_count": 3
+			}]
+			result = report.get_sales_aggregates_by_date(
+				"World Shading", "2026-01-01", "2026-11-04",
+				["EMP-A", "EMP-B"])
+
+		self.assertEqual(frappe_mock.db.sql.call_count, 1)
+		query, values = frappe_mock.db.sql.call_args[0][:2]
+		query = " ".join(query.lower().split())
+		self.assertIn("si.posting_date", query)
+		self.assertIn("group by si.pb_sales_employee, si.posting_date", query)
+		self.assertIn("si.company = %(company)s", query)
+		self.assertIn("si.pb_sales_employee in %(employee_ids)s", query)
+		self.assertEqual(values, {
+			"company": "World Shading", "from_date": "2026-01-01",
+			"to_date": "2026-11-04", "employee_ids": ("EMP-A", "EMP-B")
+		})
+		self.assertEqual(result, {
+			"EMP-A": {getdate("2026-11-04"): {
+				"achieved_amount": 125, "invoice_count": 3
+			}}
+		})
+
 	def test_rows_select_frequency_rank_team_and_calculate_contribution(self):
 		aggregates = {
 			"EMP-B": {"achieved_amount": 150, "invoice_count": 4},
@@ -253,13 +280,108 @@ class TestPerformanceReport(unittest.TestCase):
 			"On Track": 1, "Behind": 2
 		})
 
-	def test_execute_requires_target_and_frequency(self):
+	def test_execute_requires_target_but_frequency_is_optional(self):
 		with patch.object(report, "frappe") as frappe_mock:
 			frappe_mock.throw.side_effect = ValueError("required")
 			with self.assertRaises(ValueError):
 				report.execute({})
-			with self.assertRaises(ValueError):
-				report.execute({"sales_target": "ST-WS-2026-00001"})
+
+		target = self.target(targets=[
+			self.target_row("EMP-A", "Aisha", 100, daily_target=10)
+		])
+		with patch.object(report, "frappe") as frappe_mock, patch.object(
+				report, "get_sales_aggregates_by_date", return_value={}), \
+				patch.object(report, "nowdate", return_value="2026-11-04"):
+			frappe_mock.get_doc.return_value = target
+			rows = report.execute({"sales_target": target.name})[1]
+		self.assertEqual(
+			[(row["frequency"], row["sales_employee"]) for row in rows],
+			[("Daily", "EMP-A"), ("Monthly", "EMP-A")])
+
+	def test_blank_frequency_folds_one_date_query_into_every_period(self):
+		target = self.target(targets=[
+			self.target_row(
+				"EMP-A", "Aisha", 300, daily_target=10, weekly_target=70),
+			self.target_row(
+				"EMP-B", "Bader", 200, daily_target=20)
+		])
+		date_aggregates = {
+			"EMP-A": {
+				getdate("2026-11-01"): {"achieved_amount": 15, "invoice_count": 1},
+				getdate("2026-11-03"): {"achieved_amount": 10, "invoice_count": 1},
+				getdate("2026-11-04"): {"achieved_amount": 5, "invoice_count": 2}
+			},
+			"EMP-B": {
+				getdate("2026-11-04"): {"achieved_amount": 25, "invoice_count": 1}
+			}
+		}
+		with patch.object(report, "frappe") as frappe_mock, patch.object(
+				report, "get_sales_aggregates_by_date",
+				return_value=date_aggregates) as aggregate, patch.object(
+				report, "nowdate", return_value="2026-11-04"):
+			frappe_mock.get_doc.return_value = target
+			unused_columns, rows, unused_message, unused_chart, summary = \
+				report.execute({"sales_target": target.name})[:5]
+
+		self.assertEqual(aggregate.call_count, 1)
+		aggregate.assert_called_once_with(
+			"World Shading", getdate("2026-10-31"), getdate("2026-11-04"),
+			("EMP-A", "EMP-B"))
+		values = dict(((row["frequency"], row["sales_employee"]), (
+			row["achieved_amount"], row["invoice_count"])) for row in rows)
+		self.assertEqual(values, {
+			("Daily", "EMP-A"): (5, 2),
+			("Daily", "EMP-B"): (25, 1),
+			("Weekly", "EMP-A"): (30, 4),
+			("Monthly", "EMP-A"): (30, 4),
+			("Monthly", "EMP-B"): (25, 1)
+		})
+		self.assertEqual([item["label"] for item in summary], [
+			"Daily Achievement %", "Weekly Achievement %",
+			"Monthly Achievement %"
+		])
+		self.assertTrue(all(item["datatype"] == "Percent" for item in summary))
+		self.assertNotIn("Team Target", [item["label"] for item in summary])
+
+	def test_blank_frequency_employee_filter_keeps_all_its_frequencies(self):
+		target = self.target(targets=[
+			self.target_row(
+				"EMP-A", "Aisha", 100, daily_target=10, weekly_target=50),
+			self.target_row(
+				"EMP-B", "Bader", 200, daily_target=20)
+		])
+		date_aggregates = {
+			"EMP-A": {getdate("2026-11-04"): {
+				"achieved_amount": 10, "invoice_count": 1}},
+			"EMP-B": {getdate("2026-11-04"): {
+				"achieved_amount": 40, "invoice_count": 1}}
+		}
+		with patch.object(report, "frappe") as frappe_mock, patch.object(
+				report, "get_sales_aggregates_by_date",
+				return_value=date_aggregates), patch.object(
+				report, "nowdate", return_value="2026-11-04"):
+			frappe_mock.get_doc.return_value = target
+			unused_columns, rows, unused_message, unused_chart, summary = \
+				report.execute({
+					"sales_target": target.name, "sales_employee": "EMP-A"
+				})[:5]
+
+		self.assertEqual(
+			[row["frequency"] for row in rows],
+			["Daily", "Weekly", "Monthly"])
+		self.assertEqual(set(row["sales_employee"] for row in rows), {"EMP-A"})
+		summary_values = dict((item["label"], item["value"]) for item in summary)
+		self.assertEqual(summary_values, {
+			"Daily Achievement %": 100,
+			"Weekly Achievement %": 20,
+			"Monthly Achievement %": 10
+		})
+		self.assertEqual(
+			next(item["indicator"] for item in summary
+				if item["label"] == "Daily Achievement %"), "green")
+		self.assertEqual(
+			next(item["indicator"] for item in summary
+				if item["label"] == "Weekly Achievement %"), "red")
 
 	def test_execute_rejects_unsubmitted_and_legacy_before_invoice_query(self):
 		for docstatus in (0, 2):
