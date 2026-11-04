@@ -15,6 +15,8 @@ class SalesTarget(Document):
 		_set_total_target(self)
 
 	def before_submit(self):
+		_validate_amendment_source(self)
+		_lock_company(self.company)
 		_validate_no_overlap(self)
 
 
@@ -80,12 +82,32 @@ def _set_total_target(doc):
 		sum(flt(row.target_amount) for row in doc.targets or []), 3)
 
 
+def _validate_amendment_source(doc):
+	if not doc.amended_from:
+		return
+
+	source_docstatus = frappe.db.get_value(
+		"Sales Target", doc.amended_from, "docstatus")
+	if source_docstatus != 2:
+		frappe.throw(_(
+			"Amended From must reference a cancelled Sales Target."))
+
+
+def _lock_company(company):
+	# The Company row is a stable per-company lock held until commit/rollback.
+	# It serializes target submissions without introducing another lock table.
+	frappe.db.sql("""
+		select name
+		from `tabCompany`
+		where name = %(company)s
+		for update
+	""", {"company": company})
+
+
 def _validate_no_overlap(doc):
 	excluded_names = []
 	if doc.name:
 		excluded_names.append(doc.name)
-	if doc.amended_from:
-		excluded_names.append(doc.amended_from)
 
 	conflicts = frappe.db.sql("""
 		select
@@ -102,7 +124,7 @@ def _validate_no_overlap(doc):
 			and p.to_date >= %(from_date)s
 			and d.sales_employee in %(employee_ids)s
 		order by p.from_date, p.name
-		limit 1
+		limit 1 for update
 	""", {
 		"excluded_names": tuple(excluded_names or [""]),
 		"company": doc.company,

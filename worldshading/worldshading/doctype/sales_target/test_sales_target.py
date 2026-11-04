@@ -243,6 +243,7 @@ class TestSalesTargetOverlap(TestSalesTargetValidation):
 		self.assertIn("p.to_date >= %(from_date)s", query)
 		self.assertIn("d.sales_employee in %(employee_ids)s", query)
 		self.assertIn("p.name not in %(excluded_names)s", query)
+		self.assertIn("limit 1 for update", query)
 		self.assertNotIn("World Shading", query)
 		self.assertNotIn("EMP-001", query)
 		self.assertEqual(values["company"], "World Shading")
@@ -252,7 +253,7 @@ class TestSalesTargetOverlap(TestSalesTargetValidation):
 		self.assertEqual(values["employee_ids"], ("EMP-001", "EMP-002"))
 		self.assertEqual(values["excluded_names"], ("ST-WS-2026-00001",))
 
-	def test_amended_target_excludes_itself_and_its_cancelled_predecessor(self):
+	def test_amended_target_excludes_only_itself_from_active_overlap_check(self):
 		doc = self.document(
 			name="ST-WS-2026-00001-1",
 			amended_from="ST-WS-2026-00001")
@@ -261,14 +262,51 @@ class TestSalesTargetOverlap(TestSalesTargetValidation):
 			sales_target._validate_no_overlap(doc)
 
 		values = frappe_mock.db.sql.call_args[0][1]
-		self.assertEqual(values["excluded_names"], (
-			"ST-WS-2026-00001-1", "ST-WS-2026-00001"))
+		self.assertEqual(values["excluded_names"], ("ST-WS-2026-00001-1",))
 
-	def test_before_submit_runs_overlap_validation(self):
+	def test_amendment_source_must_be_cancelled(self):
+		doc = self.document(amended_from="ST-WS-2026-00000")
+		for docstatus in (None, 0, 1):
+			with self.subTest(docstatus=docstatus), patch.object(
+					sales_target, "frappe") as frappe_mock:
+				frappe_mock.db.get_value.return_value = docstatus
+				frappe_mock.throw.side_effect = ValueError("invalid amendment")
+				with self.assertRaises(ValueError):
+					sales_target._validate_amendment_source(doc)
+
+	def test_cancelled_amendment_source_is_allowed(self):
+		doc = self.document(amended_from="ST-WS-2026-00000")
+		with patch.object(sales_target, "frappe") as frappe_mock:
+			frappe_mock.db.get_value.return_value = 2
+			sales_target._validate_amendment_source(doc)
+
+		frappe_mock.db.get_value.assert_called_once_with(
+			"Sales Target", "ST-WS-2026-00000", "docstatus")
+
+	def test_company_lock_uses_a_parameterized_transaction_row_lock(self):
+		with patch.object(sales_target, "frappe") as frappe_mock:
+			sales_target._lock_company("World Shading")
+
+		query, values = frappe_mock.db.sql.call_args[0][:2]
+		query = " ".join(query.lower().split())
+		self.assertIn("from `tabcompany`", query)
+		self.assertIn("name = %(company)s", query)
+		self.assertIn("for update", query)
+		self.assertNotIn("World Shading", query)
+		self.assertEqual(values, {"company": "World Shading"})
+
+	def test_before_submit_validates_amendment_then_locks_then_checks_overlap(self):
 		doc = self.document()
-		with patch.object(sales_target, "_validate_no_overlap") as validate_overlap:
+		calls = []
+		with patch.object(
+				sales_target, "_validate_amendment_source",
+				side_effect=lambda unused: calls.append("amendment")), patch.object(
+					sales_target, "_lock_company",
+					side_effect=lambda unused: calls.append("lock")), patch.object(
+					sales_target, "_validate_no_overlap",
+					side_effect=lambda unused: calls.append("overlap")):
 			sales_target.SalesTarget.before_submit(doc)
-		self.assertEqual(validate_overlap.call_count, 1)
+		self.assertEqual(calls, ["amendment", "lock", "overlap"])
 
 
 class TestSalesTargetClientContract(unittest.TestCase):

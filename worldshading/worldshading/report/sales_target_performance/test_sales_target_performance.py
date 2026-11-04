@@ -5,7 +5,7 @@ import os
 import subprocess
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from worldshading.worldshading.report.sales_target_performance import (
 	sales_target_performance as report,
@@ -97,6 +97,7 @@ class TestPerformanceReport(unittest.TestCase):
 		values = {
 			"name": "ST-WS-2026-00001",
 			"docstatus": 1,
+			"check_permission": Mock(),
 			"company": "World Shading",
 			"currency": "BHD",
 			"period_type": "Monthly",
@@ -201,6 +202,19 @@ class TestPerformanceReport(unittest.TestCase):
 				frappe_mock.throw.side_effect = ValueError("rejected")
 				with self.assertRaises(ValueError):
 					report.execute({"sales_target": "ST-WS-2026-00001"})
+
+	def test_execute_checks_target_read_permission_before_invoice_query(self):
+		target = self.target()
+		target.check_permission = Mock(
+			side_effect=ValueError("not permitted"))
+		with patch.object(report, "frappe") as frappe_mock, patch.object(
+				report, "get_sales_aggregates") as aggregate:
+			frappe_mock.get_doc.return_value = target
+			with self.assertRaises(ValueError):
+				report.execute({"sales_target": target.name})
+
+		target.check_permission.assert_called_once_with("read")
+		aggregate.assert_not_called()
 
 	def test_execute_clips_after_end_and_does_not_change_target_dates(self):
 		target = self.target()

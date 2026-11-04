@@ -13,6 +13,7 @@ def execute(filters=None):
 		frappe.throw(_("Sales Target is required."))
 
 	target = frappe.get_doc("Sales Target", target_name)
+	target.check_permission("read")
 	if target.docstatus != 1:
 		frappe.throw(_("Select a submitted Sales Target."))
 
