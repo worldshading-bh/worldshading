@@ -376,7 +376,7 @@ class TestPerformanceReportMetadata(unittest.TestCase):
 			universal_newlines=True)
 		self.assertEqual(result.returncode, 0, result.stdout)
 		self.assertIn(
-			"sales_target_performance client behavior: ok", result.stdout)
+			"sales_target_performance recurring client behavior: ok", result.stdout)
 
 
 if __name__ == "__main__":
