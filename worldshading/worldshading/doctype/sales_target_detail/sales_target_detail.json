@@ -1,0 +1,66 @@
+{
+ "creation": "2026-11-04 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sales_employee",
+  "employee_name",
+  "currency",
+  "target_amount",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "sales_employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Sales Employee",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fetch_from": "sales_employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "target_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Target Amount",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "columns": 4,
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Remarks"
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-11-04 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Sales Target Detail",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}
