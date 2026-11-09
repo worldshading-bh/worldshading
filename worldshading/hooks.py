@@ -249,6 +249,7 @@ fixtures = [
                 "Payment Entry-custom_urgent_reason",
                 "GL Payment-custom_is_urgent",
                 "GL Payment-custom_urgent_reason",
+                "GL Payment-custom_fixed_expense",
                 "Journal Entry-custom_is_urgent",
                 "Journal Entry-custom_urgent_reason"
             ]]

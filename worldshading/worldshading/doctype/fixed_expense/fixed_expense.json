@@ -1,0 +1,419 @@
+{
+ "autoname": "FEX-.YY.-.#####",
+ "creation": "2026-10-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_section",
+  "expense_name",
+  "category",
+  "company",
+  "details_column",
+  "status",
+  "responsible_user",
+  "provider_section",
+  "provider_name",
+  "payee_column",
+  "supplier",
+  "amount_section",
+  "amount_type",
+  "currency",
+  "company_currency",
+  "accounts",
+  "totals_section",
+  "expected_amount",
+  "totals_tax_column",
+  "expected_tax_amount",
+  "totals_total_column",
+  "expected_total_amount",
+  "amount_column",
+  "tax_template",
+  "base_estimate_section",
+  "estimated_base_total",
+  "base_rate_column",
+  "estimate_exchange_rate",
+  "estimate_rate_date",
+  "schedule_section",
+  "billing_frequency",
+  "first_due_date",
+  "schedule_column",
+  "start_date",
+  "end_date",
+  "payment_section",
+  "expense_account",
+  "cost_center",
+  "mode_of_payment",
+  "payment_account",
+  "payment_column",
+  "automatic_charge",
+  "payment_method_reference",
+  "account_section",
+  "registered_email",
+  "account_identifier",
+  "provider_column",
+  "service_identifier",
+  "portal_url",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_section",
+   "fieldtype": "Section Break",
+   "label": "Expense Details"
+  },
+  {
+   "fieldname": "expense_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_global_search": 1,
+   "label": "Expense Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "label": "Category",
+   "options": "\nRent\nUtilities\nHosting\nSoftware Subscription\nAPI Usage\nMaintenance\nInsurance\nOther",
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "remember_last_selected_value": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "details_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nClosed",
+   "reqd": 1
+  },
+  {
+   "fieldname": "responsible_user",
+   "fieldtype": "Link",
+   "label": "Responsible User",
+   "options": "User"
+  },
+  {
+   "fieldname": "provider_section",
+   "fieldtype": "Section Break",
+   "label": "Payee"
+  },
+  {
+   "fieldname": "provider_name",
+   "fieldtype": "Data",
+   "fetch_from": "supplier.supplier_name",
+   "fetch_if_empty": 1,
+   "label": "Payee Name",
+   "in_global_search": 1,
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "payee_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "default": "Fixed",
+   "fieldname": "amount_type",
+   "fieldtype": "Select",
+   "label": "Amount Type",
+   "options": "Fixed\nVariable",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 0,
+   "reqd": 1
+  },
+  {
+   "fieldname": "company_currency",
+   "fieldtype": "Link",
+   "label": "Company Currency",
+   "options": "Currency",
+   "fetch_from": "company.default_currency",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "accounts",
+   "fieldtype": "Table",
+   "label": "Accounts",
+   "options": "Recurring Expense Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "label": "Net Amount",
+   "in_list_view": 1,
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "totals_tax_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expected_tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "totals_total_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expected_total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount_column",
+   "fieldtype": "Column Break",
+   "hidden": 1
+  },
+  {
+   "fieldname": "tax_template",
+   "fieldtype": "Link",
+   "label": "Purchase Tax Template",
+   "options": "Purchase Taxes and Charges Template",
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "base_estimate_section",
+   "fieldtype": "Section Break",
+   "label": "Company Currency Estimate",
+   "depends_on": "eval:doc.currency && doc.company_currency && doc.currency != doc.company_currency"
+  },
+  {
+   "fieldname": "estimated_base_total",
+   "fieldtype": "Currency",
+   "label": "Estimated Total",
+   "options": "company_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "base_rate_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimate_exchange_rate",
+   "fieldtype": "Float",
+   "label": "Exchange Rate",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "estimate_rate_date",
+   "fieldtype": "Date",
+   "label": "Rate Date",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Schedule"
+  },
+  {
+   "default": "Monthly",
+   "fieldname": "billing_frequency",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Payment Frequency",
+   "options": "Monthly\nQuarterly\nHalf-yearly\nYearly\nEvery 2 Years\nEvery 3 Years\nEvery 4 Years\nEvery 5 Years",
+   "reqd": 1
+  },
+  {
+   "fieldname": "first_due_date",
+   "fieldtype": "Date",
+   "label": "First Due Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "schedule_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Tracking Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date"
+  },
+  {
+   "fieldname": "payment_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting and Payment"
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "Expense Ledger",
+   "options": "Account",
+   "reqd": 0,
+   "hidden": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Payment Method",
+   "options": "Mode of Payment"
+  },
+  {
+   "fieldname": "payment_account",
+   "fieldtype": "Link",
+   "label": "Payment Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "payment_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "automatic_charge",
+   "fieldtype": "Check",
+   "label": "Provider Auto-Debit"
+  },
+  {
+   "fieldname": "payment_method_reference",
+   "fieldtype": "Data",
+   "label": "Card / Payment Reference",
+   "depends_on": "eval:doc.automatic_charge"
+  },
+  {
+   "fieldname": "account_section",
+   "fieldtype": "Section Break",
+   "label": "Account and Service References (Optional)",
+   "depends_on": "eval:doc.category && doc.category != 'Rent'",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "registered_email",
+   "fieldtype": "Data",
+   "label": "Account Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "account_identifier",
+   "fieldtype": "Data",
+   "label": "Account Reference"
+  },
+  {
+   "fieldname": "provider_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "service_identifier",
+   "fieldtype": "Data",
+   "label": "Service Reference",
+   "in_global_search": 1
+  },
+  {
+   "fieldname": "portal_url",
+   "fieldtype": "Data",
+   "label": "Portal URL",
+   "options": "URL"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes and Attachments"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "modified": "2026-10-01 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Worldshading",
+ "name": "Fixed Expense",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "role": "Accounts User"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "delete": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "delete": 1,
+   "role": "System Manager"
+  }
+ ],
+ "search_fields": "expense_name,provider_name,registered_email,service_identifier",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "expense_name",
+ "track_changes": 1
+}
