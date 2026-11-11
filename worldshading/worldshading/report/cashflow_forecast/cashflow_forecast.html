@@ -1,0 +1,26 @@
+<h2 class="text-center">{%= __("Cashflow Forecast") %}</h2>
+<p class="text-center">{%= frappe.utils.escape_html(filters.company || "") %} — {%= frappe.utils.escape_html(filters.end_date || "") %}</p>
+<style>.cashflow-print {font-size:8px;} .cashflow-print th,.cashflow-print td {padding:3px !important;} .cashflow-print .negative {color:#b42318;font-weight:bold;} .cashflow-print-context {font-size:10px;}</style>
+<div class="cashflow-print-context">{%= report.raw_data.message || "" %}</div>
+<table class="table table-bordered cashflow-print">
+<thead><tr>
+{% var visible = report.columns.filter(function(c) { return !c.hidden && c.fieldname !== "source_details"; }); %}
+{% for (var c=0; c<visible.length; c++) { %}
+<th>{%= frappe.utils.escape_html(visible[c].label) %}</th>
+{% } %}
+</tr></thead><tbody>
+{% var rows = report.data || []; %}
+{% for (var r=0; r<rows.length; r++) { %}
+<tr style="{%= rows[r].scenario_arrival || rows[r].scenario_supplier ? 'background-color:#fff4cc;' : (Number(rows[r].closing_cash)<0 ? 'background-color:#fff4f4;' : '') %}">
+{% for (var c=0; c<visible.length; c++) { var col=visible[c], value=rows[r][col.fieldname]; %}
+<td class="{%= col.fieldname === 'closing_cash' && Number(value)<0 ? 'negative' : '' %}">
+{% if (col.fieldtype === "Currency") { %}
+{%= format_currency(value, rows[r].currency, 3) %}
+{% } else { %}
+{%= frappe.utils.escape_html(String(value === undefined || value === null ? '' : value)) %}
+{% } %}
+</td>
+{% } %}
+</tr>
+{% } %}
+</tbody></table>
