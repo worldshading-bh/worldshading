@@ -624,19 +624,6 @@ class Sources(object):
             self.event(due, 'other_receipts', glp.total_amount, 'GL Payment', glp.name, 'Scheduled incoming payment')
             return
         total = money(glp.total_amount)
-        tax_accounts = {TAX_ACCOUNTS[k] for k in ('output', 'local', 'import')}
-        if glp.payment_type == 'Outgoing' and glp.items and all(item.account in tax_accounts for item in glp.items) and any(item.account == TAX_ACCOUNTS['output'] for item in glp.items):
-            from .vat import referenced_quarter
-            known = getattr(getattr(self, '_vat_data', None), 'settlements', {}).get(('GL Payment', glp.name))
-            kind = 'vat_settlement' if glp.docstatus == 0 or known else 'quarterly_vat'
-            if kind=='vat_settlement' and not (known and known['vat_quarter']) and not referenced_quarter(glp.get('remarks')):
-                note='VAT quarter missing; payment is allocated to the oldest unpaid quarter. Verify the allocation.'
-                self.warn(glp.name+': '+note)
-                self.register_source('GL Payment',glp.name,review_note=note)
-            self.event(due, kind, total, 'GL Payment', glp.name, 'VAT payment',
-                vat_quarter=str(known['vat_quarter']) if known and known['vat_quarter'] else
-                    (str(referenced_quarter(glp.get('remarks'))) if referenced_quarter(glp.get('remarks')) else None))
-            return
         remaining = total
         for item in glp.items:
             kind = category or 'other_payments'

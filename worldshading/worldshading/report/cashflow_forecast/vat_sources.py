@@ -25,7 +25,7 @@ class VatSources(object):
         # Use existing account indexes rather than a broad company-wide ledger scan.
         candidate_branch="""select voucher_type,voucher_no,posting_date,account,debit,credit
             from `tabGL Entry` where company=%s and account=%s and posting_date<=%s
-            and voucher_type in ('Journal Entry','GL Payment')"""
+            and voucher_type='Journal Entry'"""
         candidate_sql=' union all '.join([candidate_branch]*len(accounts))
         parameters=tuple(value for account in accounts for value in (s.company,account,s.end))
         candidates=frappe.db.sql("""select voucher_type,voucher_no,posting_date,
@@ -33,17 +33,18 @@ class VatSources(object):
             group by voucher_type,voucher_no,posting_date
             having sum(case when account=%s then debit-credit else 0 end)>0 and sum(credit-debit)<0""",
             parameters+(TAX_ACCOUNTS['output'],),as_dict=1)
+        latest=quarter(quarter(s.start)-timedelta(days=1))
+        unreadable=[]
         for row in candidates:
             if not frappe.has_permission(row.voucher_type,'read'):
-                s.warn('{0}: cannot verify VAT payment; check journal access and quarter matching.'.format(row.voucher_no));continue
+                if as_date(row.posting_date)>=latest:
+                    unreadable.append(row.voucher_no)
+                continue
             doc=s.read_document(row.voucher_type,row.voucher_no)
             if doc.docstatus!=1:continue
-            if row.voucher_type=='Journal Entry':
-                amount=settlement_amount([r.as_dict() for r in doc.accounts],set(s.accounts),set(accounts),TAX_ACCOUNTS['output'])
-            else:
-                amount=money(doc.total_amount) if doc.payment_type=='Outgoing' and doc.payment_account in s.accounts and doc.items and all(i.account in accounts for i in doc.items) else money(0)
+            amount=settlement_amount([r.as_dict() for r in doc.accounts],set(s.accounts),set(accounts),TAX_ACCOUNTS['output'])
             if not amount or amount!=-money(row.change_amount):
-                s.warn('{0}: VAT adjustment is not a clear government payment; verify its quarter allocation.'.format(row.voucher_no))
+                # Ordinary VAT adjustments remain in ledger activity, not settlement proof.
                 continue
             text=' '.join(str(doc.get(k) or '') for k in ('user_remark','remark','remarks'))
             info=dict(doctype=row.voucher_type,name=row.voucher_no,date=as_date(row.posting_date),
@@ -66,17 +67,16 @@ class VatSources(object):
         allocated=defaultdict(lambda:money(0));links=defaultdict(list)
         for info in sorted(self.paid,key=lambda r:(r['date'],r['name'])):
             portions=book.allocate(info['date'],info['amount'],info['vat_quarter'])
-            if not info['vat_quarter'] and info is max(self.paid,key=lambda r:(r['date'],r['name'])):
-                s.warn('{0}: VAT quarter not specified; payment allocated to oldest unpaid quarter. Verify the allocation.'.format(info['name']))
             for period,amount in portions.items():
                 allocated[period]+=amount;links[period].append(dict(doctype=info['doctype'],name=info['name']))
         if book.total()!=ledger_total:frappe.throw('VAT reconciliation failed: ledger and quarter balances differ.')
-        latest=quarter(quarter(s.start)-timedelta(days=1))
         # Keep historical balances for matching real payments; only suppress
         # automatic missing-payment estimates for older completed quarters.
         s.vat_opening={'balances':{str(k):str(v) for k,v in book.raw.items()}}
         s.vat_ledger_balance=ledger_total
         balances=book.balances()
+        if balances.get(latest,money(0))>0 and unreadable:
+            s.warn('Cannot verify the latest quarter VAT payment: Journal Entry access is missing for '+', '.join(unreadable)+'.')
         for period in sorted(set(self.activity)|set(allocated)):
             if period<latest:continue
             balance=balances.get(period,money(0))

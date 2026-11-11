@@ -83,6 +83,47 @@ class VatSourceTests(unittest.TestCase):
         for row in doc.accounts:row.as_dict=lambda row=row:dict(row)
         return doc
 
+    def test_latest_quarter_paid_je_has_no_historical_adjustment_warnings(self):
+        import frappe
+        from types import SimpleNamespace
+        from unittest.mock import patch,Mock
+        source=self.source('2026-05-01','2026-07-25')
+        paid=self.journal('JV-PAID','2026-04-25','Output VAT – Sales - WS',95)
+        adjustment=self.journal('JV-ADJUST','2026-01-10','Output VAT – Sales - WS',5)
+        # Net VAT includes the ordinary adjustment; only the clear bank/tax JE is settlement proof.
+        adjustment.accounts[1].account='Expense'
+        candidates=[frappe._dict(voucher_type='Journal Entry',voucher_no=d.name,posting_date=d.posting_date,change_amount=-amount)
+                    for d,amount in [(adjustment,5),(paid,95)]]
+        periods=[frappe._dict(year=2026,period=1,amount=95),frappe._dict(year=2026,period=2,amount=-95)]
+        docs={d.name:d for d in (adjustment,paid)}
+        account=SimpleNamespace(check_permission=lambda *args:None)
+        db=SimpleNamespace(exists=lambda *args:True,sql=Mock(side_effect=[candidates,periods]))
+        with patch.object(frappe,'has_permission',return_value=True), \
+             patch.object(frappe,'get_doc',side_effect=lambda dt,name:account if dt=='Account' else docs[name]), \
+             patch.object(frappe,'db',db):
+            source.tax_position();source._vat_data.finalize()
+        self.assertEqual(source.warnings,[])
+        self.assertEqual(source.overdue,[])
+        row=next(r for r in source._vat_data.summary if r['quarter']=='Q1 2026')
+        self.assertEqual(row['balance'],'0.000')
+        self.assertEqual(row['documents'],[dict(doctype='Journal Entry',name='JV-PAID')])
+        self.assertEqual(vat.VatBook(source.start,source.vat_opening).total(),0)
+
+    def test_settlement_search_is_journal_only_but_gl_vat_stays_in_ledger(self):
+        import frappe
+        from types import SimpleNamespace
+        from unittest.mock import patch,Mock
+        source=self.source('2026-05-01','2026-07-25')
+        account=SimpleNamespace(check_permission=lambda *args:None)
+        db=SimpleNamespace(exists=lambda *args:True,sql=Mock(side_effect=[[],[frappe._dict(year=2026,period=1,amount=90)]]))
+        with patch.object(frappe,'get_doc',return_value=account),patch.object(frappe,'db',db):
+            source.tax_position();source._vat_data.finalize()
+        query=db.sql.call_args_list[0][0][0]
+        self.assertIn("voucher_type='Journal Entry'",query)
+        self.assertNotIn("'GL Payment'",query)
+        self.assertEqual(source.vat_ledger_balance,90)
+        self.assertEqual([r['amount'] for r in source.overdue],[90])
+
     def test_submitted_payment_clears_referenced_quarter_not_current_sales(self):
         import frappe
         from types import SimpleNamespace
@@ -122,6 +163,18 @@ class VatSourceTests(unittest.TestCase):
         rows=build_forecast(source.start,source.end,1000,source.events,{},vat_opening=source.vat_opening)
         self.assertEqual(rows[-1]['quarterly_vat'],100)
         self.assertEqual(rows[-1]['closing_cash'],800)
+
+    def test_gl_payment_is_cash_not_quarterly_settlement_proof(self):
+        import frappe
+        from types import SimpleNamespace
+        source=self.source('2026-05-01','2026-07-25')
+        doc=SimpleNamespace(name='GL-TAX-ADJUSTMENT',docstatus=0,posting_date='2026-05-15',
+            payment_type='Outgoing',total_amount=10,
+            items=[frappe._dict(account='Output VAT – Sales - WS',net_amount=10,tax_amount=0,total_amount=10)])
+        doc.get=lambda key:getattr(doc,key,None)
+        source.gl_payment(doc)
+        self.assertEqual([(e['category'],e['amount']) for e in source.events],[('other_payments',10)])
+        self.assertEqual(source.warnings,[])
 
     def test_pending_taxable_gl_includes_gross_cash_and_one_input_credit(self):
         import frappe
