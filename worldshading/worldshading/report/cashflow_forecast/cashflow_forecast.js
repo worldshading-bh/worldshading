@@ -674,6 +674,12 @@
                 toggle_sales_fields(report);
             });
         },
+        get_datatable_options: function (options) {
+            (options.columns || []).forEach(function(column){
+                if (column.fieldname === 'date') column.width = Math.max(Number(column.width) || 0,145);
+            });
+            return options;
+        },
         formatter: function (value, row, column, data, default_formatter) {
             var output;
             if (column.fieldname === 'source_details' && data && data.sources && data.sources.length) {
@@ -681,6 +687,12 @@
                     __('View')+' '+data.sources.length+' '+__('items')+'</a>';
             }
             if (output === undefined) output = default_formatter(value, row, column, data);
+            if (column.fieldname === 'date' && data && /^\d{4}-\d{2}-\d{2}$/.test(String(data.date || ''))) {
+                var parts = data.date.split('-').map(Number);
+                var weekday = new Date(Date.UTC(parts[0],parts[1]-1,parts[2])).getUTCDay();
+                output += ' '+esc(__(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekday]));
+            }
+
             if (data && (['total_payments','expected_receipts','other_receipts'].indexOf(column.fieldname) !== -1 || payment_fields.indexOf(column.fieldname)>=0)) {
                 var detail_kind = column.fieldname === 'expected_receipts' ? 'sales' : (column.fieldname === 'total_payments' ? 'payments' : column.fieldname);
                 var tooltip = column.fieldname === 'expected_receipts' ? ' title="'+esc(sales_tooltip(frappe.query_report,data))+'"' : '';
