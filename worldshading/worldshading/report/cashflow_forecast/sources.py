@@ -437,6 +437,8 @@ class Sources(object):
 
     def purchase_orders(self):
         for po in self.documents('Purchase Order', {'docstatus': 1}):
+            if po.get('workflow_state') == 'Legal Dispute':
+                continue
             self.register_source('Purchase Order', po.name, party=po.get('supplier') or '', party_type='Supplier',
                 workflow_state=po.get('workflow_state') or '', basis='Remaining PO commitment not covered by a matched prepared payment')
             # Historical completed POs without any residual supplier amount or future ETA need no tax reconstruction.
@@ -446,8 +448,8 @@ class Sources(object):
             eta = as_date(po.eta_date) if po.eta_date else None
             if not prelim and (not eta or eta < self.start) and po.get('workflow_state') == 'Completed':
                 continue
-            if po.get('workflow_state') in ('Legal Dispute', 'On Hold'):
-                self.warn('{0}: disputed/on-hold obligation is included; review its timing.'.format(po.name))
+            if po.get('workflow_state') == 'On Hold':
+                self.warn('{0}: on-hold obligation is included; review its timing.'.format(po.name))
             try:
                 taxes = self.tax_estimate(po)
             except Exception as exc:
@@ -461,8 +463,11 @@ class Sources(object):
             included_import = self.invoice_import(po)
             supplier_total = supplier_amount(base, included_import)
             remaining = po_remaining(supplier_total, self.invoiced[po.name], advances, self.applied_advances[po.name])
+            # Ignore sub-dinar PO/PI or FX residuals, not individual installments or actual payments.
+            if self.currency == 'BHD' and remaining < money(1):
+                remaining = money(0)
             schedule = []
-            for r in po.payment_schedule:
+            for r in (po.payment_schedule if remaining else []):
                 if not r.payment_amount:
                     continue
                 amount = money(Decimal(str(r.payment_amount))*Decimal(str(po.conversion_rate or 1)))
@@ -483,13 +488,14 @@ class Sources(object):
             # Replacement removes billed installments and unused advance cash from the PO schedule.
             full = sum((r['amount'] for r in schedule), money(0))
             planned = money(0)
-            for pe, allocation in self.pending_reference_payments('Purchase Order', po.name):
+            for pe, allocation in (self.pending_reference_payments('Purchase Order', po.name) if remaining else []):
                 allocation = min(allocation, max(remaining-planned, money(0)))
                 self.event(self.due(pe.posting_date, pe.name), 'supplier_payments', allocation,
                     'Payment Entry', pe.name, 'Scheduled payment replaces PO installment; '+po.name, related_doctype='Purchase Order', related_name=po.name)
                 planned += allocation
                 self.handled_pe.add(pe.name)
-            planned += self.journals().reserve('Purchase Order', po.name, max(remaining-planned, money(0)))
+            if remaining:
+                planned += self.journals().reserve('Purchase Order', po.name, max(remaining-planned, money(0)))
             consumed = max(full-remaining, money(0)) + planned
             for r in reconcile_installments(schedule, consumed):
                 self.event(self.due(r['date'], po.name), 'supplier_payments', r['amount'], 'Purchase Order', po.name,
