@@ -7,6 +7,7 @@ from collections import defaultdict
 from types import SimpleNamespace
 import frappe
 from worldshading.worldshading.report.cashflow_forecast.sources import Sources
+from worldshading.worldshading.report.cashflow_forecast.engine import money
 
 
 class PayrollFixtureTests(unittest.TestCase):
@@ -88,6 +89,58 @@ class PaymentFixtureTests(unittest.TestCase):
 class DocumentFixture(SimpleNamespace):
     def get(self, key, default=None):
         return getattr(self, key, default)
+
+
+class PoObligationFixtureTests(unittest.TestCase):
+    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None):
+        po = DocumentFixture(name='PO-RESIDUAL', base_grand_total=100,
+            advance_paid=0, currency=currency, party_account_currency=currency,
+            conversion_rate=1, workflow_state=state, supplier='SUPPLIER-TEST',
+            eta_date=date(2026, 12, 1), taxes=[], supplier_country='Other',
+            payment_schedule=[frappe._dict(due_date=due, payment_amount=amount)
+                for due, amount in (installments or [(date(2026, 10, 1) if overdue else date(2026, 12, 1),100)])])
+        source = Sources.__new__(Sources)
+        source.company, source.currency, source.accounts = 'Example', currency, []
+        source.start, source.end = date(2026, 11, 9), date(2026, 12, 31)
+        source.events, source.overdue, source.warnings, source.include_overdue = [], [], [], True
+        source.handled_glp, source.handled_pe = set(), set()
+        source.invoiced, source.applied_advances, source.import_credited = [defaultdict(Decimal) for _ in range(3)]
+        source.invoiced[po.name] = money(100)-money(remaining)
+        source.documents = lambda dt, filters=None: iter([po] if dt == 'Purchase Order' else [])
+        source.pending_reference_payments = lambda *args: []
+        source.journals = lambda: SimpleNamespace(reserve=lambda *args: money(0))
+        source.tax_estimate = lambda po: [dict(account_head='Custom Duty - WS',base_tax_amount_after_discount_amount=customs)]
+        source.purchase_orders()
+        return source
+
+    def test_legal_dispute_po_has_no_forecast_or_overdue_commitment(self):
+        source=self.collect(4800,state='Legal Dispute',customs=10)
+        self.assertEqual(source.events,[])
+        self.assertEqual(source.overdue,[])
+
+    def test_sub_dinar_po_residual_is_ignored_past_and_future(self):
+        for amount in ('0.010','0.200','0.999'):
+            for overdue in (True,False):
+                source=self.collect(amount,overdue=overdue)
+                self.assertFalse([e for e in source.events+source.overdue if e['category']=='supplier_payments'])
+
+    def test_one_dinar_and_on_hold_po_are_still_included(self):
+        for state in ('Completed','On Hold'):
+            source=self.collect(1,state=state)
+            self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='supplier_payments'),1)
+            self.assertEqual(len(source.overdue),1)
+
+    def test_small_installments_on_larger_total_are_retained(self):
+        source=self.collect(1,installments=[(date(2026,12,1),Decimal('99.250')),
+                                           (date(2026,12,2),Decimal('0.750'))])
+        self.assertEqual([e['amount'] for e in source.events if e['category']=='supplier_payments'],
+                         [Decimal('0.250'),Decimal('0.750')])
+
+    def test_supplier_tolerance_does_not_remove_customs_or_other_currency(self):
+        source=self.collect('0.200',customs=10)
+        self.assertEqual([e['amount'] for e in source.events if e['category']=='customs'],[10])
+        source=self.collect('0.200',currency='USD')
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='supplier_payments'),Decimal('0.200'))
 
 
 class TaxFixtureTests(unittest.TestCase):
