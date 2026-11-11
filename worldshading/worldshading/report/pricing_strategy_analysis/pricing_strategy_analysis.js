@@ -787,6 +787,7 @@ function get_pricing_update_item_codes(report) {
 	});
 	return {
 		item_codes: item_codes.slice(0, 50),
+		all_item_codes: item_codes,
 		total_count: item_codes.length
 	};
 }
@@ -916,7 +917,7 @@ function show_item_price_update_dialog(report) {
 		freeze_message: __("Preparing Item Price update preview..."),
 		args: {
 			prepared_report_name: prepared_report_name,
-			item_codes: JSON.stringify(selection.item_codes)
+			item_codes: JSON.stringify(selection.all_item_codes)
 		},
 		callback: function (response) {
 			var preview = response.message;
@@ -924,12 +925,7 @@ function show_item_price_update_dialog(report) {
 				frappe.msgprint(__("There are no Item Price changes to preview."));
 				return;
 			}
-			var limit_notice = selection.total_count > 50
-				? '<p class="text-warning"><strong>' +
-					__("Only the first 50 Items are included from {0} displayed Items.", [
-						selection.total_count
-					]) + '</strong></p>'
-				: "";
+			var limit_notice = get_item_price_limit_notice(selection, preview);
 			var scope_configuration = get_item_price_scope_configuration(preview.entries);
 			var scope_options = scope_configuration.options;
 			var default_scope = scope_configuration.default_scope;
@@ -1041,6 +1037,24 @@ function show_item_price_update_dialog(report) {
 				});
 		}
 	});
+}
+
+function get_item_price_limit_notice(selection, preview) {
+	selection = selection || {};
+	preview = preview || {};
+	if (preview.group_expanded_beyond_limit) {
+		return '<p class="text-warning"><strong>' + __(
+			"{0} Items included.",
+			[preview.requested_item_count]
+		) + '</strong></p>';
+	}
+	if (preview.limited_to_first_50 || selection.total_count > 50) {
+		return '<p class="text-warning"><strong>' + __(
+			"Only the first 50 Items are included from {0} displayed Items.",
+			[selection.total_count]
+		) + '</strong></p>';
+	}
+	return "";
 }
 
 function refresh_item_price_scope_preview(dialog, preview, prepared_report_name, limit_notice) {

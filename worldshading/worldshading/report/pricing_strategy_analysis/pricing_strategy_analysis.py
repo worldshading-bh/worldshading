@@ -33,7 +33,7 @@ PRICE_CALCULATION_BASES = (
 PRICE_CALCULATION_BASIS_ALIASES = {"Cost + Expense": "Cost Based"}
 
 
-def _normalize_update_item_codes(item_codes):
+def _normalize_update_item_codes(item_codes, limit=ITEM_PRICE_UPDATE_LIMIT):
 	item_codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
 	result = []
 	seen = set()
@@ -44,8 +44,29 @@ def _normalize_update_item_codes(item_codes):
 			continue
 		seen.add(item_code)
 		result.append(item_code)
-		if len(result) == ITEM_PRICE_UPDATE_LIMIT:
+		if limit and len(result) == limit:
 			break
+	return result
+
+
+def _expand_item_price_update_scope(rows, item_codes):
+	selected = _normalize_update_item_codes(item_codes)
+	if not selected:
+		return []
+	selected_set = set(selected)
+	selected_groups = set(
+		row.get("pricing_group") for row in rows or []
+		if row.get("item_code") in selected_set and row.get("pricing_group")
+	)
+	result = list(selected)
+	seen = set(result)
+	for row in rows or []:
+		item_code = str(row.get("item_code") or "").strip()
+		if not item_code or item_code in seen \
+				or row.get("pricing_group") not in selected_groups:
+			continue
+		seen.add(item_code)
+		result.append(item_code)
 	return result
 
 
@@ -971,11 +992,14 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 		if item_code and item_code not in seen:
 			seen.add(item_code)
 			unique_requested.append(item_code)
-	normalized_item_codes = _normalize_update_item_codes(raw_item_codes)
-	if not normalized_item_codes:
+	base_item_codes = _normalize_update_item_codes(raw_item_codes)
+	if not base_item_codes:
 		frappe.throw("There are no report Items available for Item Price update")
 
 	prepared_rows = _get_prepared_pricing_rows(prepared_report_name)
+	normalized_item_codes = _expand_item_price_update_scope(
+		prepared_rows, base_item_codes
+	)
 	rows_by_item = {
 		row.get("item_code"): row for row in prepared_rows if row.get("item_code")
 	}
@@ -990,7 +1014,7 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 		)
 
 	classification = classify_updateable_pricing_groups(
-		prepared_rows, normalized_item_codes, ITEM_PRICE_UPDATE_LIMIT
+		prepared_rows, normalized_item_codes, None
 	)
 	blocked_groups = classification["blocked_groups"]
 	blocked_codes = set(
@@ -1083,7 +1107,11 @@ def preview_item_price_update(prepared_report_name=None, item_codes=None):
 		"prepared_report": prepared_report.name,
 		"requested_item_count": len(normalized_item_codes),
 		"source_row_count": len(rows_by_item),
-		"limited_to_first_50": len(unique_requested) > ITEM_PRICE_UPDATE_LIMIT,
+		"limited_to_first_50": (
+			len(unique_requested) > ITEM_PRICE_UPDATE_LIMIT and
+			len(normalized_item_codes) < len(unique_requested)
+		),
+		"group_expanded_beyond_limit": len(normalized_item_codes) > len(base_item_codes),
 		"entries": entries,
 		"skipped": skipped,
 		"blocked_groups": blocked_groups,
@@ -1199,8 +1227,8 @@ def execute_item_price_update(preview_token=None, selected_rows=None):
 	}
 	item_codes = _normalize_update_item_codes([
 		entry.get("item_code") for entry in entries if isinstance(entry, dict)
-	])
-	if not item_codes or len(entries) > ITEM_PRICE_UPDATE_LIMIT * 2:
+	], limit=None)
+	if not item_codes or len(entries) > len(item_codes) * 2:
 		frappe.throw("The Item Price update preview exceeds the allowed limit")
 	items = _get_update_items(item_codes)
 	validate_live_pricing_group_entries(entries, rows_by_item, items)
@@ -2093,7 +2121,10 @@ def apply_pricing_group_recommendations(rows, membership, filters):
 
 
 def classify_updateable_pricing_groups(rows, requested_codes, limit=ITEM_PRICE_UPDATE_LIMIT):
-	requested = set(list(requested_codes or [])[:limit])
+	requested_values = list(requested_codes or [])
+	if limit:
+		requested_values = requested_values[:limit]
+	requested = set(requested_values)
 	groups = {}
 	ungrouped_items = []
 	for row in rows or []:

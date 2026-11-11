@@ -292,6 +292,14 @@ assert.strictEqual(
 );
 assert.strictEqual(get_price_calculation_anchor_field("Cost Based"), "selected_base_cost");
 assert.strictEqual(is_pricing_strategy_key_price_field("tier_1_gross_margin_percent"), false);
+const largeUpdateSelection = get_pricing_update_item_codes({
+	data: Array.from({length: 58}, function (unused, index) {
+		return {item_code: "L" + String(index + 1)};
+	}),
+	raw_data: {add_total_row: false}
+});
+assert.strictEqual(largeUpdateSelection.item_codes.length, 50);
+assert.strictEqual(largeUpdateSelection.all_item_codes.length, 58);
 assert.ok(
 	implementationSource.indexOf("color:#000 !important;") !== -1,
 	"key strategy-price headers must use black text"
@@ -370,6 +378,18 @@ assert.deepStrictEqual(
 		options: "Regular and B2B\nRegular Only\nB2B Only",
 		default_scope: "Regular and B2B"
 	}
+);
+assert.ok(
+	get_item_price_limit_notice({total_count: 58}, {
+		requested_item_count: 58, group_expanded_beyond_limit: true
+	}).indexOf("58 Items included.") !== -1,
+	"a complete Pricing Group beyond 50 must show an expansion notice"
+);
+assert.ok(
+	get_item_price_limit_notice({total_count: 75}, {
+		requested_item_count: 50, limited_to_first_50: true
+	}).indexOf("Only the first 50 Items are included from 75 displayed Items") !== -1,
+	"ordinary selections must retain the first-50 notice"
 );
 assert.deepStrictEqual(
 	filter_item_price_preview_rows(scopedItemPriceRows, "Regular Only").map(function (row) {

@@ -310,7 +310,7 @@ Group Status can be:
 - **Missing Cost** — no group member can produce every required recommendation; or
 - **Disabled Group** — the Pricing Group master is disabled.
 
-Only Ready and Different Current Prices groups can be updated. The report never silently updates part of a group. A group that crosses the first-50-Items boundary is blocked rather than split.
+Only Ready and Different Current Prices groups can be updated. The report never silently updates part of a group. The first 50 Items establish the ordinary Item Price update scope; if that scope touches a complete Pricing Group, every member of that group is included even when the final scope exceeds 50 Items.
 
 ## 11. Updating Item Prices
 
@@ -318,7 +318,7 @@ The **Update Item Price** button works from the saved Prepared Report result, no
 
 Workflow:
 
-1. The first 50 eligible items from the report result are considered.
+1. The first 50 eligible items establish the ordinary update scope. Any Pricing Group touched by those Items is expanded to include its complete membership.
 2. Rows without a valid recommended price are skipped and summarized by count.
 3. A preview displays the proposed Regular and, when configured, B2B changes.
 4. **Price Lists to Update** lets the user choose **Regular and B2B**, **Regular Only**, or **B2B Only**. The preview rows and Create/Update/Unchanged counts refresh immediately; the Prepared Report does not need to be regenerated.
@@ -328,7 +328,7 @@ Workflow:
 
 In **Current Regular Price** mode, Regular is intentionally excluded from the Item Price preview. Only B2B can be created or updated. Quantity-tier results are applied through **Update Pricing Rule**.
 
-The limit is **50 items**, not 50 Item Price records. With both Regular and B2B enabled, 50 items can produce up to 100 Item Price creates/updates.
+The ordinary limit is **50 items**, not 50 Item Price records. A complete Pricing Group is the intentional exception and may take the Item count above 50; the preview clearly reports that expansion. With both Regular and B2B enabled, each included Item can produce two Item Price rows.
 
 Safeguards include:
 
@@ -559,7 +559,7 @@ The receipt warehouse is deliberately not copied into the report. Select a Wareh
 | B2B Item Price is not offered | The selected strategy has no B2B Price List. |
 | A tier discount differs between items | Their costs, rounding effects, or reference prices differ. Use Combined for an editable average, Separate by Item for exact item discounts, or Group by Same Discount. |
 | Prepared Report link opens with wrong/blank strategy | Ensure the current report JavaScript and backend are deployed; the saved-filter restoration must run before strategy defaults. |
-| More than 50 Item Price rows appear | The limit is 50 items. Each item can generate both a Regular and a B2B Item Price row. |
+| More than 50 Item Price rows appear | The ordinary limit is 50 Items, and each can generate Regular and B2B rows. A complete Pricing Group may also expand the Item scope beyond 50 so the group is never split. |
 | A Purchase Receipt cannot be selected | Only submitted, non-return receipts for the selected Company are valid. Confirm the Company and receipt status. |
 | Purchase Receipt is cleared with a warning | All receipt Items are disabled or have Maintain Stock turned off, so valuation-based pricing cannot be calculated. |
 | Receipt results include Items not shown on the receipt | Active Pricing Group siblings are intentionally added so a complete group can be reviewed together. |

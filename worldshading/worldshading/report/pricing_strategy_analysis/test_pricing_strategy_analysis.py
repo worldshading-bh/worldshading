@@ -759,6 +759,17 @@ class TestPricingStrategyItemPriceUpdateHelpers(unittest.TestCase):
 		])
 		self.assertEqual(report._normalize_update_item_codes(values), ["A", "B"])
 
+	def test_item_price_scope_expands_complete_group_beyond_first_50(self):
+		rows = [
+			{"item_code": "L{0:04d}".format(index), "pricing_group": "Leather"}
+			for index in range(1, 59)
+		]
+		requested = [row["item_code"] for row in rows[:50]]
+		self.assertEqual(
+			report._expand_item_price_update_scope(rows, requested),
+			[row["item_code"] for row in rows]
+		)
+
 	def test_prepared_report_must_be_completed_pricing_report(self):
 		prepared = {
 			"name": "PREP-1", "report_name": "Other Report",
@@ -956,6 +967,38 @@ class TestPricingStrategyItemPricePreview(unittest.TestCase):
 		self.assertEqual([entry["new_rate"] for entry in preview["entries"]], [15.0, 15.0])
 		self.assertEqual([entry["individual_rate"] for entry in preview["entries"]], [12.0, 15.0])
 		self.assertTrue(all(entry["group_key"] == "Colours" for entry in preview["entries"]))
+
+	def test_preview_includes_all_58_members_of_group_crossing_limit(self):
+		rows = [
+			{"item_code": "L{0:04d}".format(index), "item_name": "Leather {0}".format(index),
+			 "pricing_group": "Leather", "pricing_group_status": "Ready",
+			 "recommended_regular_net": 12, "group_recommended_regular_net": 15}
+			for index in range(1, 59)
+		]
+		items = {
+			row["item_code"]: frappe._dict({
+				"name": row["item_code"], "item_name": row["item_name"],
+				"item_group": "Leather / Foam Fabric", "stock_uom": "Roll",
+				"pricing_group": "Leather"
+			}) for row in rows
+		}
+		with patch.object(report, "_get_prepared_pricing_report", return_value=self._prepared()):
+			with patch.object(report, "_get_prepared_pricing_rows", return_value=rows):
+				with patch.object(report, "_get_update_items", return_value=items):
+					with patch.object(report, "_get_update_price_lists", return_value=self._regular_price_list()):
+						with patch.object(report, "_resolve_item_price_target", return_value={
+							"name": None, "rate": None, "modified": None,
+							"uom": "Roll", "duplicate_count": 0
+						}):
+							with patch.object(report.frappe, "generate_hash", return_value="LEATHER-TOKEN"):
+								with patch.object(report.frappe, "cache", return_value=MagicMock()):
+									preview = report.preview_item_price_update(
+										"PREP-1", [row["item_code"] for row in rows[:50]]
+									)
+		self.assertEqual(preview["requested_item_count"], 58)
+		self.assertEqual(len(preview["entries"]), 58)
+		self.assertTrue(preview["group_expanded_beyond_limit"])
+		self.assertFalse(preview["limited_to_first_50"])
 
 	def test_invalid_pricing_group_is_blocked_without_blocking_ungrouped_item(self):
 		rows = [
