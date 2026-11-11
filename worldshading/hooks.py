@@ -305,6 +305,10 @@ doctype_js = {
 
 
 override_whitelisted_methods = {
+    'frappe.desk.query_report.run': 'worldshading.worldshading.report.cashflow_forecast.prepared_access.run',
+    'frappe.desk.query_report.background_enqueue_run': 'worldshading.worldshading.report.cashflow_forecast.prepared_access.background_enqueue_run',
+    'frappe.desk.query_report.export_query': 'worldshading.worldshading.report.cashflow_forecast.prepared_access.export_query',
+    'frappe.core.doctype.prepared_report.prepared_report.download_attachment': 'worldshading.worldshading.report.cashflow_forecast.prepared_access.download_attachment',
     "frappe.desk.form.utils.validate_link": "worldshading.api.legacy_groups.validate_link",
     "frappe.core.doctype.communication.email.make": "worldshading.api.email_signature.make_with_default_cc",
     "erpnext.buying.doctype.request_for_quotation.request_for_quotation.send_supplier_emails": "worldshading.api.request_for_quotation.block_standard_supplier_email_send",
