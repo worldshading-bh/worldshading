@@ -79,6 +79,30 @@ assert.strictEqual(context.frappe.query_report.raw_data.message,'Saved coverage 
 assert(renderedContext.includes('123'));
 assert.strictEqual(context.frappe.query_report.savedChart.type,'line');
 console.log('Compact summary, notes and restored saved graph passed');
+function renderOpeningWithOverdue(opening, overdue, included) {
+    var row={opening_cash:opening,closing_cash:123,currency:'BHD',_cashflow_context:{
+        report_summary:[{label:'Opening Available Cash',value:opening,datatype:'Currency',currency:'BHD'}],
+        base_filters:{include_overdue:included},calculation_inputs:{overdue:overdue}}};
+    context.frappe.query_report.raw_data={result:[row]};
+    settings.after_datatable_render();
+    assert.strictEqual(row.opening_cash,opening);
+    assert.strictEqual(row.closing_cash,123,'Summary must not change running cash');
+    return renderedContext;
+}
+var openingHtml=renderOpeningWithOverdue(100,[{amount:'120.000'},{amount:'5.000'}],1);
+assert(openingHtml.includes('After overdue'));
+assert(openingHtml.includes('-25'));
+assert(openingHtml.includes('cashflow-after-overdue is-negative'));
+assert.strictEqual((openingHtml.match(/class="cashflow-card"/g)||[]).length,1,'Keep one opening card');
+openingHtml=renderOpeningWithOverdue(100,[{amount:20}],1);
+assert(openingHtml.includes('After overdue'));
+assert(openingHtml.includes('80'));
+assert(!openingHtml.includes('cashflow-after-overdue is-negative'));
+assert(!renderOpeningWithOverdue(100,[{amount:20}],0).includes('After overdue'));
+assert(!renderOpeningWithOverdue(100,[],1).includes('After overdue'));
+assert(!renderOpeningWithOverdue(100,null,1).includes('After overdue'));
+console.log('Opening summary shows cash after included overdue without changing balances');
+
 
 assert.strictEqual(settings.filters.find(f=>f.fieldname==='include_overdue').default,0);
 var overdueDialogs=[], queuedAlerts=0;

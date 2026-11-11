@@ -745,6 +745,18 @@
                 var label = card.label === __('Lowest Balance') ? __('Lowest Projected Cash') : (card.label === __('Ending Balance') ? __('Ending Cash') : card.label);
                 var value = card.datatype === 'Currency' ? format_currency(card.value,card.currency,3) : esc(date_text(card.value));
                 var note = card.label === __('Lowest Balance') && low_date ? '<small>'+__('On')+' '+esc(date_text(low_date.value))+'</small>' : '';
+                if (card.label === __('Opening Available Cash') && snapshot &&
+                    Number((snapshot.base_filters || {}).include_overdue) === 1) {
+                    var overdue = ((snapshot.calculation_inputs || {}).overdue || []).reduce(function(total,item){
+                        var amount = Number(item.amount);
+                        return total + (isFinite(amount) && amount > 0 ? Math.round(amount*1000) : 0);
+                    },0);
+                    if (overdue > 0) {
+                        var after = (Math.round(Number(card.value)*1000)-overdue)/1000;
+                        note += '<small class="cashflow-after-overdue'+(after < 0 ? ' is-negative' : '')+'">'+
+                            __('After overdue')+': <b>'+format_currency(after,card.currency,3)+'</b></small>';
+                    }
+                }
                 var risk = card.indicator === 'Red' || (card.datatype === 'Currency' && Number(card.value)<0);
                 return '<div class="cashflow-card'+(risk ? ' is-risk' : '')+'"><div class="cashflow-card-label">'+esc(label)+'</div><strong>'+value+'</strong>'+note+'</div>';
             }).join('');
@@ -756,6 +768,7 @@
                 '.cashflow-card.is-risk{border-top:3px solid #d66b6b;background:#fffafa;}'+
                 '.cashflow-card-label{font-size:12px;color:#64748b;margin-bottom:3px;} .cashflow-card strong{display:block;font-size:15px;line-height:1.3;color:#172b4d;}'+
                 '.cashflow-card small{display:block;color:#64748b;margin-top:2px;}'+
+                '.cashflow-card .cashflow-after-overdue.is-negative{color:#b42318;}'+
 
 
                 '.cashflow-page .dt-row:has(.cashflow-negative-cell) .dt-cell{background:#fff4f4!important;}'+
