@@ -520,12 +520,53 @@
         var dialog=new frappe.ui.Dialog({title:title,size:'large',fields:[{fieldtype:'HTML',fieldname:'details',options:html}]});dialog.show();
     }
 
+    function saved_overdue_review(report) {
+        var snapshot=context_for(report),first=((report.raw_data || {}).result || [])[0] || {};
+        var rows=Number((snapshot.base_filters || {}).include_overdue)===1 ? ((snapshot.calculation_inputs || {}).overdue || []) : [];
+        var grouped={};
+        rows.forEach(function(row){
+            var amount=Number(row.amount);
+            if (!isFinite(amount) || amount<=0) return;
+            var key=JSON.stringify([String(row.date),row.doctype || '',row.name || '',row.category]);
+            if (!grouped[key]) grouped[key]=Object.assign({},row,{date:String(row.date),amount:0,related_documents:[],descriptions:[],review_notes:[]});
+            var item=grouped[key];
+            item.amount=(Math.round(item.amount*1000)+Math.round(amount*1000))/1000;
+            if(row.description && item.descriptions.indexOf(row.description)<0)item.descriptions.push(row.description);
+            if(row.review_note && item.review_notes.indexOf(row.review_note)<0)item.review_notes.push(row.review_note);
+            var related=(row.related_documents || []).slice();
+            if(row.related_doctype && row.related_name)related.push({doctype:row.related_doctype,name:row.related_name});
+            related.forEach(function(ref){if(!item.related_documents.some(function(existing){return existing.doctype===ref.doctype && existing.name===ref.name;}))item.related_documents.push(ref);});
+        });
+        var items=Object.keys(grouped).map(function(key){
+            var item=grouped[key];item.description=item.descriptions.join(' | ');item.review_note=item.review_notes.join(' ');
+            delete item.descriptions;delete item.review_notes;return item;
+        }).sort(function(a,b){return [a.date,a.doctype || '',a.name || ''].join('|').localeCompare([b.date,b.doctype || '',b.name || ''].join('|'));});
+        var sections=[["pe_supplier", "Supplier payments — PE prepared", "Review the Payment Entry, allocation and payment date."], ["pe_other", "Other Payment Entries (PE)", "Review the Payment Entry and its payment date."], ["gl", "GL Payments", "Review the GL Payment, source link and payment date."], ["jv", "Journal Entries (JV)", "Review the net cash movement, workflow, references and matching notes."], ["supplier_due", "Supplier / PO obligations — payment needs review", "Verify outstanding balances and existing payments before preparing or linking a payment."], ["fixed_due", "Fixed-expense schedules — payment needs review", "Verify each occurrence and link an existing GL Payment if already paid."], ["payroll_due", "Payroll — payment or matching needs review", "Verify salary-period and Payroll Entry payment links; do not repay an already settled salary."], ["vat_due", "Quarterly VAT", "Review unpaid VAT and settlement journals."], ["other_due", "Other obligations", "Verify the source obligation and payment date."]];
+        var buckets={};
+        items.forEach(function(item){
+            var kind=item.doctype,category=item.category;
+            var group=kind==='Payment Entry' ? (category==='supplier_payments' || item.party_type==='Supplier' ? 'pe_supplier':'pe_other') :
+                kind==='GL Payment' ? 'gl' : kind==='Journal Entry' ? 'jv' :
+                kind==='Purchase Invoice' || kind==='Purchase Order' ? 'supplier_due' : kind==='Fixed Expense' ? 'fixed_due' :
+                category==='vat_settlement' || category==='quarterly_vat' ? 'vat_due' : category==='payroll' ? 'payroll_due' : 'other_due';
+            (buckets[group] || (buckets[group]=[])).push(item);
+        });
+        var groups=sections.filter(function(section){return buckets[section[0]];}).map(function(section){
+            var entries=buckets[section[0]];
+            return {id:section[0],title:section[1],action:section[2],items:entries,
+                total_amount:entries.reduce(function(total,item){return total+Math.round(item.amount*1000);},0)/1000};
+        });
+        return {items:items,groups:groups,currency:first.currency,journal_stats:snapshot.journal_stats || {},saved:true,
+            forecast_date:snapshot.forecast_date || first.date};
+    }
+
     function show_overdue_review(report, review) {
         var labels = {fixed_expenses: __('Fixed Expense'), payroll: __('Payroll'),
             supplier_payments: __('Supplier Payment'), customs: __('Customs'), import_vat: __('Import VAT'),
             quarterly_vat: __('VAT Settlement'), vat_settlement: __('VAT Settlement'), other_payments: __('Other Payment')};
         var items = review.items || [];
-        var html='<p>'+__('Review overdue payments. Update dates or complete payment, or include them today.')+'</p><p>'+__('Check existing payments before paying again.')+'</p><p>'+__('Overdue items')+': '+items.length+'</p>';
+        var html=review.saved ? '<p>'+__('Overdue payments included in this report')+' — '+esc(date_label(review.forecast_date))+'</p>' : '<p>'+__('Review overdue payments. Update dates or complete payment, or include them today.')+'</p>';
+        html+='<p>'+__('Check existing payments before paying again.')+'</p><p>'+__('Overdue items')+': '+items.length+'</p>';
         var groups = review.groups || [{id:'legacy',title:__('Overdue items'),action:'',items:items,
             total_amount:items.reduce(function(total,item){return total+Number(item.amount || 0);},0)}];
         function document_link(doctype, name) {
@@ -556,7 +597,7 @@
         html += '</div>';
         var dialog = new frappe.ui.Dialog({title: __('Review Overdue Commitments'), size: 'large',
             fields: [{fieldtype:'HTML',fieldname:'overdue',options:html}],
-            primary_action_label: __('Close and Review'), primary_action: function () { dialog.hide(); }});
+            primary_action_label: review.saved ? __('Close') : __('Close and Review'), primary_action: function () { dialog.hide(); }});
         dialog.show();
     }
 
@@ -744,9 +785,10 @@
             if(report._cashflow_pinned_table && report._cashflow_pinned_table!==table && report._cashflow_pinned_table._cashflow_pin_cleanup)report._cashflow_pinned_table._cashflow_pin_cleanup();
             report._cashflow_pinned_table=table;
             pin_columns(table);
-            report.page.main.off('click.cashflow', '.cashflow-details, .cashflow-opening-balance').on('click.cashflow', '.cashflow-details, .cashflow-opening-balance', function (event) {
+            report.page.main.off('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total').on('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total', function (event) {
                 event.preventDefault();
                 if (this.classList && this.classList.contains('cashflow-opening-balance')) {opening_balance_details(report);return;}
+                if (this.classList && this.classList.contains('cashflow-overdue-total')) {show_overdue_review(report,saved_overdue_review(report));return;}
                 show_details(report, String($(this).attr('data-key')), $(this).attr('data-kind'));
             });
             var box = report.page.main.find('.cashflow-context');
@@ -798,9 +840,8 @@
                         return total + (isFinite(amount) && amount > 0 ? Math.round(amount*1000) : 0);
                     },0);
                     if (overdue > 0) {
-                        var after = (Math.round(Number(card.value)*1000)-overdue)/1000;
-                        note += '<small class="cashflow-after-overdue'+(after < 0 ? ' is-negative' : '')+'">'+
-                            __('After overdue')+': <b>'+format_currency(after,card.currency,3)+'</b></small>';
+                        note += '<small><button type="button" class="cashflow-overdue-total" title="'+esc(__('Review overdue payments'))+'">'+
+                            __('Overdue')+': <b>'+format_currency(overdue/1000,card.currency,3)+'</b></button></small>';
                     }
                 }
                 var risk = card.indicator === 'Red' || (card.datatype === 'Currency' && Number(card.value)<0);
@@ -814,7 +855,8 @@
                 '.cashflow-card.is-risk{border-top:3px solid #d66b6b;background:#fffafa;}'+
                 '.cashflow-card-label{font-size:12px;color:#64748b;margin-bottom:3px;} .cashflow-card strong{display:block;font-size:15px;line-height:1.3;color:#172b4d;}'+
                 '.cashflow-card small{display:block;color:#64748b;margin-top:2px;}'+
-                '.cashflow-card .cashflow-after-overdue.is-negative{color:#b42318;}'+
+                '.cashflow-overdue-total{background:none;border:0;padding:0;font:inherit;color:#b42318;text-align:left;cursor:pointer;}'+
+                '.cashflow-overdue-total:hover{text-decoration:underline;}'+
                 '.cashflow-opening-balance{background:none;border:0;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer;}'+
                 '.cashflow-opening-balance:hover{text-decoration:underline;}'+
 
