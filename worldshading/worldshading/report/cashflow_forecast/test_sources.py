@@ -214,7 +214,7 @@ class PreparedFixtureTests(unittest.TestCase):
         self.assertNotIn('adjusted_sales', detailed)
         self.assertNotIn('actual_sales_today', detailed)
         self.assertNotIn('total_receipts', detailed)
-        for name in ('proposed_purchase','baseline_closing_cash','purchase_impact'):
+        for name in ('baseline_closing_cash',):
             self.assertTrue(next(c for c in columns(detailed_view=1) if c['fieldname']==name)['hidden'])
             self.assertFalse(next(c for c in columns(detailed_view=1,has_purchase=True) if c['fieldname']==name)['hidden'])
 
@@ -236,6 +236,24 @@ class PreparedFixtureTests(unittest.TestCase):
         self.assertEqual(context.get('report_summary'), result[4])
         self.assertEqual(context.get('chart'), result[3])
         self.assertEqual(context.get('forecast_date'), '2026-11-09')
+
+        # Supplier display includes proposals; cash and total payments count them once.
+        for view in ('Daily', 'Monthly'):
+            filters.view = view
+            source.events = [dict(date=date(2026,11,10), category='supplier_payments', amount=10)]
+            extra = [dict(date=date(2026,11,10), category='proposed_purchase', amount=20,
+                          scenario=True, scenario_kind='supplier', description='Purchase 1')]
+            result = report.render_forecast(source, filters, date(2026,11,9), date(2026,11,10), ['Bank'], extra)
+            row = result[1][-1]
+            self.assertEqual(row['supplier_payments'], 30)
+            self.assertEqual(row['supplier_payments_without_purchase'], 10)
+            self.assertEqual(row['total_payments'], 30)
+            self.assertEqual(row['closing_cash'], 70)
+            self.assertEqual(row['baseline_closing_cash'], 90)
+            self.assertTrue(row['scenario_supplier'])
+            self.assertNotIn('proposed_purchase', [c['fieldname'] for c in result[0]])
+            self.assertNotIn('purchase_impact', [c['fieldname'] for c in result[0]])
+
 
     def test_other_owner_cannot_restore_prepared_scenario(self):
         from worldshading.worldshading.report.cashflow_forecast import cashflow_forecast as report

@@ -252,6 +252,8 @@ def render_forecast(source, filters, start, end, accounts, extra):
     summary = summarize(rows, filters.minimum_reserve or 0)
     displayed = monthly_rows(rows) if filters.get('view') == 'Monthly' else rows
     for row in displayed:
+        row['supplier_payments_without_purchase'] = row['supplier_payments']
+        row['supplier_payments'] += row.get('proposed_purchase', money(0))
         # Informational invoice total only: never feed this back into cash receipts.
         row['actual_sales_today'] = source.actual_sales_today if row['date'] == start else None
         row['scenario_supplier'] = any(e.get('scenario_kind') == 'supplier' for e in row['sources'])
@@ -337,13 +339,13 @@ def columns(view=None, detailed_view=False, has_purchase=False, minimum_reserve=
               ('other_receipts', 'Other Incoming'), ('fixed_expenses', 'Fixed Expenses'), ('payroll', 'Payroll'),
               ('supplier_payments', 'Supplier Payments'), ('customs', 'Customs'), ('import_vat', 'Import VAT'),
               ('quarterly_vat', 'Quarterly VAT Settlement'), ('extra_expenses', 'Extra Expenses'),
-              ('budget_expenses', 'Budget Expenses'), ('proposed_purchase', 'Proposed Purchase'),
-              ('baseline_closing_cash', 'Closing Without Purchase'), ('purchase_impact', 'Purchase Impact'),
+              ('budget_expenses', 'Budget Expenses'),
+              ('baseline_closing_cash', 'Closing Without Purchase'),
               ('other_payments', 'Other Scheduled Payments'),
               ('total_payments', 'Total Payments'), ('closing_cash', 'Closing Cash')]
     labels.append(('available_above_reserve', 'Cash Above Minimum Reserve'))
     result.extend(dict(fieldname=name, label=_(label), fieldtype='Currency', options='currency', precision=3, width=145,
-                       hidden=(not has_purchase and name in ('proposed_purchase', 'baseline_closing_cash', 'purchase_impact'))
+                       hidden=(not has_purchase and name == 'baseline_closing_cash')
                               or (name == 'available_above_reserve' and not money(minimum_reserve))) for name, label in labels)
     result.extend([dict(fieldname='source_details', label=_('Source Details'), fieldtype='Data', width=200, hidden=0),
                    dict(fieldname='currency', label=_('Currency'), fieldtype='Link', options='Currency', hidden=1)])
