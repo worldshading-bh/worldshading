@@ -574,7 +574,7 @@
         }
         html += '<div style="max-height:520px;overflow:auto">';
         groups.forEach(function(group){
-            html += '<details open class="cashflow-review-group" data-group="'+esc(group.id)+'" style="margin:12px 0;border:1px solid #ddd;padding:10px">'+
+            html += '<details class="cashflow-review-group" data-group="'+esc(group.id)+'" style="margin:12px 0;border:1px solid #ddd;padding:10px">'+
                 '<summary><strong>'+esc(__(group.title))+'</strong> — '+group.items.length+' '+__('items')+' — '+
                 format_currency(group.total_amount,review.currency,3)+'</summary><p class="text-muted" style="margin-top:8px">'+esc(__(group.action || ''))+'</p>'+
                 '<table class="table table-bordered"><thead><tr><th>'+__('Due Date')+'</th><th>'+__('Purpose')+'</th><th>'+__('Amount')+

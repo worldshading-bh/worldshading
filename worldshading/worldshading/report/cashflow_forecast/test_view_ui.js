@@ -130,6 +130,8 @@ assert(summaryHTML.includes('cashflow-overdue-total'));
 assert(summaryHTML.includes('BHD 37'));
 boundClick.call({classList:{contains:name=>name==='cashflow-overdue-total'}},{preventDefault:()=>{}});
 assert.strictEqual(dialog.title,'Review Overdue Commitments');
+assert(!dialog.fields[0].options.includes('<details open'),'Overdue categories start collapsed');
+assert(dialog.fields[0].options.includes('<details class="cashflow-review-group"'));
 const overdueHTML=dialog.fields[0].options;
 ['GL Payments','Journal Entries (JV)','Supplier payments','GL-TEST','PE-TEST','JV-TEST','PO-TEST','2026-10-01','Office &lt;cost&gt;','Another line'].forEach(text=>assert(overdueHTML.includes(text),text));
 assert(overdueHTML.includes('BHD 12'));
