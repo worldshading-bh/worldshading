@@ -114,3 +114,26 @@ boundClick.call({classList:{contains:()=>true}},{preventDefault:()=>{}});
 assert(dialog.fields[0].options.includes('Bank - WS'));
 assert(dialog.fields[0].options.includes('BHD 120.000'));
 console.log('Opening cash account breakdown, support, escaping and hidden start date passed');
+
+// Included overdue remains reviewable from the generated report, grouped from saved data.
+const savedOverdue=[
+ {date:'2026-10-01',category:'other_payments',doctype:'GL Payment',name:'GL-TEST',amount:'10.000',description:'Office <cost>',workflow_state:'Pending'},
+ {date:'2026-10-01',category:'other_payments',doctype:'GL Payment',name:'GL-TEST',amount:'2.000',description:'Another line'},
+ {date:'2026-10-02',category:'supplier_payments',doctype:'Payment Entry',name:'PE-TEST',amount:'20.000',description:'Supplier installment',related_doctype:'Purchase Order',related_name:'PO-TEST'},
+ {date:'2026-10-03',category:'payroll',doctype:'Journal Entry',name:'JV-TEST',amount:'5.000',description:'Salary'}];
+const originalOverdue=JSON.stringify(savedOverdue);
+report.raw_data={result:[{date:'2026-11-10',opening_cash:100,currency:'BHD',_cashflow_context:{
+ forecast_date:'2026-11-10',base_filters:{include_overdue:1},calculation_inputs:{overdue:savedOverdue},
+ report_summary:[{label:'Opening Available Cash',value:100,datatype:'Currency',currency:'BHD'}]}}]};
+settings.after_datatable_render();
+assert(summaryHTML.includes('cashflow-overdue-total'));
+assert(summaryHTML.includes('BHD 37'));
+boundClick.call({classList:{contains:name=>name==='cashflow-overdue-total'}},{preventDefault:()=>{}});
+assert.strictEqual(dialog.title,'Review Overdue Commitments');
+const overdueHTML=dialog.fields[0].options;
+['GL Payments','Journal Entries (JV)','Supplier payments','GL-TEST','PE-TEST','JV-TEST','PO-TEST','2026-10-01','Office &lt;cost&gt;','Another line'].forEach(text=>assert(overdueHTML.includes(text),text));
+assert(overdueHTML.includes('BHD 12'));
+assert(overdueHTML.includes('Overdue items: 3'));
+assert(!overdueHTML.includes('or include them today'));
+assert.strictEqual(JSON.stringify(savedOverdue),originalOverdue,'Do not mutate saved overdue rows');
+console.log('Saved overdue popup retains categories, original dates, merged amounts and document links');

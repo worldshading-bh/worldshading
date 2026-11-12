@@ -98,18 +98,18 @@ function renderOpeningWithOverdue(opening, overdue, included) {
     return renderedContext;
 }
 var openingHtml=renderOpeningWithOverdue(100,[{amount:'120.000'},{amount:'5.000'}],1);
-assert(openingHtml.includes('After overdue'));
-assert(openingHtml.includes('-25'));
-assert(openingHtml.includes('cashflow-after-overdue is-negative'));
+assert(openingHtml.includes('Overdue'));
+assert(openingHtml.includes('125'));
+assert(openingHtml.includes('class="cashflow-overdue-total"'));
+assert(!openingHtml.includes('After overdue'));
 assert.strictEqual((openingHtml.match(/class="cashflow-card"/g)||[]).length,1,'Keep one opening card');
 openingHtml=renderOpeningWithOverdue(100,[{amount:20}],1);
-assert(openingHtml.includes('After overdue'));
-assert(openingHtml.includes('80'));
-assert(!openingHtml.includes('cashflow-after-overdue is-negative'));
-assert(!renderOpeningWithOverdue(100,[{amount:20}],0).includes('After overdue'));
-assert(!renderOpeningWithOverdue(100,[],1).includes('After overdue'));
-assert(!renderOpeningWithOverdue(100,null,1).includes('After overdue'));
-console.log('Opening summary shows cash after included overdue without changing balances');
+assert(openingHtml.includes('Overdue'));
+assert(openingHtml.includes('20'));
+assert(!renderOpeningWithOverdue(100,[{amount:20}],0).includes('class="cashflow-overdue-total"'));
+assert(!renderOpeningWithOverdue(100,[],1).includes('class="cashflow-overdue-total"'));
+assert(!renderOpeningWithOverdue(100,null,1).includes('class="cashflow-overdue-total"'));
+console.log('Opening summary shows clickable included overdue total without changing balances');
 
 
 assert.strictEqual(settings.filters.find(f=>f.fieldname==='include_overdue').default,0);
