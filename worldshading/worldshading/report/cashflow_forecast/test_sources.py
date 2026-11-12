@@ -92,7 +92,7 @@ class DocumentFixture(SimpleNamespace):
 
 
 class PoObligationFixtureTests(unittest.TestCase):
-    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None):
+    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None, horizon=False):
         po = DocumentFixture(name='PO-RESIDUAL', base_grand_total=100,
             advance_paid=0, currency=currency, party_account_currency=currency,
             conversion_rate=1, workflow_state=state, supplier='SUPPLIER-TEST',
@@ -106,6 +106,8 @@ class PoObligationFixtureTests(unittest.TestCase):
         source.handled_glp, source.handled_pe = set(), set()
         source.invoiced, source.applied_advances, source.import_credited = [defaultdict(Decimal) for _ in range(3)]
         source.invoiced[po.name] = money(100)-money(remaining)
+        source._supplier_horizon_only=horizon
+        if horizon:source.end=date.max
         source.documents = lambda dt, filters=None: iter([po] if dt == 'Purchase Order' else [])
         source.pending_reference_payments = lambda *args: []
         source.journals = lambda: SimpleNamespace(reserve=lambda *args: money(0))
@@ -222,7 +224,8 @@ class PreparedFixtureTests(unittest.TestCase):
         source = DocumentFixture(opening_balance=100, actual_sales_today=75, events=[], historical={}, sales_tax={}, vat_opening=0,
             currency='BHD', start=date(2026,11,9), warnings=['Missing source fixture'], accounts_breakdown=[])
         source.collect = lambda: source
-        with patch.object(report, 'validate', return_value=(filters,date(2026,11,9),date(2026,11,10),['Bank'],[])), \
+        with patch.object(report, 'normalize_generation_filters', side_effect=lambda values:(values,None)), \
+             patch.object(report, 'validate', return_value=(filters,date(2026,11,9),date(2026,11,10),['Bank'],[])), \
              patch.object(report, 'Sources', return_value=source):
             result = report.execute(filters)
         context = result[1][0].get('_cashflow_context', {})
@@ -346,6 +349,7 @@ class OverdueReviewFixtureTests(unittest.TestCase):
     def test_unchecked_blocks_enqueue_instead_of_creating_prepared_record(self):
         from worldshading.worldshading.report.cashflow_forecast import prepared_access
         with patch.object(prepared_access,'guard_request',return_value=True), \
+             patch.object(prepared_access,'normalize_generation_filters',return_value=({},None)), \
              patch.object(prepared_access,'get_overdue_commitments',return_value={'items':[{'name':'PE-TEST'}]}), \
              patch('frappe.desk.query_report.background_enqueue_run') as original:
             result=prepared_access.background_enqueue_run('Cashflow Forecast','{}')

@@ -6,7 +6,7 @@ cached results, so its normal authorization must also run on retrieval/export.
 import frappe
 from frappe import _
 
-from .cashflow_forecast import authorize, get_prepared_filters, resolve_accounts, get_overdue_commitments
+from .cashflow_forecast import authorize, get_prepared_filters, resolve_accounts, get_overdue_commitments, normalize_generation_filters
 
 REPORT = 'Cashflow Forecast'
 
@@ -105,7 +105,12 @@ def download_attachment(dn):
 def background_enqueue_run(report_name, filters=None, user=None):
     from frappe.desk.query_report import background_enqueue_run as original
     if guard_request(report_name, filters, user):
+        filters, change = normalize_generation_filters(filters)
         review = get_overdue_commitments(filters)
         if review['items']:
-            return dict(blocked=True, overdue_review=review)
+            return dict(blocked=True, overdue_review=review, end_date_adjustment=change)
+        import json
+        result = original(report_name, json.dumps(filters), user)
+        result['end_date_adjustment'] = change
+        return result
     return original(report_name, filters, user)

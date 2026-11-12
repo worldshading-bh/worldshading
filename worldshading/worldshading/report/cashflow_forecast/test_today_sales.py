@@ -42,7 +42,7 @@ class AutomaticTodayTests(unittest.TestCase):
             source.warnings=[];source.accounts_breakdown=[];source.include_overdue=True;source.vat_opening=50
             source.holidays=[];source.manual_vat_rate=Decimal(10);source.collect=lambda:source
             values=frappe._dict(company='Example',manual_sales=manual,average_daily_sales=1100,sales_adjustment=0,today_receipts=99999)
-            with patch.object(report,'validate',return_value=(values,source.start,source.end,[],[])),patch.object(report,'Sources',return_value=source):
+            with patch.object(report,'normalize_generation_filters',side_effect=lambda values:(values,None)),patch.object(report,'validate',return_value=(values,source.start,source.end,[],[])),patch.object(report,'Sources',return_value=source):
                 rows=report.execute(values)[1]
             self.assertEqual(rows[0]['expected_receipts'],1100)
             self.assertEqual(rows[0]['total_receipts'],550)
@@ -65,5 +65,5 @@ class AutomaticTodayTests(unittest.TestCase):
         from worldshading.worldshading.report.cashflow_forecast import cashflow_forecast as report
         source=SimpleNamespace(actual_sales_today=None,collect=lambda:source)
         values=frappe._dict(company='Example',include_overdue=1)
-        with patch.object(report,'validate',return_value=(values,date(2026,11,11),date(2026,11,12),[],[])),patch.object(report,'Sources',return_value=source),patch.object(frappe,'throw',side_effect=PermissionError):
+        with patch.object(report,'normalize_generation_filters',side_effect=lambda values:(values,None)),patch.object(report,'validate',return_value=(values,date(2026,11,11),date(2026,11,12),[],[])),patch.object(report,'Sources',return_value=source),patch.object(frappe,'throw',side_effect=PermissionError):
             with self.assertRaises(PermissionError):report.execute(values)

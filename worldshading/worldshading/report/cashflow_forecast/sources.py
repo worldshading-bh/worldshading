@@ -307,6 +307,7 @@ class Sources(object):
             self.invoiced[row.purchase_order] += money(supplier_amount(pi.base_grand_total, invoice_import[pi.name])*share)
             # Future posted credits are represented by future_tax_events, not a second PO credit.
             self.import_credited[row.purchase_order] += money(invoice_import[pi.name]*share)
+        self.invoice_purchase_orders = invoice_pos
         advances = frappe.db.sql("""select a.parent,a.reference_type,a.reference_name,a.allocated_amount
             from `tabPurchase Invoice Advance` a inner join `tabPurchase Invoice` p on p.name=a.parent
             where p.company=%s and p.docstatus=1 and p.is_return=0 and a.allocated_amount>0""", self.company, as_dict=1)
@@ -451,7 +452,7 @@ class Sources(object):
             if po.get('workflow_state') == 'On Hold':
                 self.warn('{0}: on-hold obligation is included; review its timing.'.format(po.name))
             try:
-                taxes = self.tax_estimate(po)
+                taxes = [] if getattr(self, '_supplier_horizon_only', False) else self.tax_estimate(po)
             except Exception as exc:
                 self.warn('{0}: tax estimate unavailable ({1}); customs/VAT coverage incomplete.'.format(po.name, type(exc).__name__))
                 taxes = [t.as_dict() for t in po.taxes]
@@ -504,6 +505,8 @@ class Sources(object):
                 self.warn('{0}: {1} outstanding PO amount has no payment schedule.'.format(po.name, remaining))
             if remaining > full:
                 self.warn('{0}: payment schedule does not cover its full outstanding amount.'.format(po.name))
+            if getattr(self, '_supplier_horizon_only', False):
+                continue
             # Actual linked customs GL payments replace ETA estimates. Draft links are not paid.
             glps = list(self.documents('GL Payment', {'purchase_order': po.name,
                          'is_customs_payment': 1, 'docstatus': ['!=', 2]}))

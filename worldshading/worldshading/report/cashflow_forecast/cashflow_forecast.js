@@ -188,6 +188,14 @@
         }
         return String(html || '').replace(/<[^>]*>/g,'');
     }
+    function update_forecast_end(report, change, notify) {
+        if (!change || !change.end_date) return;
+        var field=(report.filters || []).find(function(control){return control.df.fieldname==='end_date';});
+        if(field && typeof field.set_input==='function')field.set_input(change.end_date);
+        if(notify)frappe.msgprint({title:__('Forecast Until Updated'),indicator:'blue',
+            message:__('Forecast Until changed to')+' '+date_label(change.end_date)+' '+__('to include the last outstanding purchase payment.')});
+    }
+
     function date_label(value) {
         return /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? String(value).split('-').reverse().join('-') : String(value || '');
     }
@@ -703,6 +711,7 @@
                         always:function(){ current.toggle_primary_button_disabled(false); }
                     }).then(function(response){
                         var result = response.message || {};
+                        update_forecast_end(current,result.end_date_adjustment,true);
                         if (result.blocked) { show_overdue_review(current, result.overdue_review || {}); return; }
                         if (!result.name) return;
                         current.prepared_report_doc_name = result.name;
@@ -799,6 +808,7 @@
             if (snapshot) {
                 raw.message = snapshot.message;
                 raw.report_summary = snapshot.report_summary;
+                if(snapshot.forecast_end_date)update_forecast_end(report,{end_date:snapshot.forecast_end_date},false);
 
             }
             if (!raw.chart) {
