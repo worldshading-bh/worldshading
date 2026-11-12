@@ -117,19 +117,25 @@ var overdueDialogs=[], queuedAlerts=0;
 context.frappe.ui.Dialog=function(options){overdueDialogs.push(options);this.show=function(){};this.hide=function(){};};
 context.frappe.show_alert=function(){queuedAlerts++;};
 var currentFilters={company:'Example',end_date:'2026-12-31',include_overdue:0};
+var endDateInputs=[],dateMessages=[];
+context.frappe.msgprint=options=>dateMessages.push(options);
 var generationReport={report_name:'Cashflow Forecast',refresh:function(){},generate_background_report:function(){throw new Error('Native generator must be guarded');},
-    page:{add_inner_button:()=>{}},filters:[],get_filter_values:()=>currentFilters,
+    page:{add_inner_button:()=>{}},filters:[{df:{fieldname:'end_date'},set_input:value=>{endDateInputs.push(value);currentFilters.end_date=value;}}],get_filter_values:()=>currentFilters,
     toggle_primary_button_disabled:function(){},toggle_nothing_to_show:function(){}};
 settings.onload(generationReport);
 context.format_currency=(value)=>String(value);
 context.frappe.call=function(options){
     assert.strictEqual(options.type,'POST');
     if(options.always)options.always();
-    return Promise.resolve({message: currentFilters.include_overdue ? {name:'PREPARED-NEW'} : {blocked:true,overdue_review:{currency:'BHD',items:[
+    return Promise.resolve({message: currentFilters.include_overdue ? {name:'PREPARED-NEW'} : {end_date_adjustment:{end_date:'2027-03-15'},blocked:true,overdue_review:{currency:'BHD',items:[
         {date:'2026-11-01',category:'supplier_payments',amount:500,doctype:'Payment Entry',name:'PE-OVERDUE',description:'<unsafe>'}]}}});
 };
 generationReport.generate_background_report().then(function(){
     assert.strictEqual(overdueDialogs.length,1);
+    assert.strictEqual(currentFilters.end_date,'2027-03-15');
+    assert.strictEqual(endDateInputs.length,1,'Update the input without calling refresh/generate again');
+    assert.strictEqual(dateMessages.length,1);
+    assert(dateMessages[0].message.includes('15-03-2027'));
     assert.strictEqual(queuedAlerts,0,'Blocked overdue review must not announce a queued report');
     assert(overdueDialogs[0].fields[0].options.includes('PE-OVERDUE'));
     assert(overdueDialogs[0].fields[0].options.includes('&lt;unsafe&gt;'));

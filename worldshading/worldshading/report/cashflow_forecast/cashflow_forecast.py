@@ -10,6 +10,7 @@ from frappe.utils import nowdate
 
 from .engine import money, as_date, days, today_sales, build_forecast, summarize, monthly_rows, PAYMENTS
 from .sources import Sources
+from .horizon import adjust_end_date, minimum_purchase_end
 from .scenarios import purchase_events
 from .rules import group_overdue_review
 
@@ -182,7 +183,31 @@ def get_accounts(company):
     return result
 
 
+def normalize_generation_filters(values):
+    """Only for a fresh calculation/queue, never cached viewing or purchase replay."""
+    values = frappe.parse_json(values) if isinstance(values, str) else dict(values or {})
+    if not isinstance(values, dict):
+        frappe.throw(_('Invalid report filters.'))
+    values = dict(values)
+    authorize(values.get('company'))
+    start = as_date(nowdate())
+    try:
+        requested = as_date(values.get('end_date'))
+        if (requested-start).days > 730:
+            raise ValueError('End date must be at most 730 days ahead.')
+        accounts = resolve_accounts(values.get('company'))
+        minimum = minimum_purchase_end(values.get('company'), accounts, start)
+        end = adjust_end_date(requested, start, minimum['date'] if minimum else None)
+    except (ValueError, TypeError) as exc:
+        frappe.throw(str(exc))
+    values['end_date'] = str(end)
+    change = dict(previous_end_date=str(requested), end_date=str(end),
+                  doctype=(minimum or {}).get('doctype'), name=(minimum or {}).get('name')) if end > requested else None
+    return values, change
+
+
 def execute(filters=None):
+    filters, date_change = normalize_generation_filters(filters)
     filters, start, end, accounts, extra = validate(filters)
     source = Sources(filters.company, accounts, start, end, int(filters.get('include_overdue', 0)))
     source.manual_daily_sales = money(filters.average_daily_sales) if filters.manual_sales else None
@@ -272,7 +297,7 @@ def render_forecast(source, filters, start, end, accounts, extra):
     # V12's Prepared Report attachment keeps rows only, losing message/chart/cards.
     # Store immutable presentation context once, outside the exported columns.
     displayed[0]['_cashflow_context'] = dict(message=message, chart=chart,
-        report_summary=cards, forecast_date=str(start), accounts=accounts, account_scope=ACCOUNT_SCOPE,
+        report_summary=cards, forecast_date=str(start), forecast_end_date=str(end), accounts=accounts, account_scope=ACCOUNT_SCOPE,
         opening_accounts=[dict(account=r['account'],amount=str(r['amount'])) for r in source.accounts_breakdown],
         support_amount=str(money(filters.support_amount)), sales_adjustment=str(money(filters.sales_adjustment)), minimum_reserve=str(money(filters.minimum_reserve)),
         today_policy='auto-v1', warnings=source.warnings, vat_policy='quarter-v4',
