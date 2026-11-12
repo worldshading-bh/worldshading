@@ -191,10 +191,8 @@
     function date_label(value) {
         return /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? String(value).split('-').reverse().join('-') : String(value || '');
     }
-    function report_notes(report) {
-        var raw=report.raw_data || {},snapshot=context_for(report),rows=raw.result || [],first=rows[0] || {};
-        var message=snapshot.message || raw.message || '';
-        var accounts=snapshot.opening_accounts || [];
+    function opening_accounts(snapshot,message) {
+        var accounts=(snapshot.opening_accounts || (snapshot.calculation_inputs || {}).accounts_breakdown || []).slice();
         if (!accounts.length) {
             message.split(/<br\s*\/?\s*>/i).forEach(function(part){
                 if (part.indexOf(';')<0 || part.indexOf(':')<0) return;
@@ -204,6 +202,37 @@
                 });
             });
         }
+        return accounts;
+    }
+
+    function opening_balance_details(report) {
+        var raw=report.raw_data || {},snapshot=context_for(report),first=(raw.result || [])[0] || {};
+        var accounts=opening_accounts(snapshot,snapshot.message || raw.message || '');
+        var html='<div style="max-height:65vh;overflow:auto">';
+        html+='<p>'+__('As of')+' '+esc(date_label(snapshot.forecast_date || first.date))+'</p>';
+        if (accounts.length) {
+            html+='<table class="table table-condensed"><thead><tr><th>'+__('Account')+'</th><th class="text-right">'+__('Balance')+'</th></tr></thead><tbody>';
+            var total=0;
+            accounts.forEach(function(account){
+                var amount=Number(account.amount) || 0;
+                total+=Math.round(amount*1000);
+                html+='<tr><td>'+esc(account.account)+'</td><td class="text-right">'+format_currency(amount.toFixed(3),first.currency,3)+'</td></tr>';
+            });
+            var support=Number(snapshot.support_amount || (snapshot.base_filters || {}).support_amount) || 0;
+            if (support) {
+                total+=Math.round(support*1000);
+                html+='<tr><td>'+__('Support')+'</td><td class="text-right">'+format_currency(support.toFixed(3),first.currency,3)+'</td></tr>';
+            }
+            html+='</tbody><tfoot><tr><th>'+__('Opening Available Cash')+'</th><th class="text-right">'+format_currency((total/1000).toFixed(3),first.currency,3)+'</th></tr></tfoot></table>';
+        } else html+='<p>'+__('Account breakdown is not available in this saved report. Generate a new report to include it.')+'</p>';
+        html+='</div>';
+        var dialog=new frappe.ui.Dialog({title:__('Opening Cash'),size:'large',fields:[{fieldtype:'HTML',options:html}]});dialog.show();
+    }
+
+    function report_notes(report) {
+        var raw=report.raw_data || {},snapshot=context_for(report),rows=raw.result || [],first=rows[0] || {};
+        var message=snapshot.message || raw.message || '';
+        var accounts=opening_accounts(snapshot,message);
         var warnings=snapshot.warnings || (message.match(/<li[^>]*>[\s\S]*?<\/li>/gi) || []).map(plain_text);
         var summary=snapshot.report_summary || raw.report_summary || [];
         var actual=summary.find(function(card){return card.label === __('Actual Sales Today (Reference)');});
@@ -533,7 +562,7 @@
 
     frappe.query_reports['Cashflow Forecast'] = {
         filters: [
-            {fieldname: 'forecast_date', label: __('Forecast Date'), fieldtype: 'Date', read_only: 1,
+            {fieldname: 'forecast_date', label: __('Forecast Date'), fieldtype: 'Date', read_only: 1, hidden: 1,
                 default: frappe.datetime.get_today()},
             {fieldname: 'company', label: __('Company'), fieldtype: 'Link', options: 'Company', reqd: 1,
                 default: frappe.defaults.get_user_default('Company')},
@@ -715,8 +744,10 @@
             if(report._cashflow_pinned_table && report._cashflow_pinned_table!==table && report._cashflow_pinned_table._cashflow_pin_cleanup)report._cashflow_pinned_table._cashflow_pin_cleanup();
             report._cashflow_pinned_table=table;
             pin_columns(table);
-            report.page.main.off('click.cashflow', '.cashflow-details').on('click.cashflow', '.cashflow-details', function (event) {
-                event.preventDefault(); show_details(report, String($(this).attr('data-key')), $(this).attr('data-kind'));
+            report.page.main.off('click.cashflow', '.cashflow-details, .cashflow-opening-balance').on('click.cashflow', '.cashflow-details, .cashflow-opening-balance', function (event) {
+                event.preventDefault();
+                if (this.classList && this.classList.contains('cashflow-opening-balance')) {opening_balance_details(report);return;}
+                show_details(report, String($(this).attr('data-key')), $(this).attr('data-kind'));
             });
             var box = report.page.main.find('.cashflow-context');
             if (!box.length) box = $('<div class="cashflow-context" style="padding:6px 0"></div>').insertAfter(report.page.main.find('.page-form'));
@@ -756,6 +787,9 @@
             }).map(function(card){
                 var label = card.label === __('Lowest Balance') ? __('Lowest Projected Cash') : (card.label === __('Ending Balance') ? __('Ending Cash') : card.label);
                 var value = card.datatype === 'Currency' ? format_currency(card.value,card.currency,3) : esc(date_text(card.value));
+                if (card.label === __('Opening Available Cash')) {
+                    value='<button type="button" class="cashflow-opening-balance" title="'+esc(__('View account balances'))+'" aria-label="'+esc(__('View account balances'))+'">'+value+'</button>';
+                }
                 var note = card.label === __('Lowest Balance') && low_date ? '<small>'+__('On')+' '+esc(date_text(low_date.value))+'</small>' : '';
                 if (card.label === __('Opening Available Cash') && snapshot &&
                     Number((snapshot.base_filters || {}).include_overdue) === 1) {
@@ -781,6 +815,8 @@
                 '.cashflow-card-label{font-size:12px;color:#64748b;margin-bottom:3px;} .cashflow-card strong{display:block;font-size:15px;line-height:1.3;color:#172b4d;}'+
                 '.cashflow-card small{display:block;color:#64748b;margin-top:2px;}'+
                 '.cashflow-card .cashflow-after-overdue.is-negative{color:#b42318;}'+
+                '.cashflow-opening-balance{background:none;border:0;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer;}'+
+                '.cashflow-opening-balance:hover{text-decoration:underline;}'+
 
 
                 '.cashflow-page .dt-row:has(.cashflow-negative-cell) .dt-cell{background:#fff4f4!important;}'+
