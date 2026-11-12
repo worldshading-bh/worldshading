@@ -27,7 +27,7 @@ report.prepare_report_data({columns:[],result:rows});context.frappe.query_report
 assert.strictEqual(report.data,rows);
 ['actual_sales_today','previous_year_sales','total_receipts'].forEach(name=>assert(!report.columns.some(c=>c.fieldname===name)));
 ['fixed_expenses','supplier_payments','payroll'].forEach(name=>assert(!report.columns.find(c=>c.fieldname===name).hidden));
-['proposed_purchase','baseline_closing_cash','purchase_impact','available_above_reserve'].forEach(name=>assert(report.columns.find(c=>c.fieldname===name).hidden));
+['baseline_closing_cash','available_above_reserve'].forEach(name=>assert(report.columns.find(c=>c.fieldname===name).hidden));
 assert.strictEqual(report.columns.find(c=>c.fieldname==='other_receipts').label,'Other Incoming');
 const format=v=>String(v);
 let sales=settings.formatter(0,0,{fieldname:'expected_receipts'},rows[0],format);
@@ -49,7 +49,11 @@ assert(ordinary.includes('cashflow-negative-cell'));assert(!ordinary.includes('c
 const scenario=[Object.assign({},rows[0],{proposed_purchase:25,purchase_impact:-25,available_above_reserve:349.7,
  _cashflow_context:{minimum_reserve:10}})];
 report.prepare_report_data({columns:[],result:scenario});
-['proposed_purchase','baseline_closing_cash','purchase_impact','available_above_reserve'].forEach(name=>assert(!report.columns.find(c=>c.fieldname===name).hidden));
+assert.strictEqual(scenario[0].supplier_payments,25);
+report.prepare_report_data({columns:[],result:scenario});
+assert.strictEqual(scenario[0].supplier_payments,25);
+['proposed_purchase','purchase_impact'].forEach(name=>assert(!report.columns.some(c=>c.fieldname===name)));
+['baseline_closing_cash','available_above_reserve'].forEach(name=>assert(!report.columns.find(c=>c.fieldname===name).hidden));
 report.prepare_report_data({columns:[],result:[Object.assign({},rows[0],{month:'2026-11'})]});
 assert.strictEqual(report.columns[0].fieldname,'month');
 console.log('Single view, conditional columns, sales tooltip, filtered incoming references, summary and soft highlight checks passed');

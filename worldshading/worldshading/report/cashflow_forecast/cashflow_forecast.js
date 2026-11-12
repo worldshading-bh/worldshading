@@ -8,8 +8,8 @@
         ['other_receipts','Other Incoming'],['fixed_expenses','Fixed Expenses'],['payroll','Payroll'],
         ['supplier_payments','Supplier Payments'],['customs','Customs'],['import_vat','Import VAT'],
         ['quarterly_vat','Quarterly VAT Settlement'],['extra_expenses','Extra Expenses'],
-        ['budget_expenses','Budget Expenses'],['proposed_purchase','Proposed Purchase'],
-        ['baseline_closing_cash','Closing Without Purchase'],['purchase_impact','Purchase Impact'],
+        ['budget_expenses','Budget Expenses'],
+        ['baseline_closing_cash','Closing Without Purchase'],
         ['other_payments','Other Scheduled Payments'],['total_payments','Total Payments'],
         ['closing_cash','Closing Cash'],['available_above_reserve','Cash Above Minimum Reserve']];
     var payment_fields = ['fixed_expenses','payroll','supplier_payments','customs','import_vat',
@@ -30,6 +30,12 @@
     function apply_column_view(report) {
         if (!report.prepare_columns || !report.raw_data || !report.raw_data.result) return;
         var rows = report.raw_data.result;
+        // Keep saved and quick-preview results compatible; never add a proposal twice.
+        rows.forEach(function(row) {
+            if (row.supplier_payments_without_purchase === undefined)
+                row.supplier_payments_without_purchase = Number(row.supplier_payments || 0);
+            row.supplier_payments = Number(row.supplier_payments_without_purchase) + Number(row.proposed_purchase || 0);
+        });
         if (!rows.length) return;
         var saved = report.raw_data.columns || [];
         var has_purchase = rows.some(function(row) {
@@ -37,18 +43,19 @@
         });
         var date_field = Object.prototype.hasOwnProperty.call(rows[0],'month') ? 'month' : 'date';
         var columns = [{fieldname:date_field,label:__(date_field === 'month' ? 'Month' : 'Date'),
-            fieldtype:date_field === 'month' ? 'Data' : 'Date',width:110}];
+            fieldtype:date_field === 'month' ? 'Data' : 'Date',width:date_field === 'month' ? 110 : 145}];
         detail_fields.forEach(function(definition) {
             var name = definition[0];
             if (!Object.prototype.hasOwnProperty.call(rows[0],name)) return;
             var original = saved.find(function(col){return col.fieldname === name;}) || {};
             columns.push(Object.assign({},original,{fieldname:name,label:__(definition[1]),fieldtype:'Currency',
                 options:'currency',precision:3,width:name === 'expected_receipts' ? 180 : (original.width || 145),
-                hidden:(!has_purchase && ['proposed_purchase','baseline_closing_cash','purchase_impact'].indexOf(name)>=0) ||
+                hidden:(!has_purchase && name === 'baseline_closing_cash') ||
                     (name === 'available_above_reserve' && !reserve_for(report))}));
         });
         columns.push({fieldname:'source_details',label:__('Source Details'),fieldtype:'Data',width:150});
         columns.push({fieldname:'currency',label:__('Currency'),fieldtype:'Link',options:'Currency',hidden:1});
+        columns=arranged_columns(columns,report);
         report.columns = report.prepare_columns(columns);
         report.raw_data.columns = columns;
     }
@@ -74,17 +81,141 @@
         return text;
     }
 
+    function column_layout(report) {
+        if(!report._cashflow_column_layout)report._cashflow_column_layout={pins:[],order:[]};
+        return report._cashflow_column_layout;
+    }
+    function column_field(column) {return column && (column.fieldname || column.id);}
+    function table_columns(table) {return table.datamanager && table.datamanager.getColumns ? table.datamanager.getColumns() : [];}
+    function permanent_field(field) {return ['_rowIndex','_checkbox','date','month','opening_cash'].indexOf(field)>=0;}
+    function arranged_columns(columns,report) {
+        var state=column_layout(report),result=[],used={};
+        function add(field){var column=columns.find(function(item){return item.fieldname===field;});if(column && !used[field]){result.push(column);used[field]=true;}}
+        ['date','month','opening_cash'].concat(state.pins,state.order).forEach(add);
+        columns.forEach(function(column){add(column.fieldname);});
+        return result;
+    }
+    function save_column_order(table) {
+        var report=table._cashflow_column_report;
+        if(!report || report.report_name!=='Cashflow Forecast')return;
+        var state=column_layout(report),fields=table_columns(table).map(column_field).filter(function(field){return field && !permanent_field(field);});
+        state.order=fields.concat(state.order.filter(function(field){return fields.indexOf(field)<0;}));
+    }
+    function extra_pinned_fields(table) {
+        var state=column_layout(table._cashflow_column_report || frappe.query_report),columns=table_columns(table);
+        return state.pins.filter(function(field){return !permanent_field(field) && columns.some(function(column){return column_field(column)===field;});});
+    }
+    function column_index(element) {
+        if(!element)return null;
+        var index=element.dataset && element.dataset.colIndex;
+        if(index!==undefined && /^\d+$/.test(String(index)))return Number(index);
+        var match=String(element.className || '').match(/dt-cell--col-(\d+)/);
+        return match?Number(match[1]):null;
+    }
+    function restore_drag_options(table) {
+        var old=table._cashflow_guarded_sortable;
+        if(old && old.sortable && old.sortable.option)Object.keys(old.options).forEach(function(key){old.sortable.option(key,old.options[key]);});
+        table._cashflow_guarded_sortable=null;
+    }
+    function enable_column_drag(table) {
+        var sortable=table.columnmanager && table.columnmanager.sortable;
+        if(!sortable || !sortable.option)return;
+        if(table._cashflow_guarded_sortable && table._cashflow_guarded_sortable.sortable===sortable)return;
+        restore_drag_options(table);
+        var original={};['onMove','filter','preventOnFilter','disabled'].forEach(function(key){original[key]=sortable.option(key);});
+        table._cashflow_guarded_sortable={sortable:sortable,options:original};
+        sortable.option('onMove',function(event){
+            var from=column_index(event && event.dragged),to=column_index(event && event.related),count=table._cashflow_sticky_count;
+            return from!==null && to!==null && from>=count && to>=count;
+        });
+        sortable.option('filter','.dt-cell__resize-handle, .dt-dropdown, .cashflow-sticky-header');
+        sortable.option('preventOnFilter',false);sortable.option('disabled',false);
+    }
+    function align_pinned_columns(table,leading) {
+        if(table._cashflow_aligning)return false;
+        var columns=table_columns(table);
+        if(!columns.length)return true;
+        var date=columns.find(function(column){return ['date','month'].indexOf(column_field(column))>=0;});
+        var desired=[date && column_field(date),'opening_cash'].concat(extra_pinned_fields(table));
+        for(var index=0;index<desired.length;index++) {
+            var column=columns.find(function(item){return column_field(item)===desired[index];});
+            if(column && column.colIndex!==leading+index) {
+                if(!table.columnmanager || !table.columnmanager.switchColumn)return true;
+                table._cashflow_aligning=true;
+                table.columnmanager.switchColumn(column.colIndex,leading+index);return false;
+            }
+        }
+        return true;
+    }
+    function toggle_pinned_column(table,column) {
+        var field=column_field(column);
+        if(!field || permanent_field(field)) {
+            if(field && field!=='_rowIndex' && field!=='_checkbox')frappe.msgprint(__('Date / Month and Opening Cash are always pinned.'));
+            return;
+        }
+        var state=column_layout(table._cashflow_column_report || frappe.query_report),index=state.pins.indexOf(field);
+        if(index<0)state.pins.push(field);else state.pins.splice(index,1);
+        if(table._cashflow_pin_refresh)table._cashflow_pin_refresh();
+    }
+
     // Same body-sticky/header-translation approach as Purchase Plan.
     function pin_columns(datatable) {
         var wrapper=datatable && datatable.wrapper,body=datatable && datatable.bodyScrollable;
         if(!wrapper || !body || !wrapper.querySelectorAll || typeof window==='undefined')return;
         if(datatable._cashflow_pin_cleanup)datatable._cashflow_pin_cleanup();
         var leading=(datatable.options && datatable.options.checkboxColumn?1:0)+(datatable.options && datatable.options.serialNoColumn===false?0:1);
-        var count=leading+2,frame=null,selected=null,resizing=false;
+        datatable._cashflow_column_report=frappe.query_report;
+        var count=leading+2+extra_pinned_fields(datatable).length,frame=null,resizing=false;
+        var selected=datatable._cashflow_selected_row===undefined?null:datatable._cashflow_selected_row;
+        datatable._cashflow_sticky_count=count;
+        datatable._cashflow_pin_refresh=function(reason){
+            if(reason==='sort')datatable._cashflow_selected_row=null;
+            if(datatable._cashflow_layout_frame)return;
+            datatable._cashflow_layout_frame=window.requestAnimationFrame(function(){
+                datatable._cashflow_layout_frame=null;
+                if(frappe.query_report && frappe.query_report.report_name==='Cashflow Forecast')pin_columns(datatable);
+            });
+        };
+        if(!datatable._cashflow_pin_events && datatable.on) {
+            datatable._cashflow_pin_events=true;
+            datatable.on('onSortColumn',function(){if(datatable._cashflow_pin_refresh)datatable._cashflow_pin_refresh('sort');});
+            datatable.on('onSwitchColumn',function(){
+                var aligning=datatable._cashflow_aligning;datatable._cashflow_aligning=false;
+                if(!aligning)save_column_order(datatable);
+                if(datatable._cashflow_pin_refresh)datatable._cashflow_pin_refresh();
+            });
+            datatable.on('onRemoveColumn',function(column){
+                var state=column_layout(datatable._cashflow_column_report),field=column_field(column);
+                state.pins=state.pins.filter(function(item){return item!==field;});
+                save_column_order(datatable);
+                if(datatable._cashflow_pin_refresh)datatable._cashflow_pin_refresh();
+            });
+            datatable.on('onDestroy',function(){if(datatable._cashflow_pin_cleanup)datatable._cashflow_pin_cleanup();});
+        }
+        if(datatable.removeColumn && !datatable._cashflow_remove_column_original) {
+            var original_remove=datatable.removeColumn;datatable._cashflow_remove_column_original=original_remove;
+            datatable.removeColumn=function(index){
+                var current=frappe.query_report,column=table_columns(this)[index];
+                if(current && current.report_name==='Cashflow Forecast' && permanent_field(column_field(column))) {
+                    frappe.msgprint(__('Date / Month and Opening Cash cannot be removed.'));return;
+                }
+                return original_remove.apply(this,arguments);
+            };
+        }
+        var cleanup_controls=function(){
+            if(datatable._cashflow_layout_frame)window.cancelAnimationFrame(datatable._cashflow_layout_frame);
+            datatable._cashflow_layout_frame=null;datatable._cashflow_pin_refresh=null;
+            restore_drag_options(datatable);
+            if(datatable._cashflow_remove_column_original){datatable.removeColumn=datatable._cashflow_remove_column_original;datatable._cashflow_remove_column_original=null;}
+            datatable._cashflow_pin_cleanup=null;
+        };
+        datatable._cashflow_pin_cleanup=cleanup_controls;
+        if(!align_pinned_columns(datatable,leading))return;
+        save_column_order(datatable);
         wrapper.classList.remove('cashflow-pins-2','cashflow-pins-3','cashflow-pins-4');
-        wrapper.classList.add('cashflow-sticky-columns','cashflow-pins-'+count);
+        wrapper.classList.add('cashflow-sticky-columns');
         function update() {
-            frame=null;
+            frame=null;enable_column_drag(datatable);
             var left=0;
             for(var index=0;index<count;index++) {
                 var header=wrapper.querySelector('.dt-row-header .dt-cell--col-'+index);
@@ -92,6 +223,7 @@
                 left+=header && header.getBoundingClientRect().width || (index<leading?50:(index===leading?110:145));
                 wrapper.querySelectorAll('.dt-header .dt-cell--col-'+index+', .dt-footer .dt-cell--col-'+index).forEach(function(cell){
                     cell.style.transform='translateX('+body.scrollLeft+'px)';
+                    if(cell.classList && cell.closest && cell.closest('.dt-header'))cell.classList.add('cashflow-sticky-header');
                 });
             }
             wrapper.querySelectorAll('.dt-row[data-row-index]').forEach(function(row){
@@ -120,7 +252,7 @@
             var cell=event.target.closest('.dt-cell'),row=cell && cell.closest('.dt-row');
             if(!row || row.classList.contains('dt-row-header') || row.classList.contains('dt-row-filter') || row.closest('.dt-footer'))return;
             var index=row.getAttribute('data-row-index');if(!/^\d+$/.test(index || ''))return;
-            selected=index;queue();
+            selected=index;datatable._cashflow_selected_row=index;queue();
         }
         function start_resize(event){if(event.target.closest('.dt-cell__resize-handle'))resizing=true;}
         function finish_resize(){if(resizing){resizing=false;queue();}}
@@ -134,38 +266,33 @@
         if(observer)observer.observe(body,{childList:true,subtree:true});
         var resizeObserver=typeof ResizeObserver!=='undefined'?new ResizeObserver(queue):null;
         if(resizeObserver)resizeObserver.observe(wrapper);
-        datatable._cashflow_pin_refresh=function(){selected=null;queue();};
-        if(!datatable._cashflow_pin_events && datatable.on) {
-            datatable._cashflow_pin_events=true;
-            ['onSortColumn','onSwitchColumn','onRemoveColumn'].forEach(function(name){datatable.on(name,function(){if(datatable._cashflow_pin_refresh)datatable._cashflow_pin_refresh();});});
-        }
-        if(datatable.columnmanager && datatable.columnmanager.sortable)datatable.columnmanager.sortable.option('disabled',true);
+        var headerObserver=typeof MutationObserver!=='undefined' && datatable.header?new MutationObserver(queue):null;
+        if(headerObserver)headerObserver.observe(datatable.header,{childList:true,subtree:true});
         datatable._cashflow_pin_cleanup=function(){
             if(frame!==null)window.cancelAnimationFrame(frame);
             wrapper.classList.remove('cashflow-sticky-columns','cashflow-pins-2','cashflow-pins-3','cashflow-pins-4');
-            for(var i=0;i<count;i++)wrapper.querySelectorAll('.dt-header .dt-cell--col-'+i+', .dt-footer .dt-cell--col-'+i).forEach(function(cell){cell.style.transform='';});
-            if(observer)observer.disconnect();if(resizeObserver)resizeObserver.disconnect();
+            for(var i=0;i<count;i++)wrapper.querySelectorAll('.dt-header .dt-cell--col-'+i+', .dt-footer .dt-cell--col-'+i).forEach(function(cell){cell.style.transform='';if(cell.classList)cell.classList.remove('cashflow-sticky-header');});
+            if(observer)observer.disconnect();if(resizeObserver)resizeObserver.disconnect();if(headerObserver)headerObserver.disconnect();
             datatable._cashflow_pin_refresh=null;
             wrapper.removeEventListener('click',select);wrapper.removeEventListener('mousedown',start_resize);wrapper.removeEventListener('dblclick',queue);
             body.removeEventListener('scroll',scroll);window.removeEventListener('resize',queue);document.removeEventListener('mouseup',finish_resize);
+            cleanup_controls();
         };
-        if(!document.getElementById('cashflow-sticky-style')) {
-            var style=document.createElement('style');style.id='cashflow-sticky-style';var css='';
-            [2,3,4].forEach(function(total){for(var i=0;i<total;i++){
-                var cell='.cashflow-sticky-columns.cashflow-pins-'+total+' .dt-cell--col-'+i;
-                css+=cell+'{position:sticky;left:var(--cashflow-left-'+i+');z-index:3;background:#fff;}';
-                css+='.cashflow-sticky-columns.cashflow-pins-'+total+' .dt-header .dt-cell--col-'+i+','+
-                    '.cashflow-sticky-columns.cashflow-pins-'+total+' .dt-footer .dt-cell--col-'+i+
-                    '{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;isolation:isolate;}';
-            }});
-            [2,3,4].forEach(function(total){
-                var edge='.cashflow-sticky-columns.cashflow-pins-'+total+' .dt-cell--col-'+(total-1);
-                css+=edge+'{box-shadow:2px 0 2px rgba(0,0,0,.08);}';
-                css+=edge+'::after{content:"";position:absolute;right:0;top:0;bottom:0;width:1px;background:#cbd5e1;z-index:5;pointer-events:none;}';
-            });
-            css+='.cashflow-sticky-columns .dt-dropdown__list{z-index:60!important;}';
-            style.textContent=css;document.head.appendChild(style);
+        var style=document.getElementById('cashflow-sticky-style');
+        if(!style){style=document.createElement('style');style.id='cashflow-sticky-style';document.head.appendChild(style);}
+        var css='';
+        for(var i=0;i<count;i++) {
+            var cell='.cashflow-sticky-columns .dt-cell--col-'+i;
+            css+=cell+'{position:sticky;left:var(--cashflow-left-'+i+');z-index:3;background:#fff;}';
+            css+='.cashflow-sticky-columns .dt-header .dt-cell--col-'+i+','+
+                '.cashflow-sticky-columns .dt-footer .dt-cell--col-'+i+
+                '{position:relative;left:auto;z-index:30!important;background:#f7fafc!important;isolation:isolate;}';
         }
+        var edge='.cashflow-sticky-columns .dt-cell--col-'+(count-1);
+        css+=edge+'{box-shadow:2px 0 2px rgba(0,0,0,.08);}';
+        css+=edge+'::after{content:"";position:absolute;right:0;top:0;bottom:0;width:1px;background:#cbd5e1;z-index:5;pointer-events:none;}';
+        css+='.cashflow-sticky-columns .dt-dropdown__list{z-index:60!important;}';
+        if(style.textContent!==css)style.textContent=css;
         update();
     }
 
@@ -484,10 +611,10 @@
             var salesDialog=new frappe.ui.Dialog({title:title,fields:[{fieldtype:'HTML',options:html}]});salesDialog.show();return;
         }
         html+='<table class="table table-bordered"><thead><tr><th>'+__('Payment')+'</th><th>'+__('Amount')+'</th><th>'+__('Document / Notes')+'</th></tr></thead><tbody>';
-        if(kind==='proposed_purchase' && row.baseline_closing_cash!==undefined) html+='<tr><td>'+__('Cash Without Purchase')+'</td><td>'+format_currency(row.baseline_closing_cash,currency,3)+'</td><td>'+__('Difference')+': '+format_currency(row.purchase_impact,currency,3)+'</td></tr>';
         var items=(row.sources || []).filter(function(item){
             if(kind==='sales')return false;
             if(kind==='other_receipts')return item.category===kind;
+            if(kind==='supplier_payments')return item.category===kind || item.category==='proposed_purchase';
             if(payment_fields.indexOf(kind)>=0)return item.category===kind || (kind==='quarterly_vat' && item.category==='vat_settlement');
             if(kind==='payments')return payment_fields.indexOf(item.category)>=0 || item.category==='vat_settlement';
             return true;
@@ -501,7 +628,7 @@
         if(!items.length)html+='<tr><td colspan="3">'+__('No entries for this date.')+'</td></tr>';
         items.forEach(function(item){
             var field=detail_fields.find(function(value){return value[0]===item.category;});
-            var label=field?__(field[1]):(item.category==='vat_settlement'?__('Quarterly VAT Settlement'):__('VAT Adjustment for Quarter-End'));
+            var label=item.category==='proposed_purchase'?__('Proposed Supplier Payment'):(field?__(field[1]):(item.category==='vat_settlement'?__('Quarterly VAT Settlement'):__('VAT Adjustment for Quarter-End')));
             var notes='';
             if(item.doctype && item.name)notes='<a target="_blank" rel="noopener" href="#Form/'+encodeURIComponent(item.doctype)+'/'+encodeURIComponent(item.name)+'">'+esc(item.name)+'</a>';
             var related=Array.isArray(item.related_documents)?item.related_documents.slice():[];
@@ -754,6 +881,9 @@
             });
         },
         get_datatable_options: function (options) {
+            options.disableReorderColumn=false;
+            options.headerDropdown=(options.headerDropdown || []).concat([{label:__('Pin / Unpin Column'),
+                action:function(column){toggle_pinned_column(this,column);}}]);
             (options.columns || []).forEach(function(column){
                 if (column.fieldname === 'date') column.width = Math.max(Number(column.width) || 0,145);
             });
