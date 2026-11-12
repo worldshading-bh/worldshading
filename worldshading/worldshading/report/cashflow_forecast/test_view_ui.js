@@ -86,3 +86,31 @@ boundClick.call({}, {preventDefault:()=>{}});
 assert(dialog.fields[0].options.includes('VAT Adjustment for Quarter-End'));
 assert(dialog.fields[0].options.includes('Not a payment today.'));
 assert(!dialog.fields[0].options.includes('VAT Accrual'));
+
+// Opening cash opens the saved account breakdown without requests or report rebuilds.
+assert.strictEqual(settings.filters.find(f=>f.fieldname==='forecast_date').hidden,1);
+report.raw_data={result:[{date:'2026-11-10',opening_cash:105,currency:'BHD',_cashflow_context:{
+ forecast_date:'2026-11-10',support_amount:'10.000',opening_accounts:[
+ {account:'Bank <Main>',amount:'100.000'},{account:'Cash',amount:'-5.000'}],
+ report_summary:[{label:'Opening Available Cash',value:105,datatype:'Currency',currency:'BHD'}]}}]};
+settings.after_datatable_render();
+assert(summaryHTML.includes('cashflow-opening-balance'));
+assert(summaryHTML.includes('View account balances'));
+boundClick.call({classList:{contains:name=>name==='cashflow-opening-balance'}},{preventDefault:()=>{}});
+assert.strictEqual(dialog.title,'Opening Cash');
+let openingDetails=dialog.fields[0].options;
+assert(openingDetails.includes('Bank &lt;Main&gt;'));
+assert(!openingDetails.includes('Bank <Main>'));
+assert(openingDetails.includes('BHD -5.000'));
+assert(openingDetails.includes('Support'));
+assert(openingDetails.includes('BHD 105.000'));
+assert(openingDetails.includes('10-11-2026'));
+assert.strictEqual(report.raw_data.result[0].opening_cash,105);
+// Older snapshots can use the same account parsing as Report Notes.
+report.raw_data={result:[{date:'2026-11-10',opening_cash:120,currency:'BHD',_cashflow_context:{
+ message:'Bank - WS: 100.000; Cash - WS: 20.000'}}]};
+settings.after_datatable_render();
+boundClick.call({classList:{contains:()=>true}},{preventDefault:()=>{}});
+assert(dialog.fields[0].options.includes('Bank - WS'));
+assert(dialog.fields[0].options.includes('BHD 120.000'));
+console.log('Opening cash account breakdown, support, escaping and hidden start date passed');
