@@ -176,3 +176,12 @@ assert(settings.formatter(130,0,{fieldname:'other_receipts'},report.data[0],form
 report.prepare_report_data({columns:[],result:[Object.assign({},rows[0],{sources:[]})]});settings.after_datatable_render();
 assert(!summaryHTML.includes('class="cashflow-manual-inputs"'));
 console.log('Compact manual-input summary, saved-date breakdown and exact-cell highlights passed');
+
+report.prepare_report_data({columns:[],result:[{date:'2026-11-10',opening_cash:100,currency:'BHD',
+ _cashflow_context:{forecast_date:'2026-11-10',opening_accounts:[{account:'Bank',amount:100}],
+ excluded_opening_accounts:[{account:'Deposit <Restricted>',amount:200}]}}]});
+settings.after_datatable_render();
+boundClick.call({classList:{contains:name=>name==='cashflow-opening-balance'}},{preventDefault:()=>{}});
+assert(dialog.fields[0].options.includes('Excluded Accounts'));assert(dialog.fields[0].options.includes('Deposit &lt;Restricted&gt;'));
+assert(dialog.fields[0].options.includes('BHD 100.000'));assert(!dialog.fields[0].options.includes('BHD 300.000'));
+console.log('Opening breakdown separates included and excluded balances without adding exclusions to total');

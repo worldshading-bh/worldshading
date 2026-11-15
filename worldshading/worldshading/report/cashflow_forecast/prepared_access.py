@@ -6,7 +6,7 @@ cached results, so its normal authorization must also run on retrieval/export.
 import frappe
 from frappe import _
 
-from .cashflow_forecast import authorize, get_prepared_filters, resolve_accounts, get_overdue_commitments, normalize_generation_filters
+from .cashflow_forecast import authorize, get_prepared_filters, resolve_accounts, get_overdue_commitments, normalize_generation_filters, selected_accounts
 
 REPORT = 'Cashflow Forecast'
 
@@ -29,7 +29,7 @@ def guard_request(report_name, filters=None, user=None):
         get_prepared_filters(name)
     else:
         authorize(values.get('company'))
-        resolve_accounts(values.get('company'))
+        selected_accounts(values.get('company'), values.get('excluded_accounts'))
     return True
 
 

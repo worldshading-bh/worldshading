@@ -66,6 +66,24 @@ def resolve_accounts(company):
     return sorted(names)
 
 
+def normalize_excluded_accounts(value):
+    names = parse_list(value, 'Exclude Accounts')
+    if any(not isinstance(name, str) or not name.strip() for name in names):
+        frappe.throw(_('Exclude Accounts must contain account names.'))
+    return sorted(set(names))
+
+
+def selected_accounts(company, excluded=None):
+    accounts = resolve_accounts(company)
+    excluded = normalize_excluded_accounts(excluded)
+    if not set(excluded).issubset(accounts):
+        frappe.throw(_('Only ledger accounts under this company’s Bank Accounts and Cash In Hand can be excluded.'))
+    included = [name for name in accounts if name not in excluded]
+    if not included:
+        frappe.throw(_('Keep at least one bank or cash account included.'))
+    return included
+
+
 def validate(filters):
     filters = frappe._dict(filters or {})
     authorize(filters.company)
@@ -90,7 +108,8 @@ def validate(filters):
             raise ValueError('Include Overdue Commitments must be checked or unchecked.')
     except (ValueError, TypeError) as exc:
         frappe.throw(str(exc))
-    accounts = resolve_accounts(filters.company)
+    filters.excluded_accounts = normalize_excluded_accounts(filters.get('excluded_accounts'))
+    accounts = selected_accounts(filters.company, filters.excluded_accounts)
     expenses = parse_list(filters.extra_expenses, 'Extra Expenses')
     if len(expenses) > 500:
         frappe.throw(_('Maximum 500 scenario expense rows.'))
@@ -176,9 +195,11 @@ def preview_purchase(company, end_date, purchase):
 
 
 @frappe.whitelist()
-def get_accounts(company):
+def get_accounts(company, names_only=False):
     authorize(company)
     names = [frappe._dict(name=name) for name in resolve_accounts(company)]
+    if names_only in (True, 1, '1'):
+        return [dict(value=item.name, label=item.name, description='') for item in names]
     result = []
     for item in names:
         amount = money(frappe.db.sql('''select coalesce(sum(debit-credit),0) from `tabGL Entry`
@@ -199,8 +220,10 @@ def normalize_generation_filters(values):
         requested = as_date(values.get('end_date'))
         if (requested-start).days > 730:
             raise ValueError('End date must be at most 730 days ahead.')
-        accounts = resolve_accounts(values.get('company'))
-        minimum = minimum_purchase_end(values.get('company'), accounts, start)
+        values['excluded_accounts'] = normalize_excluded_accounts(values.get('excluded_accounts'))
+        accounts = selected_accounts(values.get('company'), values['excluded_accounts'])
+        minimum = minimum_purchase_end(values.get('company'), accounts, start,
+            sorted(set(accounts+values['excluded_accounts']))) if values['excluded_accounts'] else minimum_purchase_end(values.get('company'), accounts, start)
         end = adjust_end_date(requested, start, minimum['date'] if minimum else None)
     except (ValueError, TypeError) as exc:
         frappe.throw(str(exc))
@@ -214,6 +237,7 @@ def execute(filters=None):
     filters, date_change = normalize_generation_filters(filters)
     filters, start, end, accounts, extra = validate(filters)
     source = Sources(filters.company, accounts, start, end, int(filters.get('include_overdue', 0)))
+    source.liquidity_accounts = sorted(set(accounts+(filters.get('excluded_accounts') or [])))
     source.manual_daily_sales = money(filters.average_daily_sales) if filters.manual_sales else None
     source.collect()
     if not filters.include_overdue and getattr(source, 'overdue', []):
@@ -305,6 +329,8 @@ def render_forecast(source, filters, start, end, accounts, extra):
     displayed[0]['_cashflow_context'] = dict(message=message, chart=chart,
         report_summary=cards, forecast_date=str(start), forecast_end_date=str(end), accounts=accounts, account_scope=ACCOUNT_SCOPE,
         opening_accounts=[dict(account=r['account'],amount=str(r['amount'])) for r in source.accounts_breakdown],
+        excluded_accounts=filters.get('excluded_accounts') or [],
+        excluded_opening_accounts=[dict(account=r['account'],amount=str(r['amount'])) for r in (getattr(source,'excluded_accounts_breakdown',None) or [])],
         support_amount=str(money(filters.support_amount)), sales_adjustment=str(money(filters.sales_adjustment)), minimum_reserve=str(money(filters.minimum_reserve)),
         today_policy='auto-v1', warnings=source.warnings, vat_policy='quarter-v4',
         manual_sales=bool(filters.manual_sales), average_daily_sales=str(money(filters.average_daily_sales)), holiday_list=getattr(source,'holiday_list',None),
@@ -323,7 +349,7 @@ def report_message(source, filters, extra):
                (' Support added to opening cash: {0:,.3f}.'.format(money(filters.support_amount)) if money(filters.support_amount) else '')),
         escape(amounts),
         escape('Today shows actual submitted sales plus the remaining forecast. Only remaining sales enter cash; actual posted cash and VAT are already in the opening balances.'),
-        'Opening liquidity includes every ledger under Bank Accounts and Cash In Hand, including nested groups; all company commitments consume this pool.',
+        'Opening liquidity uses the included ledgers under Bank Accounts and Cash In Hand; all company commitments consume this pool.',
         'Payroll forecast: 28th monthly. Customs/import VAT: PO ETA. Quarterly net VAT: 25th of the following month; credits carry forward.',
         'Journal Entries use their net effect on the included account groups. Unlinked salary or expense matches require Accounts review.',
         'Temporary scenario inputs create no accounting transactions. A positive balance is subject to source coverage and assumptions.']
@@ -370,7 +396,7 @@ def get_prepared_filters(prepared_report_name):
         frappe.throw(_('Invalid prepared forecast filters.'))
     authorize(filters.get('company'))
     if filters.get('account_scope') == ACCOUNT_SCOPE:
-        resolve_accounts(filters.get('company'))
+        selected_accounts(filters.get('company'), filters.get('excluded_accounts'))
     # Preserve access checks for historical snapshots created with manual selection.
     for account in parse_list(filters.get('accounts'), 'Accounts'):
         doc = frappe.get_doc('Account', account)
@@ -386,7 +412,9 @@ def get_overdue_commitments(filters):
     filters, start, end, accounts, extra = validate(values)
     if filters.include_overdue:
         return dict(items=[], include_overdue=True)
-    source = Sources(filters.company, accounts, start, end, False).collect_commitments()
+    source = Sources(filters.company, accounts, start, end, False)
+    source.liquidity_accounts = sorted(set(accounts+(filters.get('excluded_accounts') or [])))
+    source.collect_commitments()
     grouped = {}
     for row in source.overdue:
         key = (str(row['date']), row.get('doctype') or '', row.get('name') or '', row['category'])
@@ -416,7 +444,7 @@ def get_overdue_commitments(filters):
 
 def calculation_inputs(source):
     """Immutable inputs for quick purchase checks; stored only inside protected snapshots."""
-    keys = ('company','currency','opening_balance','events','historical','vat_opening','accounts_breakdown',
+    keys = ('liquidity_accounts','excluded_accounts_breakdown','company','currency','opening_balance','events','historical','vat_opening','accounts_breakdown',
             'warnings','actual_sales_today','vat_reconciliation','vat_ledger_balance','overdue','journal_stats',
             'holidays','holiday_list','payroll_reconciliation')
     return {key:getattr(source,key,None) for key in keys}
@@ -433,7 +461,9 @@ def recalculate_purchase(prepared_report_name, filters):
         frappe.throw('Rebuild this forecast once to enable quick purchase checks.')
     values = frappe.parse_json(filters) if isinstance(filters,str) else filters
     filters,start,end,accounts,extra = validate(values)
-    base = context.get('base_filters') or {}
+    filters.excluded_accounts = normalize_excluded_accounts(filters.get('excluded_accounts'))
+    base = dict(context.get('base_filters') or {})
+    base['excluded_accounts'] = normalize_excluded_accounts(base.get('excluded_accounts'))
     ignored = {'purchase_scenario','prepared_report_name'}
     if {k:v for k,v in filters.items() if k not in ignored} != {k:v for k,v in base.items() if k not in ignored}:
         frappe.throw('Forecast filters have changed. Rebuild before checking a purchase.')
