@@ -32,7 +32,7 @@ def latest_supplier_payment(rows, invoice_pos, start):
     return latest
 
 
-def minimum_purchase_end(company, accounts, start):
+def minimum_purchase_end(company, accounts, start, liquidity_accounts=None):
     import frappe
     from .sources import Sources
     for doctype in ('Purchase Order', 'Purchase Invoice', 'Payment Entry', 'Journal Entry'):
@@ -41,6 +41,7 @@ def minimum_purchase_end(company, accounts, start):
     # Reuse outstanding/advance/payment matching, but skip taxes, payroll, recurring
     # expenses and sales. Scan all payment dates so the 730-day guard cannot hide one.
     source = Sources(company, accounts, start, date.max, False)
+    source.liquidity_accounts = liquidity_accounts or accounts
     source._supplier_horizon_only = True
     source.supplier_invoices()
     source.purchase_orders()

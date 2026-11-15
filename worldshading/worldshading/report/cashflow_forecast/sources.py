@@ -146,10 +146,12 @@ class Sources(object):
         # Single-account branches use v12's existing account index reliably. A broad
         # IN/GROUP BY can choose the company index and scan the whole company ledger.
         index = {}
+        liquidity = getattr(self, 'liquidity_accounts', None) or self.accounts
+        self.excluded_accounts_breakdown = []
         branch = """select account, coalesce(sum(debit-credit),0) balance from `tabGL Entry`
             where company=%s and account=%s and posting_date<=%s group by account"""
-        for offset in range(0, len(self.accounts), 100):
-            batch = self.accounts[offset:offset+100]
+        for offset in range(0, len(liquidity), 100):
+            batch = liquidity[offset:offset+100]
             parameters = tuple(value for account in batch for value in (self.company, account, self.start))
             balances = frappe.db.sql(' union all '.join([branch]*len(batch)), parameters, as_dict=1)
             index.update({row.account: money(row.balance) for row in balances})
@@ -158,6 +160,8 @@ class Sources(object):
             balance = index.get(account, money(0))
             self.accounts_breakdown.append(dict(account=account, amount=balance))
             self.opening_balance += balance
+        self.excluded_accounts_breakdown = [dict(account=account,amount=index.get(account,money(0)))
+            for account in liquidity if account not in self.accounts]
 
     def forecast_holidays(self):
         """Use dated calendars automatically; uncovered dates remain working days."""
@@ -773,6 +777,9 @@ class Sources(object):
             workflow_state=glp.get('workflow_state') or '', basis='Prepared GL Payment')
         due = self.due(glp.posting_date, glp.name)
         if glp.payment_type == 'Incoming':
+            excluded = set(getattr(self,'liquidity_accounts',None) or self.accounts)-set(self.accounts)
+            if glp.get('payment_account') in excluded:
+                return
             self.event(due, 'other_receipts', glp.total_amount, 'GL Payment', glp.name, 'Scheduled incoming payment')
             return
         total = money(glp.total_amount)

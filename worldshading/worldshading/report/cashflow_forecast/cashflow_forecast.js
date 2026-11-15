@@ -60,6 +60,61 @@
         report.raw_data.columns = columns;
     }
 
+    function set_excluded_values(field, values) {
+        if (!field) return;
+        if (typeof values === 'string') {
+            try {values=JSON.parse(values);} catch(error) {values=[values];}
+        }
+        values=Array.isArray(values)?values.slice():[];
+        // Native v12 MultiSelectList.set_input does not restore its values array.
+        // Use its setter with change handling suppressed, so loading a snapshot
+        // cannot refresh or queue another report. Seed escaped selected labels.
+        field._options=values.map(function(name){return {value:name,label:esc(name),description:''};}).concat(
+            (field._options || []).filter(function(option){return values.indexOf(option.value)<0;}));
+        field._selected_values=[];
+        var changing=field.inside_change_event;
+        field.inside_change_event=true;
+        try {
+            if(field.set_value)field.set_value(values);
+            else if(field.set_input)field.set_input(values);
+        } finally {field.inside_change_event=changing;}
+    }
+
+    function exclusion_options(report, text) {
+        if(!report || report.report_name!=='Cashflow Forecast')return Promise.resolve([]);
+        var company=report.get_filter_value('company');
+        if(!company)return Promise.resolve([]);
+        var cache=report._cashflow_account_options;
+        if(!cache || cache.company!==company) {
+            cache={company:company};report._cashflow_account_options=cache;
+            cache.promise=frappe.call({method:method+'get_accounts',args:{company:company,names_only:1}}).then(function(response) {
+                if(report.get_filter_value('company')!==company)return [];
+                return (response.message || []).map(function(item){return {value:item.value,label:esc(item.label || item.value),description:esc(item.description || '')};});
+            },function(error){if(report._cashflow_account_options===cache)report._cashflow_account_options=null;throw error;});
+        }
+        return cache.promise.then(function(options) {
+            var search=String(text || '').toLowerCase();
+            return options.filter(function(option){return String(option.value).toLowerCase().indexOf(search)>=0;});
+        });
+    }
+
+    function company_changed(report) {
+        report._cashflow_account_options=null;
+        var field=report.get_filter && report.get_filter('excluded_accounts');
+        if(field)field._options=[];
+        set_excluded_values(field,[]);
+        account_scope_changed(report);
+    }
+
+    function account_scope_changed(report) {
+        if(report.page && report.page.main && report.page.main.find) {
+            var box=report.page.main.find('.cashflow-context');
+            if(box.html)box.html('');
+        }
+        if(report.prepared_report && report.reset_report_view)report.reset_report_view();
+        else if(!report._no_refresh && report.refresh)report.refresh();
+    }
+
     function sales_tooltip(report, row) {
         var snapshot = context_for(report);
         var adjustment = snapshot.sales_adjustment;
@@ -388,10 +443,33 @@
         return accounts;
     }
 
+    function collapse_styles() {
+        return '<style>'+
+            '.cashflow-expandable>summary,.cashflow-review-group>summary{list-style:none;display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0;}'+
+            '.cashflow-expandable>summary::-webkit-details-marker,.cashflow-review-group>summary::-webkit-details-marker{display:none;}'+
+            '.cashflow-expandable>summary::marker,.cashflow-review-group>summary::marker{content:"";}'+
+            '.cashflow-collapse-chevron{display:inline-block;flex:0 0 12px;width:12px;font-size:12px;line-height:1;color:#52647a;transform:rotate(0deg);}'+
+            '.cashflow-expandable[open]>summary>.cashflow-collapse-chevron,.cashflow-review-group[open]>summary>.cashflow-collapse-chevron{transform:rotate(90deg);}'+
+            '.cashflow-expandable>summary:focus,.cashflow-review-group>summary:focus{outline:2px solid #9bbcf2;outline-offset:2px;}'+
+            '</style>';
+    }
+
+    function collapse_heading(html) {
+        return '<summary><span class="cashflow-collapse-chevron" aria-hidden="true">&#9656;</span><span>'+html+'</span></summary>';
+    }
+
+    function excluded_accounts_html(snapshot, currency) {
+        var rows=snapshot.excluded_opening_accounts || [];
+        if(!rows.length)return '';
+        var html='<details class="cashflow-expandable">'+collapse_heading(esc(__('Excluded Accounts')))+'<table class="table table-condensed"><tbody>';
+        rows.forEach(function(row){html+='<tr><td>'+esc(row.account)+'</td><td class="text-right">'+format_currency(row.amount,currency,3)+'</td></tr>';});
+        return html+'</tbody></table></details>';
+    }
+
     function opening_balance_details(report) {
         var raw=report.raw_data || {},snapshot=context_for(report),first=(raw.result || [])[0] || {};
         var accounts=opening_accounts(snapshot,snapshot.message || raw.message || '');
-        var html='<div style="max-height:65vh;overflow:auto">';
+        var html=collapse_styles()+'<div style="max-height:65vh;overflow:auto">';
         html+='<p>'+__('As of')+' '+esc(date_label(snapshot.forecast_date || first.date))+'</p>';
         if (accounts.length) {
             html+='<table class="table table-condensed"><thead><tr><th>'+__('Account')+'</th><th class="text-right">'+__('Balance')+'</th></tr></thead><tbody>';
@@ -408,7 +486,7 @@
             }
             html+='</tbody><tfoot><tr><th>'+__('Opening Available Cash')+'</th><th class="text-right">'+format_currency((total/1000).toFixed(3),first.currency,3)+'</th></tr></tfoot></table>';
         } else html+='<p>'+__('Account breakdown is not available in this saved report. Generate a new report to include it.')+'</p>';
-        html+='</div>';
+        html+=excluded_accounts_html(snapshot,first.currency)+'</div>';
         var dialog=new frappe.ui.Dialog({title:__('Opening Cash'),size:'large',fields:[{fieldtype:'HTML',options:html}]});dialog.show();
     }
 
@@ -419,7 +497,7 @@
         var warnings=snapshot.warnings || (message.match(/<li[^>]*>[\s\S]*?<\/li>/gi) || []).map(plain_text);
         var summary=snapshot.report_summary || raw.report_summary || [];
         var actual=summary.find(function(card){return card.label === __('Actual Sales Today (Reference)');});
-        var html='<div style="font-size:13px;line-height:1.6;color:#334155;max-height:65vh;overflow:auto">';
+        var html=collapse_styles()+'<div style="font-size:13px;line-height:1.6;color:#334155;max-height:65vh;overflow:auto">';
         html+='<table class="table table-condensed"><tbody><tr><td>'+__('Forecast Date')+'</td><td>'+esc(date_label(snapshot.forecast_date || first.date))+'</td></tr>';
         if(snapshot.manual_sales) {
             html+='<tr><td>'+__('Average Daily Sales')+'</td><td>'+format_currency(snapshot.average_daily_sales || 0,first.currency,3)+'</td></tr>';
@@ -430,7 +508,7 @@
         if(actual) html+='<tr><td>'+__('Actual Sales Today')+'</td><td>'+(actual.datatype==='Currency'?format_currency(actual.value,actual.currency,3):esc(actual.value))+'</td></tr>';
         html+='</tbody></table>';
         if(accounts.length) {
-            html+='<details><summary>'+__('Opening Account Balances')+'</summary><table class="table table-condensed"><thead><tr><th>'+__('Account')+'</th><th class="text-right">'+__('Balance')+'</th></tr></thead><tbody>';
+            html+='<details class="cashflow-expandable">'+collapse_heading(esc(__('Opening Account Balances')))+'<table class="table table-condensed"><thead><tr><th>'+__('Account')+'</th><th class="text-right">'+__('Balance')+'</th></tr></thead><tbody>';
             accounts.forEach(function(account){html+='<tr><td>'+esc(account.account)+'</td><td class="text-right">'+format_currency(account.amount,first.currency,3)+'</td></tr>';});
             html+='</tbody></table></details>';
         }
@@ -453,6 +531,7 @@
             html+='</tbody></table>';
         }
         if(warnings.length) html+='<h5 style="margin-top:16px">'+__('Items to Review')+'</h5><ul style="padding-left:20px">'+warnings.map(function(note){return '<li style="margin-bottom:7px">'+esc(short_note(note))+'</li>';}).join('')+'</ul>';
+        html+=excluded_accounts_html(snapshot,first.currency);
         if(!warnings.length && !accounts.length && message) html+='<p>'+esc(plain_text(message))+'</p>';
         html+='</div>';
         var dialog=new frappe.ui.Dialog({title:__('Report Notes'),size:'large',fields:[{fieldtype:'HTML',options:html}]});dialog.show();
@@ -773,7 +852,7 @@
             supplier_payments: __('Supplier Payment'), customs: __('Customs'), import_vat: __('Import VAT'),
             quarterly_vat: __('VAT Settlement'), vat_settlement: __('VAT Settlement'), other_payments: __('Other Payment')};
         var items = review.items || [];
-        var html=review.saved ? '<p>'+__('Overdue payments included in this report')+' — '+esc(date_label(review.forecast_date))+'</p>' : '<p>'+__('Review overdue payments. Update dates or complete payment, or include them today.')+'</p>';
+        var html=collapse_styles()+(review.saved ? '<p>'+__('Overdue payments included in this report')+' — '+esc(date_label(review.forecast_date))+'</p>' : '<p>'+__('Review overdue payments. Update dates or complete payment, or include them today.')+'</p>');
         html+='<p>'+__('Check existing payments before paying again.')+'</p><p>'+__('Overdue items')+': '+items.length+'</p>';
         var groups = review.groups || [{id:'legacy',title:__('Overdue items'),action:'',items:items,
             total_amount:items.reduce(function(total,item){return total+Number(item.amount || 0);},0)}];
@@ -783,8 +862,8 @@
         html += '<div style="max-height:520px;overflow:auto">';
         groups.forEach(function(group){
             html += '<details class="cashflow-review-group" data-group="'+esc(group.id)+'" style="margin:12px 0;border:1px solid #ddd;padding:10px">'+
-                '<summary><strong>'+esc(__(group.title))+'</strong> — '+group.items.length+' '+__('items')+' — '+
-                format_currency(group.total_amount,review.currency,3)+'</summary><p class="text-muted" style="margin-top:8px">'+esc(__(group.action || ''))+'</p>'+
+                collapse_heading('<strong>'+esc(__(group.title))+'</strong> — '+group.items.length+' '+__('items')+' — '+
+                format_currency(group.total_amount,review.currency,3))+'<p class="text-muted" style="margin-top:8px">'+esc(__(group.action || ''))+'</p>'+
                 '<table class="table table-bordered"><thead><tr><th>'+__('Due Date')+'</th><th>'+__('Purpose')+'</th><th>'+__('Amount')+
                 '</th><th>'+__('Document / Workflow')+'</th><th>'+__('Notes')+'</th></tr></thead><tbody>';
             group.items.forEach(function(item){
@@ -814,7 +893,9 @@
             {fieldname: 'forecast_date', label: __('Forecast Date'), fieldtype: 'Date', read_only: 1, hidden: 1,
                 default: frappe.datetime.get_today()},
             {fieldname: 'company', label: __('Company'), fieldtype: 'Link', options: 'Company', reqd: 1,
-                default: frappe.defaults.get_user_default('Company')},
+                default: frappe.defaults.get_user_default('Company'),on_change:company_changed},
+            {fieldname:'excluded_accounts',label:__('Exclude Accounts'),fieldtype:'MultiSelectList',default:[],placeholder:__('Exclude Accounts'),
+                get_data:function(text){return exclusion_options(frappe.query_report,text);},on_change:account_scope_changed},
             {fieldname: 'end_date', label: __('Forecast Until'), fieldtype: 'Date', reqd: 1,
                 default: frappe.datetime.add_months(frappe.datetime.get_today(), 3)},
             {fieldname: 'account_scope', fieldtype: 'Data', hidden: 1, default: 'parent-groups-v1'},
@@ -839,6 +920,8 @@
             {fieldname: 'extra_expenses', label: __('Scenario Expenses JSON'), fieldtype: 'Small Text', hidden: 1, default: '[]'}
         ],
         onload: function (report) {
+            var excluded=(report.filters || []).find(function(field){return field.df && field.df.fieldname==='excluded_accounts';});
+            if(excluded)set_excluded_values(excluded,excluded.get_value ? excluded.get_value() : []);
             toggle_sales_fields(report);
             if (!report._cashflow_export_wrapped && typeof report.export_report==='function') {
                 var original_export=report.export_report;
@@ -950,7 +1033,8 @@
                 var values = response.message || {};
                 (report.filters || []).forEach(function (field) {
                     var name = field.df.fieldname;
-                    if (Object.prototype.hasOwnProperty.call(values, name)) field.set_input(values[name]);
+                    if(name==='excluded_accounts')set_excluded_values(field,values[name] || []);
+                    else if (Object.prototype.hasOwnProperty.call(values, name)) field.set_input(values[name]);
                 });
                 toggle_sales_fields(report);
             });

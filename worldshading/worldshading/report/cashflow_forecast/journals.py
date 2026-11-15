@@ -47,7 +47,8 @@ class Journals(object):
         posted = list(s.documents('Journal Entry', {'docstatus': 1,
             'posting_date': ['between', [s.start+timedelta(days=1), s.end]]}))
         states = self.workflow_states() if pending else set()
-        pool = set(getattr(s, 'accounts', []))
+        selected = set(getattr(s, 'accounts', []))
+        pool = set(getattr(s, 'liquidity_accounts', None) or selected)
         fields = ('account', 'debit', 'credit', 'party_type', 'party', 'reference_type', 'reference_name')
         for doc in sorted(pending+posted, key=lambda d: (as_date(d.posting_date), d.name)):
             is_pending = doc.docstatus == 0
@@ -55,6 +56,9 @@ class Journals(object):
                 continue
             rows = [{key: r.get(key) for key in fields} for r in doc.accounts]
             cash = journal_effect(rows, pool)
+            transfer = not cash and bool(journal_effect(rows, selected))
+            if transfer or cash < 0:
+                cash = journal_effect(rows, selected)
             if is_pending:
                 if doc.get('transaction_type') == 'Security Cheque' or 'Security' in (doc.get('workflow_state') or ''):
                     self.stats['security_review'] += 1
@@ -67,17 +71,17 @@ class Journals(object):
                 if not cash:
                     self.stats['internal_or_noncash'] += 1
                     continue
-                if cash < 0:
+                if cash < 0 and not transfer:
                     self.stats['pending_incoming'] += 1
                     s.warn('{0}: pending incoming JE is not added to invoice-based receipts; verify collection separately.'.format(doc.name))
                     continue
-                self.stats['pending_outgoing'] += 1
+                if cash > 0:self.stats['pending_outgoing'] += 1
             else:
                 if not cash:
                     self.stats['internal_or_noncash'] += 1
                     continue
                 self.stats['posted_future'] += 1
-            refs, ambiguous = journal_reference_allocations(rows, pool) if is_pending else ({}, False)
+            refs, ambiguous = journal_reference_allocations(rows, pool) if is_pending and not transfer else ({}, False)
             counterparts = [r for r in rows if r['account'] not in pool and money(r.get('debit')) > money(r.get('credit'))]
             names = [self.account_info(r['account']).get('account_name') or r['account'] for r in counterparts]
             payroll = any(r.get('reference_type') == 'Payroll Entry' for r in counterparts) or any(
@@ -88,6 +92,7 @@ class Journals(object):
             tax = bool(settlement_amount(rows, pool, {'Output VAT – Sales - WS', 'Input VAT – Local - WS', 'Input VAT – Import - WS'}, 'Output VAT – Sales - WS'))
             if tax: refs = {}
             kind = 'vat_settlement' if tax else ('payroll' if payroll else ('supplier_payments' if supplier else 'other_payments'))
+            if transfer:kind = 'other_payments' if cash > 0 else 'other_receipts'
             notes = []
             if tax and not referenced_quarter(' '.join(str(doc.get(k) or '') for k in ('user_remark','remark','remarks'))):
                 notes.append('VAT quarter missing; payment is allocated to the oldest unpaid quarter. Verify the allocation.')
@@ -103,9 +108,12 @@ class Journals(object):
                 notes.append('Cheque payment uses posting date provisionally; verify expected clearance/payment date.')
             related = [dict(doctype=r['reference_type'], name=r['reference_name']) for r in counterparts
                        if r.get('reference_type') and r.get('reference_name')]
+            if transfer:
+                related = [dict(doctype='Account',name=r['account']) for r in rows if r['account'] in pool]
             info = dict(related=related, doc=doc, rows=rows, cash=cash, pending=is_pending, refs=refs, category=kind,
                         counterparts=[r['account'] for r in counterparts], notes=notes,
                         description='Net cash movement; {0}; counterpart: {1}'.format(doc.get('workflow_state') or '', ', '.join(names)))
+            if transfer:info['description'] = 'Transfer across included and excluded bank/cash accounts'
             self.entries.append(info)
             s.register_source('Journal Entry', doc.name, workflow_state=doc.get('workflow_state') or '',
                 review_note=' '.join(notes), related_documents=related, basis='Prepared Journal Entry; net effect on bank/cash pool')

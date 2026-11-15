@@ -18,6 +18,7 @@ class VatSources(object):
     def load(self):
         s=self.source
         accounts=tuple(TAX_ACCOUNTS[k] for k in ('output','local','import'))
+        liquidity = getattr(s, 'liquidity_accounts', None) or s.accounts
         for name in accounts:
             if not frappe.db.exists('Account',{'name':name,'company':s.company}):
                 frappe.throw('VAT account mapping missing: '+name)
@@ -40,7 +41,7 @@ class VatSources(object):
                 where j.company=%s and j.docstatus=1 and j.posting_date<=%s and a.account in %s
                 group by j.name having sum(round(a.credit,3)-round(a.debit,3))>0
             )""",
-            parameters+(TAX_ACCOUNTS['output'],s.company,s.end,tuple(s.accounts) or ('',)),as_dict=1)
+            parameters+(TAX_ACCOUNTS['output'],s.company,s.end,tuple(liquidity) or ('',)),as_dict=1)
         latest=quarter(quarter(s.start)-timedelta(days=1))
         unreadable=[]
         for row in candidates:
@@ -50,7 +51,7 @@ class VatSources(object):
                 continue
             doc=s.read_document(row.voucher_type,row.voucher_no)
             if doc.docstatus!=1:continue
-            amount=settlement_amount([r.as_dict() for r in doc.accounts],set(s.accounts),set(accounts),TAX_ACCOUNTS['output'])
+            amount=settlement_amount([r.as_dict() for r in doc.accounts],set(liquidity),set(accounts),TAX_ACCOUNTS['output'])
             if not amount or amount!=-money(row.change_amount):
                 # Ordinary VAT adjustments remain in ledger activity, not settlement proof.
                 continue
