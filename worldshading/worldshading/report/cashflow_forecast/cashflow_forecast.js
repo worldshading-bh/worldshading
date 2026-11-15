@@ -94,7 +94,11 @@
         }
         return cache.promise.then(function(options) {
             var search=String(text || '').toLowerCase();
-            return options.filter(function(option){return String(option.value).toLowerCase().indexOf(search)>=0;});
+            var selected=report.get_filter_value('excluded_accounts') || [];
+            if(!Array.isArray(selected))selected=[selected];
+            var chosen=selected.map(function(value){return options.find(function(option){return option.value===value;});}).filter(Boolean);
+            var remaining=options.filter(function(option){return selected.indexOf(option.value)<0 && String(option.value).toLowerCase().indexOf(search)>=0;});
+            return chosen.concat(remaining);
         });
     }
 
