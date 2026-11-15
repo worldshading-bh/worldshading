@@ -326,6 +326,54 @@
     function date_label(value) {
         return /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? String(value).split('-').reverse().join('-') : String(value || '');
     }
+    function manual_inputs(report) {
+        var groups = {support:[],expenses:[],purchases:[]};
+        var rows = report && report.raw_data && report.raw_data.result || [];
+        rows.forEach(function(row) {
+            (row.sources || []).forEach(function(item) {
+                if (!isFinite(Number(item.amount)) || Number(item.amount) <= 0) return;
+                if (item.manual_support && item.category === 'other_receipts') groups.support.push(item);
+                else if (item.category === 'extra_expenses') groups.expenses.push(item);
+                else if (item.scenario && item.category !== 'vat_accrual') groups.purchases.push(item);
+            });
+        });
+        return groups;
+    }
+
+    function manual_input_strip(report, currency) {
+        var groups = manual_inputs(report);
+        var labels = {support:__('Support'),expenses:__('Extra Expenses'),purchases:__('Purchases')};
+        var buttons = Object.keys(groups).filter(function(key){return groups[key].length;}).map(function(key) {
+            var total = groups[key].reduce(function(sum,item){return sum+Math.round(Number(item.amount)*1000);},0)/1000;
+            return '<button type="button" class="cashflow-manual-input" data-input-kind="'+key+'" title="'+
+                esc(__('View dates and amounts'))+'">'+esc(labels[key])+' · <b>'+format_currency(total,currency,3)+'</b></button>';
+        }).join('');
+        return buttons ? '<div class="cashflow-manual-inputs">'+buttons+'</div>' : '';
+    }
+
+    function manual_input_details(report, kind) {
+        var groups = manual_inputs(report),items = groups[kind];
+        if (!items || !items.length) return;
+        var labels = {support:__('Support'),expenses:__('Extra Expenses'),purchases:__('Purchases')};
+        var first = (report.raw_data.result || [])[0] || {};
+        var currency = first.currency;
+        var html = '<div style="max-height:60vh;overflow:auto"><table class="table table-bordered"><thead><tr><th>'+__('Date')+
+            '</th><th>'+__('Details')+'</th><th class="text-right">'+__('Amount')+'</th></tr></thead><tbody>';
+        items.slice().sort(function(a,b){return String(a.date).localeCompare(String(b.date));}).forEach(function(item) {
+            var description = item.description || labels[kind];
+            if (kind === 'purchases') {
+                var type = item.category === 'customs' ? __('Customs') : (item.category === 'import_vat' ? __('Import VAT') :
+                    (item.scenario_kind === 'arrival' ? __('Import Charges') : __('Supplier Payment')));
+                description = (item.purchase_number ? __('Purchase')+' '+item.purchase_number+' · ' : '')+type;
+            }
+            html += '<tr><td style="white-space:nowrap">'+esc(date_label(item.date))+'</td><td>'+esc(description)+
+                '</td><td class="text-right" style="white-space:nowrap">'+format_currency(item.amount,currency,3)+'</td></tr>';
+        });
+        html += '</tbody></table></div>';
+        var dialog = new frappe.ui.Dialog({title:labels[kind],fields:[{fieldtype:'HTML',options:html}]});
+        dialog.show();
+    }
+
     function opening_accounts(snapshot,message) {
         var accounts=(snapshot.opening_accounts || (snapshot.calculation_inputs || {}).accounts_breakdown || []).slice();
         if (!accounts.length) {
@@ -378,7 +426,7 @@
             html+='<tr><td>'+__('Holiday List')+'</td><td>'+esc(snapshot.holiday_list || __('None'))+'</td></tr>';
         }
         if(!snapshot.manual_sales && snapshot.sales_adjustment!==undefined) html+='<tr><td>'+__('Sales Change')+'</td><td>'+esc(Number(snapshot.sales_adjustment))+'%</td></tr>';
-        if(snapshot.support_amount!==undefined) html+='<tr><td>'+__('Support')+'</td><td>'+format_currency(snapshot.support_amount,first.currency,3)+'</td></tr>';
+        if(Number(snapshot.support_amount)) html+='<tr><td>'+__('Support Added to Opening Cash')+'</td><td>'+format_currency(snapshot.support_amount,first.currency,3)+'</td></tr>';
         if(actual) html+='<tr><td>'+__('Actual Sales Today')+'</td><td>'+(actual.datatype==='Currency'?format_currency(actual.value,actual.currency,3):esc(actual.value))+'</td></tr>';
         html+='</tbody></table>';
         if(accounts.length) {
@@ -410,22 +458,27 @@
         var dialog=new frappe.ui.Dialog({title:__('Report Notes'),size:'large',fields:[{fieldtype:'HTML',options:html}]});dialog.show();
     }
 
-    function scenarios(report) {
-        try { return JSON.parse(report.get_filter_value('extra_expenses') || '[]'); }
+    function scenarios(report, field) {
+        try { return JSON.parse(report.get_filter_value(field || 'extra_expenses') || '[]'); }
         catch (e) { return []; }
     }
 
-    function edit_expenses(report) {
+    function edit_expenses(report, support) {
+        var filter = support ? 'support_payments' : 'extra_expenses';
+        var title = support ? __('Support') : __('Extra Expenses');
+        var rows = scenarios(report, filter);
+        var legacy = support ? Number(report.get_filter_value('support_amount') || 0) : 0;
+        if (legacy > 0) rows.unshift({date:frappe.datetime.get_today(),amount:legacy,description:''});
         var dialog = new frappe.ui.Dialog({
-            title: __('Extra Expenses'), size: 'large',
+            title: title, size: 'large',
             fields: [
-                {fieldtype: 'HTML', options: '<p>'+__('Add expenses not already included.')+'</p>'},
-                {fieldname: 'expenses', fieldtype: 'Table', label: __('Extra Expenses'),
-                    cannot_add_rows: false, in_place_edit: true, data: scenarios(report),
+                {fieldtype: 'HTML', options: '<p>'+(support ? __('Add incoming support by date.') : __('Add expenses not already included.'))+'</p>'},
+                {fieldname: 'expenses', fieldtype: 'Table', label: title,
+                    cannot_add_rows: false, in_place_edit: true, data: rows,
                     fields: [
-                        {fieldname: 'date', fieldtype: 'Date', label: __('Payment Date'), reqd: 1, in_list_view: 1},
+                        {fieldname: 'date', fieldtype: 'Date', label: support ? __('Date') : __('Payment Date'), reqd: 1, in_list_view: 1},
                         {fieldname: 'amount', fieldtype: 'Currency', precision: 3, label: __('Amount'), reqd: 1, in_list_view: 1},
-                        {fieldname: 'description', fieldtype: 'Data', label: __('Description'), reqd: 1, in_list_view: 1}
+                        {fieldname: 'description', fieldtype: 'Data', label: __('Description'), reqd: support ? 0 : 1, in_list_view: 1}
                     ]}
             ],
             primary_action_label: __('Apply'),
@@ -433,12 +486,17 @@
                 var data = values.expenses || [];
                 var valid = data.every(function (row) {
                     return row.date >= frappe.datetime.get_today() && row.date <= report.get_filter_value('end_date') &&
-                        isFinite(Number(row.amount)) && Number(row.amount) >= 0 && String(row.description || '').trim();
+                        isFinite(Number(row.amount)) && (support ? Number(row.amount) > 0 : Number(row.amount) >= 0) &&
+                        String(row.description || '').trim().length <= 500 && (support || String(row.description || '').trim());
                 });
-                if (!valid) { frappe.msgprint(__('Each row needs a date within the forecast period, a nonnegative amount and a description.')); return; }
-                report.set_filter_value('extra_expenses', JSON.stringify(data.map(function (row) {
-                    return {date: row.date, amount: row.amount, description: row.description};
-                })));
+                if (!valid || data.length > 500) { frappe.msgprint(support ? __('Enter up to 500 rows, each with a date within the forecast period and a positive amount. Description is optional, maximum 500 characters.') : __('Each row needs a date within the forecast period, a nonnegative amount and a description.')); return; }
+                var value = JSON.stringify(data.map(function (row) {
+                    return {date: row.date, amount: row.amount, description: row.description || ''};
+                }));
+                if (legacy > 0) {
+                    // v12 batches this into one refresh; reset legacy opening support last.
+                    report.set_filter_value({support_payments:value,support_amount:0});
+                } else report.set_filter_value(filter, value);
                 dialog.hide();
             }
         });
@@ -502,7 +560,7 @@
             }).then(function(result){busy=false;return result;},function(error){busy=false;throw error;});
         }
         var drafts;
-        if (saved.schema===4 && Array.isArray(saved.purchases) && saved.purchases.length) {
+        if ((saved.schema===4 || saved.schema===5) && Array.isArray(saved.purchases) && saved.purchases.length) {
             drafts=JSON.parse(JSON.stringify(saved.purchases));
         } else {
             var amount=simple || current?saved.amount:saved.purchase_value;
@@ -515,13 +573,19 @@
             drafts=[{payments:payments.map(function(row){return {date:row.date,amount:row.amount};}),
                 international:simple?saved.include_customs_vat:saved.international || 0,eta_date:eta}];
         }
+        drafts.forEach(function(draft) {
+            if(saved.schema!==5) {
+                draft.customs_required=Number(draft.international || 0);
+                draft.import_vat_required=Number(draft.international || 0);
+                draft.customs_date=draft.eta_date;
+                draft.import_vat_date=draft.eta_date;
+            }
+        });
         function key(name,index){return index?name+'_'+index:name;}
         function update_import_fields(index) {
             if(!dialog)return;
-            var enabled=Number(dialog.get_value(key('international',index)))===1;
-            dialog.set_df_property(key('eta_date',index),'hidden',enabled?0:1);
-            dialog.set_df_property(key('eta_date',index),'reqd',enabled?1:0);
-            dialog.set_df_property(key('import_note',index),'hidden',enabled?0:1);
+            var enabled=Number(dialog.get_value(key('include_customs_vat',index)))===1;
+            dialog.set_df_property(key('import_charges',index),'hidden',enabled?0:1);
         }
         function renumber() {
             var number=0;
@@ -540,13 +604,18 @@
                     data:draft.payments.map(function(row){return Object.assign({},row);}),fields:[
                         {fieldname:'date',fieldtype:'Date',label:__('Payment Date'),in_list_view:1,reqd:1},
                         {fieldname:'amount',fieldtype:'Currency',precision:3,label:__('Amount'),in_list_view:1,reqd:1}]},
-                {fieldname:key('international',index),fieldtype:'Check',label:__('International Purchase'),default:draft.international || 0,onchange:function(){update_import_fields(index);}},
-                {fieldname:key('eta_date',index),fieldtype:'Date',label:__('Arrival Date (ETA)'),default:draft.eta_date,hidden:!Number(draft.international)},
-                {fieldname:key('import_note',index),fieldtype:'HTML',options:'<p class="text-muted">'+__('Customs and import VAT are paid on ETA, separately from supplier payments.')+'</p>',hidden:!Number(draft.international)},
+                {fieldname:key('include_customs_vat',index),fieldtype:'Check',label:__('Include Customs & VAT'),
+                    default:Number(draft.customs_required || 0) || Number(draft.import_vat_required || 0),onchange:function(){update_import_fields(index);}},
+                {fieldname:key('import_charges',index),fieldtype:'Table',label:__('Customs & VAT'),in_place_edit:true,
+                    cannot_add_rows:true,hidden:!Number(draft.customs_required || draft.import_vat_required),
+                    description:__('Leave a date blank to exclude that charge.'),
+                    data:[{charge:__('Customs'),date:Number(draft.customs_required)?draft.customs_date:null},
+                          {charge:__('Import VAT'),date:Number(draft.import_vat_required)?draft.import_vat_date:null}],
+                    fields:[{fieldname:'charge',fieldtype:'Data',label:__('Charge'),read_only:1,in_list_view:1},
+                            {fieldname:'date',fieldtype:'Date',label:__('Payment Date'),in_list_view:1}]},
                 {fieldname:key('remove_purchase',index),fieldtype:'Button',label:__('Remove Purchase'),click:function(){
                     if(busy)return;
                     drafts[index].removed=true;
-                    dialog.set_df_property(key('eta_date',index),'reqd',0);
                     var section=dialog.fields_dict['purchase_section_'+index];section.df.hidden=1;section.refresh();
                     renumber();
                 }}
@@ -559,7 +628,7 @@
                 var section=dialog.fields_dict['purchase_section_'+index];if(section && section.collapse)section.collapse(true);
             });
             var index=drafts.length;
-            drafts.push({payments:[{date:frappe.datetime.get_today(),amount:0}],international:0});
+            drafts.push({payments:[{date:frappe.datetime.get_today(),amount:0}],customs_required:0,import_vat_required:0});
             dialog.add_fields(purchase_fields(index));update_import_fields(index);renumber();
             var section=dialog.fields_dict['purchase_section_'+index];if(section.collapse)section.collapse(false);
             // Keep Add More below the appended purchase, without recreating any grids.
@@ -579,17 +648,21 @@
             for(var index=0;index<drafts.length;index++) {
                 if(drafts[index].removed)continue;
                 var rows=(values[key('payments',index)] || []).map(function(row){return {date:row.date,amount:row.amount};});
-                var international=Number(values[key('international',index)] || 0),eta=values[key('eta_date',index)];
+                var charges=Number(values[key('include_customs_vat',index)] || 0) ? values[key('import_charges',index)] || [] : [];
+                var customsRow=charges.find(function(row){return row.charge===__('Customs');});
+                var vatRow=charges.find(function(row){return row.charge===__('Import VAT');});
+                var customsDate=customsRow && customsRow.date,vatDate=vatRow && vatRow.date;
+                var customs=customsDate?1:0,vat=vatDate?1:0;
                 // Ignore untouched extra sections; partially entered payments still require correction.
-                if(rows.every(function(row){return !Number(row.amount || 0);}) && !international && !eta)continue;
+                if(rows.every(function(row){return !Number(row.amount || 0);}) && !customs && !vat)continue;
                 if(!rows.length || rows.some(function(row){return !row.date || !isFinite(Number(row.amount)) || Number(row.amount)<=0;})) {
                     frappe.msgprint(__('Enter a date and positive amount for every payment in Purchase')+' '+(purchases.length+1));return;
                 }
-                if(international && !eta){frappe.msgprint(__('Enter the arrival date for Purchase')+' '+(purchases.length+1));return;}
-                purchases.push({payments:rows,international:international,eta_date:eta});
+                purchases.push({payments:rows,customs_required:customs,import_vat_required:vat,
+                    customs_date:customs?customsDate:null,import_vat_date:vat?vatDate:null});
             }
             if(!purchases.length){frappe.msgprint(__('Add a supplier payment, or use Clear All Purchases.'));return;}
-            return finish({schema:4,purchases:purchases});
+            return finish({schema:5,purchases:purchases});
         }});
         dialog.show();
         drafts.forEach(function(draft,index){
@@ -748,7 +821,8 @@
             {fieldname:'manual_sales',label:__('Use Average Daily Sales'),fieldtype:'Check',default:0,on_change:function(report){toggle_sales_fields(report);}},
             {fieldname:'average_daily_sales',label:__('Average Daily Sales'),fieldtype:'Currency',precision:3,default:0,description:__('Including VAT.'),depends_on:'eval:doc.manual_sales'},
             {fieldname: 'sales_adjustment', label: __('Sales Change % (+/−)'), fieldtype: 'Float', default: 0,depends_on:'eval:!doc.manual_sales'},
-            {fieldname: 'support_amount', label: __('Support Amount'), fieldtype: 'Currency', precision: 3, default: 0},
+            {fieldname: 'support_amount', label: __('Support Amount'), fieldtype: 'Currency', precision: 3, hidden: 1, default: 0},
+            {fieldname: 'support_payments', label: __('Support'), fieldtype: 'Small Text', hidden: 1, default: '[]'},
             {fieldname: 'minimum_reserve', label: __('Minimum Cash Reserve'), fieldtype: 'Currency', precision: 3, default: 0},
             {fieldname: 'overdue_policy', fieldtype: 'Data', hidden: 1, default: 'review-v1'},
             {fieldname: 'purchase_scenario', fieldtype: 'Small Text', hidden:1, default:'{}'},
@@ -852,6 +926,7 @@
             var purchase_button = report.page.add_inner_button(__('Check Purchase'), function () { check_purchase(report); });
             if (purchase_button && purchase_button.addClass) purchase_button.addClass('btn-primary');
             report.page.add_inner_button(__('Report Notes'),function(){report_notes(report);});
+            report.page.add_inner_button(__('Add Support'), function () { edit_expenses(report, true); });
             report.page.add_inner_button(__('Add Extra Expenses'), function () { edit_expenses(report); });
             report.page.add_inner_button(__('Download Scenario'), function () {
                 var payload = {report: 'Cashflow Forecast', assumptions: report.get_filter_values()};
@@ -911,6 +986,9 @@
                 var negative=Number(data.closing_cash)<0, purchase=data.scenario_arrival || data.scenario_supplier;
                 var classes=[];
                 if(negative)classes.push('cashflow-negative-cell');
+                var manual = column.fieldname === 'other_receipts' && (data.sources || []).some(function(item){return item.manual_support && Number(item.amount)>0;}) ||
+                    column.fieldname === 'extra_expenses' && Number(data.extra_expenses)>0;
+                if(manual)classes.push('cashflow-manual-cell');
                 if(purchase)classes.push('cashflow-purchase-cell',data.scenario_arrival?'cashflow-scenario-arrival':'cashflow-scenario-supplier');
                 var style=column.fieldname==='closing_cash' && negative?'color:#b42318;font-weight:700;':'';
                 if(!negative && column.fieldname==='closing_cash' && data.below_reserve)style='color:#a15c00;font-weight:700;';
@@ -924,8 +1002,9 @@
             if(report._cashflow_pinned_table && report._cashflow_pinned_table!==table && report._cashflow_pinned_table._cashflow_pin_cleanup)report._cashflow_pinned_table._cashflow_pin_cleanup();
             report._cashflow_pinned_table=table;
             pin_columns(table);
-            report.page.main.off('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total').on('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total', function (event) {
+            report.page.main.off('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total, .cashflow-manual-input').on('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total, .cashflow-manual-input', function (event) {
                 event.preventDefault();
+                if (this.classList && this.classList.contains('cashflow-manual-input')) {manual_input_details(report,$(this).attr('data-input-kind'));return;}
                 if (this.classList && this.classList.contains('cashflow-opening-balance')) {opening_balance_details(report);return;}
                 if (this.classList && this.classList.contains('cashflow-overdue-total')) {show_overdue_review(report,saved_overdue_review(report));return;}
                 show_details(report, String($(this).attr('data-key')), $(this).attr('data-kind'));
@@ -1001,12 +1080,16 @@
                 '.cashflow-opening-balance:hover{text-decoration:underline;}'+
 
 
+                '.cashflow-manual-inputs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px;}'+
+                '.cashflow-manual-input{background:#fff9e5;border:1px solid #eadfb9;border-radius:4px;padding:3px 8px;font-size:12px;color:#57481e;cursor:pointer;}'+
+                '.cashflow-manual-input:hover{background:#fff4cc;}'+
                 '.cashflow-page .dt-row:has(.cashflow-negative-cell) .dt-cell{background:#fff4f4!important;}'+
                 '.cashflow-page .cashflow-negative-cell a{color:inherit;}'+
                 '.cashflow-page .cashflow-selected-row .dt-cell{background:#edf4ff!important;box-shadow:inset 0 1px #9bbcf2,inset 0 -1px #9bbcf2;}'+
                 '.cashflow-page .dt-row:has(.cashflow-purchase-cell) .dt-cell{background:#fff4cc!important;}'+
+                '.cashflow-page .dt-row .dt-cell:has(.cashflow-manual-cell){background:#fff4cc!important;}'+
                 '</style>';
-            box.html(css+'<div class="cashflow-summary">'+cards+'</div>');
+            box.html(css+'<div class="cashflow-summary">'+cards+'</div>'+manual_input_strip(report,first && first.currency));
 
         }
     };

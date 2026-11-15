@@ -19,6 +19,7 @@ class Sources(object):
         self.company, self.accounts = company, accounts
         self.start, self.end = as_date(start), as_date(end)
         self.currency = frappe.db.get_value('Company', company, 'default_currency')
+        self.company_country = frappe.db.get_value('Company', company, 'country')
         self.payroll_account = frappe.db.get_value('Company', company, 'default_payroll_payable_account')
         self.include_overdue = include_overdue
         self.events, self.warnings, self.accounts_breakdown, self.overdue = [], [], [], []
@@ -312,7 +313,7 @@ class Sources(object):
             from `tabPurchase Invoice Advance` a inner join `tabPurchase Invoice` p on p.name=a.parent
             where p.company=%s and p.docstatus=1 and p.is_return=0 and a.allocated_amount>0""", self.company, as_dict=1)
         pe_refs = defaultdict(list)
-        for ref in frappe.db.sql("""select r.parent,r.reference_name,r.allocated_amount
+        for ref in frappe.db.sql("""select r.parent,r.reference_name,r.allocated_amount,r.payment_term
             from `tabPayment Entry Reference` r inner join `tabPayment Entry` p on p.name=r.parent
             where p.company=%s and p.docstatus=1 and r.reference_doctype='Purchase Order'""", self.company, as_dict=1):
             pe_refs[ref.parent].append(ref)
@@ -328,7 +329,9 @@ class Sources(object):
                 self.applied_advances[po] += self.conversion(pi, amount)
             if not shares:
                 self.warn('Supplier invoice advance lacks a matching PO reference; reconcile advance allocation.')
-        for record in records:
+        paid_po = self.completed_po_payments(pe_refs)
+        paid_used = defaultdict(Decimal)
+        for record in sorted(records, key=lambda r: (as_date(r.posting_date) if r.posting_date else date.min, r.name)):
             outstanding_base = max(self.conversion(record, record.outstanding_amount), money(0))
             if not outstanding_base:
                 continue
@@ -358,23 +361,43 @@ class Sources(object):
                 self.warn('{0}: {1} supplier outstanding is not covered by dated installments; complete the payment schedule.'.format(pi.name, unscheduled))
             if not schedule:
                 self.warn('{0}: outstanding supplier invoice has no usable dated residual.'.format(pi.name))
-            planned = money(0)
-            for pe, allocation in self.pending_reference_payments('Purchase Invoice', pi.name):
-                allocation = min(allocation, max(outstanding-planned, money(0)))
-                self.event(self.due(pe.posting_date, pe.name), 'supplier_payments', allocation,
-                    'Payment Entry', pe.name, 'Scheduled payment replaces invoice installment; '+pi.name, related_doctype='Purchase Invoice', related_name=pi.name)
-                # Use custom schedule PE links or explicit payment terms before FIFO.
-                terms = [r for r in pe.references if r.reference_doctype == 'Purchase Invoice' and r.reference_name == pi.name]
-                budget = allocation
-                for ref in terms:
-                    portion = min(budget, max(money(Decimal(str(ref.allocated_amount))*Decimal(str(pe.target_exchange_rate or 1))), money(0)))
-                    if not portion:
+            linked_pos = invoice_pos[pi.name]
+            if len(linked_pos) == 1:
+                po_name = next(iter(linked_pos))
+                for pe, available in paid_po.get((po_name, pi.supplier), []):
+                    key = (pe.name, po_name)
+                    paid = min(max(available-paid_used[key], money(0)), outstanding)
+                    if not paid:
                         continue
-                    schedule, used, ambiguous = reserve_installment(schedule, portion, pe.name, ref.get('payment_term'))
-                    if ambiguous or used < portion:
-                        self.warn('{0}: installment link/term does not fully identify the allocation to {1}; residual schedule timing uses oldest-first matching. Verify the source references.'.format(pe.name, pi.name))
-                        schedule, fallback, ignored = reserve_installment(schedule, portion-used)
-                    budget -= portion
+                    schedule = self.reserve_invoice_schedule(schedule, pe, paid, 'Purchase Order', po_name, pi.name)
+                    outstanding -= paid
+                    paid_used[key] += paid
+                    # This advance now covers the billed portion, so it cannot
+                    # also erase an unbilled PO commitment in purchase_orders().
+                    self.applied_advances[po_name] += paid
+            planned = money(0)
+            candidates = [(pe, amount, 'Purchase Invoice', pi.name) for pe, amount in
+                          self.pending_reference_payments('Purchase Invoice', pi.name)]
+            linked_pos = invoice_pos[pi.name]
+            if len(linked_pos) == 1:
+                po_name = next(iter(linked_pos))
+                for pe, amount in self.pending_reference_payments('Purchase Order', po_name):
+                    if pe.get('party_type') == 'Supplier' and pe.get('party') == pi.supplier:
+                        candidates.append((pe, amount, 'Purchase Order', po_name))
+                    else:
+                        self.warn('{0}: supplier does not match {1}; PO payment cannot replace its invoice schedule.'.format(pe.name, pi.name))
+            elif len(linked_pos) > 1:
+                self.warn('{0}: invoice covers multiple POs; use explicit invoice payment references to identify its scheduled payments.'.format(pi.name))
+            for pe, allocation, reference_type, reference_name in candidates:
+                allocation = min(allocation, max(outstanding-planned, money(0)))
+                if not allocation:
+                    continue
+                self.consume_reference_payment(reference_type, reference_name, pe.name, allocation)
+                related = [dict(doctype='Purchase Order', name=reference_name)] if reference_type == 'Purchase Order' else []
+                self.event(self.due(pe.posting_date, pe.name), 'supplier_payments', allocation,
+                    'Payment Entry', pe.name, 'Scheduled payment replaces invoice installment; '+pi.name,
+                    related_doctype='Purchase Invoice', related_name=pi.name, related_documents=related)
+                schedule = self.reserve_invoice_schedule(schedule, pe, allocation, reference_type, reference_name, pi.name)
                 planned += allocation
                 self.handled_pe.add(pe.name)
             journal_planned = self.journals().reserve('Purchase Invoice', pi.name, max(outstanding-planned, money(0)))
@@ -382,6 +405,58 @@ class Sources(object):
             for row in schedule:
                 self.event(self.due(row['date'], pi.name), 'supplier_payments', row['amount'], 'Purchase Invoice', pi.name,
                     'Outstanding invoice; {0}; original due {1}'.format(pi.supplier, row['date']))
+
+    def completed_po_payments(self, references):
+        """Only current PO reference portions are unreconciled paid advances.
+
+        ERPNext reconciliation transfers/splits these rows to Purchase Invoice;
+        those invoice portions are already reflected in invoice outstanding.
+        """
+        result = defaultdict(list)
+        if not references or not frappe.has_permission('Payment Entry', 'read'):
+            return result
+        payments = frappe.get_list('Payment Entry', filters={'company': self.company,
+            'name': ['in', list(references)], 'docstatus': 1, 'payment_type': 'Pay',
+            'party_type': 'Supplier', 'posting_date': ['<=', self.start]},
+            fields=['name', 'docstatus', 'payment_type', 'party_type', 'party', 'posting_date',
+                    'base_paid_amount', 'target_exchange_rate'], limit_page_length=0)
+        for pe in sorted(payments, key=lambda p: (str(p.posting_date or ''), p.name)):
+            if pe.docstatus != 1 or pe.payment_type != 'Pay' or pe.party_type != 'Supplier' or as_date(pe.posting_date) > self.start:
+                continue
+            budget = max(money(pe.base_paid_amount), money(0))
+            amounts = defaultdict(Decimal)
+            pe.references = []
+            for row in references.get(pe.name, []):
+                ref = frappe._dict(row)
+                ref.reference_doctype = 'Purchase Order'
+                pe.references.append(ref)
+                amount = min(max(money(Decimal(str(ref.allocated_amount))*Decimal(str(pe.target_exchange_rate or 1))), money(0)), budget)
+                amounts[ref.reference_name] += amount
+                budget -= amount
+            for po_name, amount in amounts.items():
+                if amount:
+                    result[(po_name, pe.party)].append((pe, amount))
+        return result
+
+    def reserve_invoice_schedule(self, schedule, pe, allocation, reference_type, reference_name, invoice_name):
+        # Preserve term identity when one payment is shared across invoices.
+        if not hasattr(self, '_reference_term_used'):
+            self._reference_term_used = defaultdict(Decimal)
+        terms = [r for r in pe.references if r.reference_doctype == reference_type and r.reference_name == reference_name]
+        budget = allocation
+        for term_index, ref in enumerate(terms):
+            term_key = (pe.name, reference_type, reference_name, term_index)
+            term_amount = money(Decimal(str(ref.allocated_amount))*Decimal(str(pe.target_exchange_rate or 1)))
+            portion = min(budget, max(term_amount-self._reference_term_used[term_key], money(0)))
+            if not portion:
+                continue
+            schedule, used, ambiguous = reserve_installment(schedule, portion, pe.name, ref.get('payment_term'))
+            if ambiguous or used < portion:
+                self.warn('{0}: installment link/term does not fully identify the allocation to {1}; residual schedule timing uses oldest-first matching. Verify the source references.'.format(pe.name, invoice_name))
+                schedule, fallback, ignored = reserve_installment(schedule, portion-used)
+            self._reference_term_used[term_key] += portion
+            budget -= portion
+        return schedule
 
     def pending_reference_payments(self, doctype, name):
         if not hasattr(self, '_pending_refs'):
@@ -406,33 +481,92 @@ class Sources(object):
                 for key, amount in allocations.items():
                     if amount:
                         self._pending_refs[key].append((pe, amount))
-        return self._pending_refs.get((doctype, name), [])
+        used = getattr(self, '_pending_ref_used', {})
+        return [(pe, amount-used.get((pe.name, doctype, name), money(0)))
+                for pe, amount in self._pending_refs.get((doctype, name), [])
+                if amount > used.get((pe.name, doctype, name), money(0))]
+
+    def consume_reference_payment(self, doctype, name, payment_name, amount):
+        # A PO allocation may cover several invoices and an unbilled PO residual.
+        # All callers must share the original PE reference's finite cash budget.
+        if not hasattr(self, '_pending_ref_used'):
+            self._pending_ref_used = defaultdict(Decimal)
+        self._pending_ref_used[(payment_name, doctype, name)] += amount
 
     def tax_estimate(self, po):
         """Recalculate only an in-memory copy; never save/validate the source document."""
         import copy
+        customs_required = bool(int(po.get('customs_required', 1) or 0))
+        vat_required = bool(int(po.get('import_vat_required', 1) or 0))
         taxes = [t.as_dict() for t in po.taxes]
+        template, missing = None, False
         if po.taxes_and_charges:
             template = self.read_document('Purchase Taxes and Charges Template', po.taxes_and_charges)
+        required = set()
+        if customs_required:
+            required.add(TAX_ACCOUNTS['customs'])
+        if vat_required:
+            required.add(TAX_ACCOUNTS['import'])
+        available = {t.account_head for t in po.taxes}
+        if template:
+            available.update(t.account_head for t in template.taxes)
+        if not required.issubset(available):
+            # PO taxes may now contain shipping only. Fetch the company import
+            # rules once per report, not once per PO, and estimate in memory.
+            if not hasattr(self, '_import_template_rows'):
+                from .cashflow_forecast import get_company_import_rows
+                self._import_template_rows = get_company_import_rows(self.company)
+            template = frappe._dict(taxes=[frappe._dict(row) for row in self._import_template_rows])
+        if template:
             expected = {t.account_head for t in template.taxes}
-            if not expected.issubset({t.account_head for t in po.taxes}):
-                clone = frappe.get_doc(copy.deepcopy(po.as_dict()))
+            missing = not expected.issubset({t.account_head for t in po.taxes})
+        # Existing tax amounts can include customs in the VAT base. Recalculate
+        # only the VAT-only case (or missing rows), using an unsaved native clone.
+        vat_only = not customs_required and vat_required and any(
+            t.account_head == TAX_ACCOUNTS['customs'] for t in (template.taxes if missing else po.taxes))
+        if missing or vat_only:
+            clone = frappe.get_doc(copy.deepcopy(po.as_dict()))
+            if missing:
                 existing = {t.account_head: t for t in po.taxes}
+                template_accounts = {t.account_head for t in template.taxes}
+                extra_rows = [(index+1, t) for index, t in enumerate(po.taxes) if t.account_head not in template_accounts]
+                positions = {old: index+1 for index, (old, t) in enumerate(extra_rows)}
+                keys = ('charge_type', 'account_head', 'description', 'rate', 'row_id', 'category',
+                        'add_deduct_tax', 'included_in_print_rate', 'cost_center', 'tax_amount')
                 clone.set('taxes', [])
+                # Keep supplier shipping/other PO charges before the default
+                # import rows, and adjust their references without changing PO.
+                for old_index, t in extra_rows:
+                    values = {key: t.get(key) for key in keys}
+                    if t.charge_type in ('On Previous Row Total', 'On Previous Row Amount'):
+                        reference = int(t.get('row_id') or 0)
+                        if reference not in positions or positions[reference] >= positions[old_index]:
+                            raise ValueError('PO shipping tax references require review before estimating import charges.')
+                        values['row_id'] = str(positions[reference])
+                    clone.append('taxes', values)
                 for t in template.taxes:
-                    values = {key: t.get(key) for key in ('charge_type', 'account_head', 'description', 'rate',
-                        'row_id', 'category', 'add_deduct_tax', 'included_in_print_rate', 'cost_center')}
+                    values = {key: t.get(key) for key in keys}
                     if t.charge_type == 'Actual':
                         values['tax_amount'] = existing[t.account_head].tax_amount if t.account_head in existing else t.tax_amount
+                    elif t.charge_type in ('On Previous Row Total', 'On Previous Row Amount'):
+                        values['row_id'] = str(int(t.get('row_id') or 0)+len(extra_rows))
                     clone.append('taxes', values)
-                from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
-                calculate_taxes_and_totals(clone)
-                taxes = [t.as_dict() for t in clone.taxes]
+            for t in clone.taxes:
+                if (t.account_head == TAX_ACCOUNTS['customs'] and not customs_required or
+                        t.account_head == TAX_ACCOUNTS['import'] and not vat_required):
+                    t.rate, t.tax_amount = 0, 0
+            from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
+            calculate_taxes_and_totals(clone)
+            taxes = [t.as_dict() for t in clone.taxes]
+            if missing and required.issubset(available):
                 self.warn('{0}: missing PO tax rows estimated from its selected template in memory.'.format(po.name))
                 if not any(t.get('tax_amount') for t in taxes if t.get('charge_type') == 'Actual'):
                     self.warn('{0}: template actual charges are zero; verify shipping/broker estimates.'.format(po.name))
         amounts = import_cash_taxes(taxes, [t.get('base_tax_amount_after_discount_amount') or 0 for t in taxes])
         for row, amount in zip(taxes, amounts):
+            if (row.get('account_head') == TAX_ACCOUNTS['customs'] and not customs_required or
+                    row.get('account_head') == TAX_ACCOUNTS['import'] and not vat_required):
+                amount = money(0)
             row['base_tax_amount_after_discount_amount'] = amount
         return taxes
 
@@ -451,8 +585,14 @@ class Sources(object):
                 continue
             if po.get('workflow_state') == 'On Hold':
                 self.warn('{0}: on-hold obligation is included; review its timing.'.format(po.name))
+            company_country = (getattr(self, 'company_country', None) or '').strip().lower()
+            supplier_country = (po.get('supplier_country') or '').strip().lower()
+            local_purchase = bool(company_country and supplier_country == company_country)
+            customs_required = bool(int(po.get('customs_required', 1) or 0)) and not local_purchase
+            vat_required = bool(int(po.get('import_vat_required', 1) or 0)) and not local_purchase
             try:
-                taxes = [] if getattr(self, '_supplier_horizon_only', False) else self.tax_estimate(po)
+                taxes = [] if getattr(self, '_supplier_horizon_only', False) else (
+                    [t.as_dict() for t in po.taxes] if not (customs_required or vat_required) else self.tax_estimate(po))
             except Exception as exc:
                 self.warn('{0}: tax estimate unavailable ({1}); customs/VAT coverage incomplete.'.format(po.name, type(exc).__name__))
                 taxes = [t.as_dict() for t in po.taxes]
@@ -460,6 +600,12 @@ class Sources(object):
                            if t.get('account_head') == TAX_ACCOUNTS['customs']), money(0))
             import_vat = sum((money(t.get('base_tax_amount_after_discount_amount')) for t in taxes
                               if t.get('account_head') == TAX_ACCOUNTS['import']), money(0))
+            # Local purchases have no projected port charges, even if a legacy
+            # import template remains on the PO. Actual payment documents still count.
+            if not customs_required:
+                customs = money(0)
+            if not vat_required:
+                import_vat = money(0)
             # Remove only import VAT actually included in the stored supplier total, not reconstructed taxes.
             included_import = self.invoice_import(po)
             supplier_total = supplier_amount(base, included_import)
@@ -491,6 +637,9 @@ class Sources(object):
             planned = money(0)
             for pe, allocation in (self.pending_reference_payments('Purchase Order', po.name) if remaining else []):
                 allocation = min(allocation, max(remaining-planned, money(0)))
+                if not allocation:
+                    continue
+                self.consume_reference_payment('Purchase Order', po.name, pe.name, allocation)
                 self.event(self.due(pe.posting_date, pe.name), 'supplier_payments', allocation,
                     'Payment Entry', pe.name, 'Scheduled payment replaces PO installment; '+po.name, related_doctype='Purchase Order', related_name=po.name)
                 planned += allocation
@@ -531,7 +680,7 @@ class Sources(object):
             recorded_credit += sum((money(item.total_amount or item.net_amount) for glp in glps
                 if glp.docstatus == 1 and as_date(glp.posting_date) > self.start for item in glp.items
                 if item.account == TAX_ACCOUNTS['import']), money(0))
-            credit_remaining = max(import_vat-recorded_credit, money(0))
+            credit_remaining = max(max(import_vat, paid_import+planned_import)-recorded_credit, money(0))
             for glp in glps:
                 if glp.docstatus == 0:
                     credit = min(credit_remaining, sum((money(item.total_amount or item.net_amount)
@@ -548,7 +697,7 @@ class Sources(object):
                                'Projected recoverable import VAT; separate from ETA cash payment')
                 else:
                     self.warn('{0}: customs/import VAT has no ETA; payment is unscheduled.'.format(po.name))
-            elif not customs and not import_vat and po.supplier_country and po.supplier_country != 'Bahrain' and remaining:
+            elif not customs and not import_vat and (customs_required or vat_required) and company_country and supplier_country and not local_purchase and remaining:
                 self.warn('{0}: foreign PO has no customs/import VAT template amounts.'.format(po.name))
             local_vat = sum((money(t.get('base_tax_amount_after_discount_amount')) for t in taxes
                              if t.get('account_head') == TAX_ACCOUNTS['local']), money(0))

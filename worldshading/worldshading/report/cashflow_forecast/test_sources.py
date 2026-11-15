@@ -92,15 +92,17 @@ class DocumentFixture(SimpleNamespace):
 
 
 class PoObligationFixtureTests(unittest.TestCase):
-    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None, horizon=False):
+    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None, horizon=False, supplier_country='Other', company_country='Bahrain', import_vat=0, stored_taxes=None, customs_required=1, import_vat_required=1, glps=None):
         po = DocumentFixture(name='PO-RESIDUAL', base_grand_total=100,
             advance_paid=0, currency=currency, party_account_currency=currency,
             conversion_rate=1, workflow_state=state, supplier='SUPPLIER-TEST',
-            eta_date=date(2026, 12, 1), taxes=[], supplier_country='Other',
+            eta_date=date(2026, 12, 1), taxes=[], supplier_country=supplier_country, customs_required=customs_required, import_vat_required=import_vat_required,
             payment_schedule=[frappe._dict(due_date=due, payment_amount=amount)
                 for due, amount in (installments or [(date(2026, 10, 1) if overdue else date(2026, 12, 1),100)])])
+        po.taxes = stored_taxes or []
         source = Sources.__new__(Sources)
         source.company, source.currency, source.accounts = 'Example', currency, []
+        source.company_country = company_country
         source.start, source.end = date(2026, 11, 9), date(2026, 12, 31)
         source.events, source.overdue, source.warnings, source.include_overdue = [], [], [], True
         source.handled_glp, source.handled_pe = set(), set()
@@ -108,12 +110,51 @@ class PoObligationFixtureTests(unittest.TestCase):
         source.invoiced[po.name] = money(100)-money(remaining)
         source._supplier_horizon_only=horizon
         if horizon:source.end=date.max
-        source.documents = lambda dt, filters=None: iter([po] if dt == 'Purchase Order' else [])
+        source.documents = lambda dt, filters=None: iter([po] if dt == 'Purchase Order' else (glps or []) if dt == 'GL Payment' else [])
         source.pending_reference_payments = lambda *args: []
         source.journals = lambda: SimpleNamespace(reserve=lambda *args: money(0))
-        source.tax_estimate = lambda po: [dict(account_head='Custom Duty - WS',base_tax_amount_after_discount_amount=customs)]
+        source.tax_estimate = lambda po: [dict(account_head='Custom Duty - WS',base_tax_amount_after_discount_amount=customs),
+            dict(account_head='Input VAT – Import - WS',base_tax_amount_after_discount_amount=import_vat)]
         source.purchase_orders()
         return source
+
+    def test_local_purchase_never_projects_customs_or_import_vat(self):
+        for country in ('Bahrain', 'Kuwait'):
+            source=self.collect(100,customs=5,import_vat=10,supplier_country=country,company_country=country)
+            self.assertFalse([e for e in source.events+source.overdue if e['category'] in ('customs','import_vat','vat_accrual')])
+            self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='supplier_payments'),100)
+
+    def test_local_legacy_import_tax_rows_are_not_projected_as_port_charges(self):
+        taxes=[DocumentFixture(account_head=account,category='Valuation',base_tax_amount_after_discount_amount=amount)
+               for account,amount in [('Custom Duty - WS',5),('Input VAT – Import - WS',10)]]
+        for row in taxes:
+            row.as_dict=lambda row=row: vars(row)
+        source=self.collect(100,supplier_country=' bAhRaIn ',stored_taxes=taxes)
+        self.assertFalse([e for e in source.events+source.overdue if e['category'] in ('customs','import_vat','vat_accrual')])
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='supplier_payments'),100)
+
+    def test_international_purchase_retains_customs_and_import_vat(self):
+        source=self.collect(100,customs=5,import_vat=10,supplier_country='Kuwait')
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='customs'),5)
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='import_vat'),10)
+
+    def test_po_flags_suppress_unselected_import_estimates(self):
+        for customs_on,vat_on in [(0,0),(1,0),(0,1),(1,1)]:
+            source=self.collect(100,customs=5,import_vat=10,customs_required=customs_on,import_vat_required=vat_on)
+            self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='customs'),5 if customs_on else 0)
+            self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='import_vat'),10 if vat_on else 0)
+            self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='supplier_payments'),100)
+
+    def test_flags_do_not_hide_linked_gl_cash_or_its_input_vat(self):
+        glp=DocumentFixture(name='GL-ACTUAL',docstatus=0,posting_date=date(2026,12,1),
+            workflow_state='Pending Bank Payment - Chkr',payment_type='Outgoing',total_amount=150,
+            items=[DocumentFixture(account=account,total_amount=amount,net_amount=amount,tax_amount=0)
+                   for account,amount in [('Custom Duty - WS',50),('Input VAT – Import - WS',100)]])
+        source=self.collect(100,customs_required=0,import_vat_required=0,glps=[glp])
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='customs'),50)
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='import_vat'),100)
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='vat_accrual'),-100)
+        self.assertFalse([e for e in source.events if e['doctype']=='Purchase Order' and e['category'] in ('customs','import_vat')])
 
     def test_legal_dispute_po_has_no_forecast_or_overdue_commitment(self):
         source=self.collect(4800,state='Legal Dispute',customs=10)

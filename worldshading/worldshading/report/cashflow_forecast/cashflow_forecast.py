@@ -11,7 +11,7 @@ from frappe.utils import nowdate
 from .engine import money, as_date, days, today_sales, build_forecast, summarize, monthly_rows, PAYMENTS
 from .sources import Sources
 from .horizon import adjust_end_date, minimum_purchase_end
-from .scenarios import purchase_events
+from .scenarios import purchase_events, support_events
 from .rules import group_overdue_review
 
 
@@ -94,7 +94,10 @@ def validate(filters):
     expenses = parse_list(filters.extra_expenses, 'Extra Expenses')
     if len(expenses) > 500:
         frappe.throw(_('Maximum 500 scenario expense rows.'))
-    events = []
+    try:
+        events = support_events(parse_list(filters.get('support_payments'), 'Support'), start, end)
+    except (ValueError, TypeError, ArithmeticError) as exc:
+        frappe.throw(str(exc))
     for row in expenses:
         try:
             if not isinstance(row, dict):
@@ -110,15 +113,16 @@ def validate(filters):
     try:
         template = None
         if isinstance(purchase, dict):
-            if purchase.get('schema') == 4:
+            if purchase.get('schema') in (4, 5):
                 items=purchase.get('purchases')
                 if not isinstance(items,list):
                     raise ValueError('Invalid purchases.')
-                if any(isinstance(item,dict) and int(item.get('international') or 0) for item in items):
+                if any(isinstance(item,dict) and (int(item.get('international') or 0) if purchase.get('schema') == 4 else
+                        int(item.get('customs_required') or 0) or int(item.get('import_vat_required') or 0)) for item in items):
                     template=get_company_import_rows(filters.company)
             elif purchase.get('schema') in (2, 3) and int((purchase.get('include_customs_vat') if purchase.get('schema') == 2 else purchase.get('international')) or 0):
                 template = get_company_import_rows(filters.company)
-            elif purchase.get('schema') not in (2, 3, 4) and int(purchase.get('international') or 0):
+            elif purchase.get('schema') not in (2, 3, 4, 5) and int(purchase.get('international') or 0):
                 template = get_purchase_template(filters.company, purchase.get('tax_template'))['rows']
         events.extend(purchase_events(purchase, start, end, template))
     except (ValueError, TypeError, ArithmeticError) as exc:
@@ -315,7 +319,8 @@ def render_forecast(source, filters, start, end, accounts, extra):
 def report_message(source, filters, extra):
     amounts = '; '.join('{0}: {1:,.3f}'.format(r['account'], r['amount']) for r in source.accounts_breakdown)
     text = ['<b>Cashflow planning assumptions</b>',
-        escape('Opening balances include posted ledger entries through {0}; support {1:,.3f}.'.format(source.start, money(filters.support_amount))),
+        escape('Opening balances include posted ledger entries through {0}.'.format(source.start)+
+               (' Support added to opening cash: {0:,.3f}.'.format(money(filters.support_amount)) if money(filters.support_amount) else '')),
         escape(amounts),
         escape('Today shows actual submitted sales plus the remaining forecast. Only remaining sales enter cash; actual posted cash and VAT are already in the opening balances.'),
         'Opening liquidity includes every ledger under Bank Accounts and Cash In Hand, including nested groups; all company commitments consume this pool.',
@@ -323,7 +328,7 @@ def report_message(source, filters, extra):
         'Journal Entries use their net effect on the included account groups. Unlinked salary or expense matches require Accounts review.',
         'Temporary scenario inputs create no accounting transactions. A positive balance is subject to source coverage and assumptions.']
     if extra:
-        text.append('<b>Scenario expenses</b><br>'+ '<br>'.join(escape('{0}: {1:,.3f} — {2}'.format(
+        text.append('<b>Manual Entries</b><br>'+ '<br>'.join(escape('{0}: {1:,.3f} — {2}'.format(
             e['date'], e['amount'], e['description'])) for e in extra))
     if source.warnings:
         text.append('<div class="alert alert-warning"><b>Coverage / matching review</b><ul>'+''.join(

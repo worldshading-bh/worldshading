@@ -5,6 +5,24 @@ from decimal import Decimal
 from .engine import as_date, money, template_taxes, import_cash_taxes
 
 
+def support_events(rows, start, end):
+    """Dated funding is incoming cash, never sales, VAT or opening balance."""
+    if not isinstance(rows, list) or len(rows) > 500:
+        raise ValueError('Enter up to 500 support rows.')
+    start, end = as_date(start), as_date(end)
+    events = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError('Each support entry must be a row.')
+        due, amount = as_date(row.get('date')), money(row.get('amount'))
+        description = str(row.get('description') or '').strip()
+        if not start <= due <= end or amount <= 0 or len(description) > 500:
+            raise ValueError('Each support needs a date within the forecast period and a positive amount. Description is optional, maximum 500 characters.')
+        events.append(dict(date=due, category='other_receipts', amount=amount,
+                           description='Support'+(': '+description if description else ''), manual_support=True))
+    return events
+
+
 def arrival_date(order, mode, eta=None, lead=0, unit='Days'):
     order = as_date(order)
     if mode == 'Date':
@@ -33,7 +51,7 @@ def purchase_events(values, start, end, template_rows=None):
         return []
     if not isinstance(values, dict):
         raise ValueError('Purchase scenario must be an object.')
-    if values.get('schema') == 4:
+    if values.get('schema') in (4, 5):
         purchases=values.get('purchases')
         if not isinstance(purchases,list) or len(purchases)>20:
             raise ValueError('Enter up to 20 purchases.')
@@ -48,8 +66,27 @@ def purchase_events(values, start, end, template_rows=None):
             normalized=dict(description='Purchase {0}'.format(index),purchase_value=total,order_date=str(start),
                 international=purchase.get('international'),eta_mode='Date',eta_date=purchase.get('eta_date'),payments=payments,charges=[])
             try:
+                dates = {}
+                if values.get('schema') == 5:
+                    for kind in ('customs', 'import_vat'):
+                        enabled = int(purchase.get(kind+'_required') or 0)
+                        if enabled not in (0, 1):
+                            raise ValueError('Customs and Import VAT must be checked or unchecked.')
+                        normalized[kind+'_required'] = enabled
+                        if enabled:
+                            due = as_date(purchase.get(kind+'_date'))
+                            if not as_date(start) <= due <= as_date(end):
+                                raise ValueError('Customs and import VAT payment dates must be within the forecast period. Extend Forecast Until if needed.')
+                            dates[kind] = due
+                    normalized['international'] = int(bool(dates))
+                    normalized['eta_date'] = str(min(dates.values())) if dates else None
                 for event in purchase_events(normalized,start,end,template_rows):
                     event['purchase_number']=index
+                    kind = 'import_vat' if event['category'] == 'vat_accrual' else event['category']
+                    if kind in dates:
+                        event['date'] = dates[kind]
+                        label = 'Customs' if kind == 'customs' else ('Recoverable import VAT' if event['category'] == 'vat_accrual' else 'Import VAT')
+                        event['description'] = 'Purchase {0}: {1}'.format(index, label)
                     events.append(event)
             except (ValueError,TypeError,ArithmeticError) as exc:
                 raise ValueError('Purchase {0}: {1}'.format(index,exc))
@@ -119,6 +156,11 @@ def purchase_events(values, start, end, template_rows=None):
             raise ValueError('Purchase scenario requires an additive, tax-exclusive template.')
         if row.get('charge_type')=='Actual':
             row['tax_amount']=amounts.get(row['account_head'],money(0))
+    for row in rows:
+        kind = 'customs' if row.get('account_head') == 'Custom Duty - WS' else (
+            'import_vat' if row.get('account_head') == 'Input VAT – Import - WS' else None)
+        if kind and not int(values.get(kind+'_required', 1)):
+            row['rate'], row['tax_amount'] = 0, 0
     taxes=import_cash_taxes(rows,template_taxes(value,rows))
     customs='Custom Duty - WS'
     import_vat='Input VAT – Import - WS'
