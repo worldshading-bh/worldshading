@@ -318,4 +318,39 @@ const lowestRules = [{
 	);
 });
 
+// Server-approved full reversals supersede current rules; stale replies are ignored.
+const originalCall = frappe.call;
+const returnRequests = [];
+frappe.call = function (options) { returnRequests.push(options); };
+refreshForm.doc = {
+	doctype: "Sales Invoice", name: "new-return", __islocal: 1, docstatus: 0,
+	is_return: 1, is_pos: 0, return_against: "SOURCE", grand_total: -76.190,
+	base_grand_total: -76.190, conversion_rate: 1, currency: "BHD",
+	paid_amount: 0, payments: [], items: [], taxes: []
+};
+refreshForm.__ws_original_return_rounding = null;
+refreshForm.cscript.set_rounded_total();
+assert.strictEqual(returnRequests.length, 1);
+assert.strictEqual(refreshForm.doc.rounded_total, -76.100);
+const originalResult = {
+	rounded_total: -76.200, rounding_adjustment: -0.010,
+	base_rounded_total: -76.200, base_rounding_adjustment: -0.010
+};
+returnRequests[0].callback({ message: originalResult });
+assert.strictEqual(refreshForm.doc.rounded_total, -76.200);
+assert.strictEqual(refreshForm.doc.rounding_adjustment, -0.010);
+assert.strictEqual(returnRequests.length, 1, "cached reply must not cause a request loop");
+refreshForm.doc.grand_total = -38.095;
+refreshForm.doc.base_grand_total = -38.095;
+refreshForm.cscript.set_rounded_total();
+assert.strictEqual(returnRequests.length, 2);
+returnRequests[0].callback({ message: originalResult });
+assert.strictEqual(refreshForm.doc.rounded_total, -38.000, "old full-return reply must not affect partial return");
+returnRequests[1].callback({ message: null });
+assert.strictEqual(refreshForm.doc.rounded_total, -38.000);
+refreshForm.doc.is_pos = 1;
+refreshForm.cscript.set_rounded_total();
+assert.strictEqual(returnRequests.length, 2, "POS returns must not request original rounding");
+frappe.call = originalCall;
+
 console.log("dynamic rounding client regression: PASS");

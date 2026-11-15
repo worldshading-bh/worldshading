@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
+from worldshading.api.full_return_rounding import get_original_return_rounding
 
 
 PILOT_USER = "hilal@worldshading.com"
@@ -213,11 +214,18 @@ def apply_dynamic_rounding(doc, method=None):
 		return False
 
 	rules = settings.get("dynamic_rounding_rules") or []
+	original_rounding = None
+	if (doc.doctype == "Sales Invoice" and cint(getattr(doc, "is_return", 0))
+		and getattr(doc, "return_against", None)):
+		original_rounding = get_original_return_rounding(doc)
 
 	try:
-		result = calculate_dynamic_rounding(
-			doc.grand_total, rules, doc.doctype, getattr(doc, "is_return", False)
-		)
+		if original_rounding:
+			result = dict(original_rounding, original_total=doc.grand_total)
+		else:
+			result = calculate_dynamic_rounding(
+				doc.grand_total, rules, doc.doctype, getattr(doc, "is_return", False)
+			)
 	except DynamicRoundingConfigurationError as error:
 		frappe.throw(
 			_("Dynamic rounding configuration error: {0}").format(str(error))
@@ -252,6 +260,9 @@ def apply_dynamic_rounding(doc, method=None):
 		doc.base_rounded_total - doc.base_grand_total,
 		doc.precision("base_rounding_adjustment"),
 	)
+	if original_rounding:
+		for field, value in original_rounding.items():
+			setattr(doc, field, flt(value, doc.precision(field)))
 	if (doc.doctype == "Sales Invoice" and cint(getattr(doc, "is_pos", 0))
 			and not cint(getattr(doc, "is_return", 0))):
 		doc.write_off_amount = 0

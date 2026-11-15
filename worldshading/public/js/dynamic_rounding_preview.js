@@ -68,12 +68,61 @@
 
 	namespace.calculate = calculate_dynamic_total;
 
+	function return_snapshot(doc) {
+		if (doc.doctype !== "Sales Invoice" || !cint(doc.is_return) || cint(doc.is_pos)
+			|| cint(doc.docstatus) !== 0 || !doc.return_against || flt(doc.grand_total) >= 0
+			|| (doc.payments || []).length || (doc.advances || []).length) {
+			return null;
+		}
+		var snapshot = {};
+		["doctype", "name", "__islocal", "docstatus", "is_return", "is_pos", "return_against",
+			"company", "customer", "currency", "party_account_currency", "conversion_rate",
+			"grand_total", "base_grand_total", "net_total", "base_net_total",
+			"total_taxes_and_charges", "base_total_taxes_and_charges", "disable_rounded_total",
+			"paid_amount", "base_paid_amount", "write_off_amount", "base_write_off_amount",
+			"change_amount", "base_change_amount", "total_advance", "loyalty_amount",
+			"redeem_loyalty_points", "credit_note", "credit_note_invoice", "items", "taxes"
+		].forEach(function (field) { snapshot[field] = doc[field]; });
+		return JSON.stringify(snapshot);
+	}
+
+	function original_return_rounding(calculator) {
+		var frm = calculator.frm;
+		var snapshot = return_snapshot(frm.doc);
+		if (!snapshot) {
+			frm.__ws_original_return_rounding = null;
+			return null;
+		}
+		var cached = frm.__ws_original_return_rounding;
+		if (cached && cached.snapshot === snapshot) {
+			return cached.result;
+		}
+		var request = { snapshot: snapshot, result: null };
+		frm.__ws_original_return_rounding = request;
+		frappe.call({
+			method: "worldshading.api.full_return_rounding.preview_original_return_rounding",
+			args: { return_doc: snapshot },
+			callback: function (response) {
+				if (frm.__ws_original_return_rounding !== request || return_snapshot(frm.doc) !== snapshot) {
+					return;
+				}
+				request.result = response.message || null;
+				if (request.result) {
+					frm.cscript.calculate_taxes_and_totals(false);
+					frm.refresh_fields();
+				}
+			}
+		});
+		return request.result;
+	}
+
 	function apply_dynamic_rounding(calculator) {
 		var settings = calculator.frm.__ws_dynamic_rounding_settings
 			|| { enabled: false, rules: [] };
 		var doc = calculator.frm.doc;
 		var rounded_total;
 		var rounding_disabled;
+		var original_rounding;
 
 		if (
 			!settings.enabled
@@ -89,7 +138,8 @@
 			return;
 		}
 
-		rounded_total = calculate_dynamic_total(
+		original_rounding = original_return_rounding(calculator);
+		rounded_total = original_rounding ? original_rounding.rounded_total : calculate_dynamic_total(
 			doc.grand_total, settings.rules, doc.doctype, doc.is_return
 		);
 		if (rounded_total === null || (flt(doc.grand_total) && !rounded_total)) {
@@ -109,6 +159,10 @@
 			doc.base_rounded_total - doc.base_grand_total,
 			precision("base_rounding_adjustment")
 		);
+		if (original_rounding) {
+			["rounded_total", "rounding_adjustment", "base_rounded_total", "base_rounding_adjustment"]
+				.forEach(function (field) { doc[field] = flt(original_rounding[field], precision(field)); });
+		}
 		if (doc.doctype === "Sales Invoice" && cint(doc.is_pos) && !cint(doc.is_return)) {
 			doc.write_off_amount = 0;
 			doc.base_write_off_amount = 0;
@@ -216,6 +270,7 @@
 		var request_generation = (frm.__ws_dynamic_rounding_request_generation || 0) + 1;
 		frm.__ws_dynamic_rounding_request_generation = request_generation;
 		frm.__ws_dynamic_rounding_settings = { enabled: false, rules: [] };
+		frm.__ws_original_return_rounding = null;
 
 		frappe.call({
 			method: "worldshading.api.dynamic_rounding.get_dynamic_rounding_client_settings",
@@ -256,7 +311,26 @@
 		return format_currency(flt(value), currency);
 	}
 
-	function show_preview(frm) {
+	function show_preview(frm, checked_original) {
+		var snapshot = return_snapshot(frm.doc);
+		if (snapshot && !checked_original) {
+			frappe.call({
+				method: "worldshading.api.full_return_rounding.preview_original_return_rounding",
+				args: { return_doc: snapshot },
+				callback: function (response) {
+					if (return_snapshot(frm.doc) !== snapshot) { return; }
+					if (!response.message) { show_preview(frm, true); return; }
+					frappe.msgprint({
+						title: __("Original Invoice Rounding"),
+						message: __("Full return using the original invoice's rounding. Rounded total: {0}; rounding adjustment: {1}.", [
+							format_amount(response.message.rounded_total, frm.doc.currency),
+							format_amount(response.message.rounding_adjustment, frm.doc.currency)
+						])
+					});
+				}
+			});
+			return;
+		}
 		var grand_total = flt(frm.doc.grand_total);
 		var has_core_rounded_total = frm.doc.rounded_total !== null
 			&& frm.doc.rounded_total !== undefined
