@@ -114,7 +114,7 @@ assert.strictEqual(report.raw_data.result[0].opening_cash,105);
 report.raw_data={result:[{date:'2026-11-10',opening_cash:120,currency:'BHD',_cashflow_context:{
  message:'Bank - WS: 100.000; Cash - WS: 20.000'}}]};
 settings.after_datatable_render();
-boundClick.call({classList:{contains:()=>true}},{preventDefault:()=>{}});
+boundClick.call({classList:{contains:name=>name==='cashflow-opening-balance'}},{preventDefault:()=>{}});
 assert(dialog.fields[0].options.includes('Bank - WS'));
 assert(dialog.fields[0].options.includes('BHD 120.000'));
 console.log('Opening cash account breakdown, support, escaping and hidden start date passed');
@@ -143,3 +143,36 @@ assert(overdueHTML.includes('Overdue items: 3'));
 assert(!overdueHTML.includes('or include them today'));
 assert.strictEqual(JSON.stringify(savedOverdue),originalOverdue,'Do not mutate saved overdue rows');
 console.log('Saved overdue popup retains categories, original dates, merged amounts and document links');
+
+// Summary and highlights use rendered sources, never pending filter edits.
+const manualSources=[{date:'2026-11-10',category:'other_receipts',amount:100,manual_support:true,description:'Support: <Owner>'},
+ {date:'2026-11-10',category:'other_receipts',amount:30,description:'Ordinary receipt'},
+ {date:'2026-11-10',category:'extra_expenses',amount:25,description:'Repairs'},
+ {date:'2026-11-10',category:'proposed_purchase',amount:1000,scenario:true,scenario_kind:'supplier',purchase_number:1},
+ {date:'2026-11-12',category:'customs',amount:50,scenario:true,scenario_kind:'arrival',purchase_number:1},
+ {date:'2026-11-12',category:'import_vat',amount:105,scenario:true,scenario_kind:'arrival',purchase_number:1},
+ {date:'2026-11-12',category:'vat_accrual',amount:-105,scenario:true,scenario_kind:'arrival',purchase_number:1}];
+const manual=Object.assign({},rows[0],{sources:manualSources,other_receipts:130,extra_expenses:25});
+report.prepare_report_data({columns:[],result:[manual]});settings.after_datatable_render();
+assert(summaryHTML.includes('cashflow-manual-inputs'));
+assert(summaryHTML.includes('data-input-kind="support"'));assert(summaryHTML.includes('BHD 100'));
+assert(summaryHTML.includes('data-input-kind="expenses"'));assert(summaryHTML.includes('BHD 25'));
+assert(summaryHTML.includes('data-input-kind="purchases"'));assert(summaryHTML.includes('BHD 1155'));
+assert(settings.formatter(130,0,{fieldname:'other_receipts'},manual,format).includes('cashflow-manual-cell'));
+assert(settings.formatter(25,0,{fieldname:'extra_expenses'},manual,format).includes('cashflow-manual-cell'));
+assert(!settings.formatter(100,0,{fieldname:'opening_cash'},manual,format).includes('cashflow-manual-cell'));
+assert(!settings.formatter(30,0,{fieldname:'other_receipts'},{sources:[manualSources[1]],closing_cash:100},format).includes('cashflow-manual-cell'));
+const originalDollar=context.$;context.$=()=>({attr:name=>name==='data-input-kind'?'support':null});
+boundClick.call({classList:{contains:name=>name==='cashflow-manual-input'}},{preventDefault:()=>{}});
+assert(dialog.title==='Support');assert(dialog.fields[0].options.includes('10-11-2026'));assert(dialog.fields[0].options.includes('&lt;Owner&gt;'));
+assert(!dialog.fields[0].options.includes('Ordinary receipt'));
+context.$=()=>({attr:name=>name==='data-input-kind'?'purchases':null});
+boundClick.call({classList:{contains:name=>name==='cashflow-manual-input'}},{preventDefault:()=>{}});
+assert(dialog.fields[0].options.includes('12-11-2026'));assert(dialog.fields[0].options.includes('Import VAT'));assert(!dialog.fields[0].options.includes('-105'));
+context.$=originalDollar;
+report.prepare_report_data({columns:[],result:[Object.assign({},manual,{month:'2026-11'})]});settings.after_datatable_render();
+assert(summaryHTML.includes('BHD 1155'));assert(summaryHTML.includes('data-input-kind="support"'));
+assert(settings.formatter(130,0,{fieldname:'other_receipts'},report.data[0],format).includes('cashflow-manual-cell'));
+report.prepare_report_data({columns:[],result:[Object.assign({},rows[0],{sources:[]})]});settings.after_datatable_render();
+assert(!summaryHTML.includes('class="cashflow-manual-inputs"'));
+console.log('Compact manual-input summary, saved-date breakdown and exact-cell highlights passed');

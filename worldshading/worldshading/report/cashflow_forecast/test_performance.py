@@ -80,3 +80,16 @@ class PerformanceTests(unittest.TestCase):
         with patch.object(frappe,'db',db),patch.object(frappe,'has_permission',return_value=True), \
              patch.object(frappe,'get_list',return_value=[record]):
             self.assertEqual(s.names('Purchase Order',{'docstatus':1}),['PO'])
+
+    def test_vat_candidates_require_net_cash_before_loading_journal_documents(self):
+        from worldshading.worldshading.report.cashflow_forecast.vat_sources import VatSources
+        s=self.source();s.accounts=['Bank','Cash']
+        sql=Mock(side_effect=[[],[]])
+        account=SimpleNamespace(check_permission=lambda *args:None)
+        with patch.object(frappe,'db',SimpleNamespace(exists=lambda *args:True,sql=sql)), \
+             patch.object(frappe,'get_doc',return_value=account):
+            VatSources(s).load()
+        query,params=sql.call_args_list[0][0][:2]
+        self.assertIn('tabJournal Entry Account',query)
+        self.assertIn('sum(round(a.credit,3)-round(a.debit,3))>0',query)
+        self.assertEqual(params[-3:],('Example',s.end,('Bank','Cash')))

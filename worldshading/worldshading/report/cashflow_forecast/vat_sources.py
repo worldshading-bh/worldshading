@@ -23,6 +23,8 @@ class VatSources(object):
                 frappe.throw('VAT account mapping missing: '+name)
             frappe.get_doc('Account',name).check_permission('read')
         # Use existing account indexes rather than a broad company-wide ledger scan.
+        # Preselect only journals with net cash leaving the included pool.
+        # The document-level balance/tax checks below remain authoritative.
         candidate_branch="""select voucher_type,voucher_no,posting_date,account,debit,credit
             from `tabGL Entry` where company=%s and account=%s and posting_date<=%s
             and voucher_type='Journal Entry'"""
@@ -31,8 +33,14 @@ class VatSources(object):
         candidates=frappe.db.sql("""select voucher_type,voucher_no,posting_date,
             sum(credit-debit) change_amount from ("""+candidate_sql+""") tax
             group by voucher_type,voucher_no,posting_date
-            having sum(case when account=%s then debit-credit else 0 end)>0 and sum(credit-debit)<0""",
-            parameters+(TAX_ACCOUNTS['output'],),as_dict=1)
+            having sum(case when account=%s then debit-credit else 0 end)>0 and sum(credit-debit)<0
+            and voucher_no in (
+                select j.name from `tabJournal Entry` j
+                inner join `tabJournal Entry Account` a on a.parent=j.name
+                where j.company=%s and j.docstatus=1 and j.posting_date<=%s and a.account in %s
+                group by j.name having sum(round(a.credit,3)-round(a.debit,3))>0
+            )""",
+            parameters+(TAX_ACCOUNTS['output'],s.company,s.end,tuple(s.accounts) or ('',)),as_dict=1)
         latest=quarter(quarter(s.start)-timedelta(days=1))
         unreadable=[]
         for row in candidates:
