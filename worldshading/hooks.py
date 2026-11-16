@@ -63,6 +63,7 @@ doctype_calendar_js = {
 # after_install = "worldshading.install.after_install"
 
 after_migrate = [
+    "worldshading.api.fixed_expense_payments.ensure_payment_index",
     "worldshading.api.currency_exchange.setup_ws_settings_fields"
 ]
 
@@ -187,6 +188,8 @@ has_permission = {
 scheduler_events = {
     "daily": [
 
+        # Activate after the existing test Fixed Expenses are retired.
+        # "worldshading.api.fixed_expense_payments.create_due_payments",
         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
         "worldshading.scheduler_events.draft_cleanup_schedule.execute",
         "worldshading.scheduler_events.prepared_report_cleanup.execute",
@@ -238,6 +241,7 @@ scheduler_events = {
 
 
 fixtures = [
+    {"doctype": "Property Setter", "filters": [["name", "in", ["GL Payment-reference_date-reqd"]]]},
     {
         "doctype": "Custom Field",
         "filters": [
@@ -250,6 +254,15 @@ fixtures = [
                 "GL Payment-custom_is_urgent",
                 "GL Payment-custom_urgent_reason",
                 "GL Payment-custom_fixed_expense",
+                "GL Payment-custom_fixed_expense_section",
+                "GL Payment-custom_expense_due_date",
+                "GL Payment-custom_expense_amount",
+                "GL Payment-custom_fixed_expense_column",
+                "GL Payment-custom_close_remaining_balance",
+                "GL Payment-custom_adjustment_reason",
+                "GL Payment-custom_expense_snapshot",
+                "GL Payment-custom_next_balance_due_date",
+                "GL Payment-custom_fixed_expense_end",
                 "Journal Entry-custom_is_urgent",
                 "Journal Entry-custom_urgent_reason"
             ]]
@@ -282,7 +295,7 @@ doctype_js = {
 		"public/js/payment_entry_urgency.js",
 		"public/js/payment_entry_dashboard.js"
 	],
-	"GL Payment": "public/js/gl_payment_urgency.js",
+	"GL Payment": ["public/js/gl_payment_urgency.js", "public/js/fixed_expense_payment.js"],
 	"Journal Entry": "public/js/journal_entry_urgency.js",
     "Material Request": "public/js/material_request.js",
     "Quotation": [
@@ -336,11 +349,18 @@ doc_events = {
     "Item Price": {
         "validate": "worldshading.api.item_price_validation.validate_new_item_price"
     },
+    "Fixed Expense": {
+        "validate": "worldshading.api.fixed_expense_payments.validate_master"
+    },
     "GL Payment": {
+        "before_validate": "worldshading.api.fixed_expense_payments.validate_payment",
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change",
-        "before_cancel": "worldshading.api.purchase_order_urgency.clear_cancelled_urgency",
+        "before_cancel": ["worldshading.api.fixed_expense_payments.before_cancel",
+                          "worldshading.api.purchase_order_urgency.clear_cancelled_urgency"],
         "validate": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
-        "before_update_after_submit": "worldshading.api.purchase_order_urgency.clear_completed_urgency"
+        "before_update_after_submit": ["worldshading.api.fixed_expense_payments.protect_history",
+                                       "worldshading.api.purchase_order_urgency.clear_completed_urgency"],
+        "on_trash": "worldshading.api.fixed_expense_payments.protect_history"
     },
     "Purchase Order": {
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change",

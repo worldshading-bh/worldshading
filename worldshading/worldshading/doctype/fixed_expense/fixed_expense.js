@@ -1,24 +1,40 @@
 frappe.ui.form.on("Fixed Expense", {
 	refresh: function (frm) {
 		frm._expense_currency = frm.doc.currency;
-		if (!frm.is_new() && frm.doc.status === "Active" && frappe.model.can_create("GL Payment")) {
+		if (!frm.is_new() && frappe.model.can_create("GL Payment")) {
 			frm.add_custom_button(__("Create GL Payment"), function () {
 				if (frm.is_dirty()) {
 					frappe.msgprint(__("Save the Fixed Expense before creating a GL Payment."));
 					return;
 				}
-				frappe.call({
-					method: "worldshading.worldshading.doctype.fixed_expense.fixed_expense.make_gl_payment",
-					args: { source_name: frm.doc.name },
-					freeze: true,
-					callback: function (response) {
-						if (!response.message) return;
-						frappe.model.with_doctype("GL Payment", function () {
-							const payment = frappe.model.sync(response.message)[0];
-							frappe.set_route("Form", "GL Payment", payment.name);
-						});
-					}
-				});
+                frappe.call({
+                    method: "worldshading.api.fixed_expense_payments.get_payment_dates",
+                    args: { source_name: frm.doc.name },
+                    callback: function (response) {
+                        const dates = response.message || [];
+                        if (!dates.length) {
+                            frappe.msgprint(__("No unpaid expense dates are available."));
+                            return;
+                        }
+                        frappe.prompt([{
+                            fieldname: "due_date", fieldtype: "Select", label: __("Expense Due Date"),
+                            options: dates.join("\n"), default: dates[0], reqd: 1
+                        }], function (values) {
+                            frappe.call({
+                                method: "worldshading.worldshading.doctype.fixed_expense.fixed_expense.make_gl_payment",
+                                args: { source_name: frm.doc.name, scheduled_due_date: values.due_date },
+                                freeze: true,
+                                callback: function (result) {
+                                    if (!result.message) return;
+                                    frappe.model.with_doctype("GL Payment", function () {
+                                        const payment = frappe.model.sync(result.message)[0];
+                                        frappe.set_route("Form", "GL Payment", payment.name);
+                                    });
+                                }
+                            });
+                        }, __("Create GL Payment"), __("Create"));
+                    }
+                });
 			});
 		}
 		if (frm.fields_dict.estimated_base_total && frm.doc.company_currency) {

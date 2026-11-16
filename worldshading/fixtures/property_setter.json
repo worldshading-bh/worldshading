@@ -1,0 +1,17 @@
+[
+ {
+  "default_value": null,
+  "doc_type": "GL Payment",
+  "docstatus": 0,
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "field_name": "reference_date",
+  "name": "GL Payment-reference_date-reqd",
+  "parent": null,
+  "parentfield": null,
+  "parenttype": null,
+  "property": "reqd",
+  "property_type": "Check",
+  "value": "0"
+ }
+]

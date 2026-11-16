@@ -158,9 +158,14 @@ class FixedExpense(Document):
 
 
 @frappe.whitelist()
-def make_gl_payment(source_name):
+def make_gl_payment(source_name, scheduled_due_date=None):
+	from worldshading.api.fixed_expense_payments import make_payment
+	return make_payment(source_name, scheduled_due_date).as_dict()
+
+
+def _build_gl_payment(source_name, source=None):
 	"""Prepare an unsaved payment for accounts to review through the normal workflow."""
-	source = frappe.get_doc("Fixed Expense", source_name)
+	source = source or frappe.get_doc("Fixed Expense", source_name)
 	source.check_permission("read")
 	if not frappe.has_permission("GL Payment", "create"):
 		frappe.throw(_("Not permitted to create GL Payments."), frappe.PermissionError)
