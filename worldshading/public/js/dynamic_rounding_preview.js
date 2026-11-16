@@ -81,8 +81,23 @@
 			"total_taxes_and_charges", "base_total_taxes_and_charges", "disable_rounded_total",
 			"paid_amount", "base_paid_amount", "write_off_amount", "base_write_off_amount",
 			"change_amount", "base_change_amount", "total_advance", "loyalty_amount",
-			"redeem_loyalty_points", "credit_note", "credit_note_invoice", "items", "taxes"
+			"redeem_loyalty_points", "credit_note", "credit_note_invoice"
 		].forEach(function (field) { snapshot[field] = doc[field]; });
+		// Match the server's eligibility inputs, not ERPNext's temporary calculation fields.
+		// _cleanup removes/serializes those after set_rounded_total, while this request is pending.
+		var row_fields = {
+			items: ["sales_invoice_item", "item_code", "uom", "conversion_factor",
+				"rate", "qty", "stock_qty", "net_amount", "base_net_amount"],
+			taxes: ["account_head", "charge_type", "included_in_print_rate", "cost_center",
+				"rate", "tax_amount_after_discount_amount", "base_tax_amount_after_discount_amount"]
+		};
+		Object.keys(row_fields).forEach(function (table) {
+			snapshot[table] = (doc[table] || []).map(function (row) {
+				var values = {};
+				row_fields[table].forEach(function (field) { values[field] = row[field]; });
+				return values;
+			});
+		});
 		return JSON.stringify(snapshot);
 	}
 

@@ -326,7 +326,13 @@ refreshForm.doc = {
 	doctype: "Sales Invoice", name: "new-return", __islocal: 1, docstatus: 0,
 	is_return: 1, is_pos: 0, return_against: "SOURCE", grand_total: -76.190,
 	base_grand_total: -76.190, conversion_rate: 1, currency: "BHD",
-	paid_amount: 0, payments: [], items: [], taxes: []
+	paid_amount: 0, payments: [],
+	items: [{ sales_invoice_item: "ROW", item_code: "ITEM", qty: -8, item_tax_amount: -6.926 }],
+	taxes: [{ account_head: "VAT", charge_type: "On Net Total", rate: 10,
+		tax_amount_after_discount_amount: -6.926,
+		tax_amount_for_current_item: -6.926, grand_total_for_current_item: -76.190,
+		tax_fraction_for_current_item: 0.1, grand_total_fraction_for_current_item: 1.1,
+		item_wise_tax_detail: { ITEM: [10, -6.926] } }]
 };
 refreshForm.__ws_original_return_rounding = null;
 refreshForm.cscript.set_rounded_total();
@@ -336,6 +342,13 @@ const originalResult = {
 	rounded_total: -76.200, rounding_adjustment: -0.010,
 	base_rounded_total: -76.200, base_rounding_adjustment: -0.010
 };
+// ERPNext's _cleanup runs after set_rounded_total and before the response arrives.
+delete refreshForm.doc.items[0].item_tax_amount;
+["tax_amount_for_current_item", "grand_total_for_current_item",
+	"tax_fraction_for_current_item", "grand_total_fraction_for_current_item"].forEach(function (field) {
+	delete refreshForm.doc.taxes[0][field];
+});
+refreshForm.doc.taxes[0].item_wise_tax_detail = JSON.stringify(refreshForm.doc.taxes[0].item_wise_tax_detail);
 returnRequests[0].callback({ message: originalResult });
 assert.strictEqual(refreshForm.doc.rounded_total, -76.200);
 assert.strictEqual(refreshForm.doc.rounding_adjustment, -0.010);
@@ -351,6 +364,20 @@ assert.strictEqual(refreshForm.doc.rounded_total, -38.000);
 refreshForm.doc.is_pos = 1;
 refreshForm.cscript.set_rounded_total();
 assert.strictEqual(returnRequests.length, 2, "POS returns must not request original rounding");
+refreshForm.doc.is_pos = 0;
+refreshForm.doc.grand_total = refreshForm.doc.base_grand_total = -76.190;
+refreshForm.cscript.set_rounded_total();
+assert.strictEqual(returnRequests.length, 3);
+refreshForm.doc.items[0].qty = -4;
+returnRequests[2].callback({ message: originalResult });
+assert.strictEqual(refreshForm.doc.rounded_total, -76.100,
+	"a real quantity change must still invalidate the pending full-return reply");
+refreshForm.cscript.set_rounded_total();
+assert.strictEqual(returnRequests.length, 4);
+refreshForm.doc.taxes[0].tax_amount_after_discount_amount = -3.463;
+returnRequests[3].callback({ message: originalResult });
+assert.strictEqual(refreshForm.doc.rounded_total, -76.100,
+	"a real tax amount change must still invalidate the pending full-return reply");
 frappe.call = originalCall;
 
 console.log("dynamic rounding client regression: PASS");
