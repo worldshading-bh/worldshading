@@ -102,6 +102,9 @@ def validate(filters):
         filters.manual_sales = int(filters.get("manual_sales") or 0)
         if filters.manual_sales not in (0, 1) or money(filters.get("average_daily_sales")) < 0:
             raise ValueError("Average Daily Sales must be nonnegative.")
+        filters.maximum_shortage = money(filters.get('maximum_shortage', 1000))
+        if filters.maximum_shortage < 0:
+            raise ValueError('Max Shortage Tolerance cannot be negative.')
         filters.pop('today_receipts',None)
         filters.include_overdue = int(filters.get('include_overdue') or 0)
         if filters.include_overdue not in (0, 1):
@@ -314,12 +317,12 @@ def render_forecast(source, filters, start, end, accounts, extra):
     if proposed:
         first_purchase = min(e['date'] for e in proposed)
         after = [r for r in rows if r['date'] >= first_purchase]
-        base_after = [r for r in baseline if r['date'] >= first_purchase]
+        baseline_low = min(baseline, key=lambda row: row['closing_cash'])
         check = summarize(after, filters.minimum_reserve or 0)
         status = _('Cash shortfall') if check['first_shortfall_date'] else (_('Below minimum reserve') if check['first_reserve_date'] else _('Within reserve through forecast end'))
         cards.extend([dict(label=_('Purchase Check'), value=status, indicator='Red' if check['first_shortfall_date'] or check['first_reserve_date'] else 'Blue'),
-                      dict(label=_('Lowest Cash Without Purchase'), value=float(min(r['closing_cash'] for r in base_after)), datatype='Currency', currency=source.currency),
-                      dict(label=_('Lowest Cash With Purchase'), value=float(check['lowest_balance']), datatype='Currency', currency=source.currency)])
+                      dict(label=_('Lowest Cash Without Purchase'), value=float(baseline_low['closing_cash']),
+                           date=str(baseline_low['date']), datatype='Currency', currency=source.currency)])
     if money(filters.minimum_reserve):
         cards.append(dict(label=_('First Below Reserve'), value=str(summary['first_reserve_date'] or _('None'))))
     message = report_message(source, filters, extra)
@@ -451,7 +454,7 @@ def calculation_inputs(source):
 
 
 @frappe.whitelist()
-def recalculate_purchase(prepared_report_name, filters):
+def recalculate_purchase(prepared_report_name, filters, suggest_purchase_dates=0):
     """Reprice one purchase against authorized, unchanged prepared accounting inputs."""
     from .prepared_access import run
     saved = run('Cashflow Forecast', {'prepared_report_name':prepared_report_name})
@@ -464,7 +467,7 @@ def recalculate_purchase(prepared_report_name, filters):
     filters.excluded_accounts = normalize_excluded_accounts(filters.get('excluded_accounts'))
     base = dict(context.get('base_filters') or {})
     base['excluded_accounts'] = normalize_excluded_accounts(base.get('excluded_accounts'))
-    ignored = {'purchase_scenario','prepared_report_name'}
+    ignored = {'purchase_scenario','prepared_report_name','maximum_shortage'}
     if {k:v for k,v in filters.items() if k not in ignored} != {k:v for k,v in base.items() if k not in ignored}:
         frappe.throw('Forecast filters have changed. Rebuild before checking a purchase.')
     if str(start)!=context.get('forecast_date'):
@@ -474,6 +477,14 @@ def recalculate_purchase(prepared_report_name, filters):
     source.opening_balance = money(source.opening_balance)
     source.actual_sales_today = money(source.actual_sales_today) if source.actual_sales_today is not None else None
     for row in source.accounts_breakdown:row['amount']=money(row['amount'])
+    if int(suggest_purchase_dates or 0):
+        from .suggestions import suggest_dates
+        def evaluate(events):
+            return build_forecast(start,end,source.opening_balance,source.events+events,source.historical,
+                filters.sales_adjustment or 0,filters.support_amount or 0,filters.minimum_reserve or 0,
+                0,source.vat_opening,manual_daily_sales=money(filters.average_daily_sales) if filters.manual_sales else None,
+                holidays=source.get('holidays') or [],actual_sales_today=source.actual_sales_today)
+        return dict(suggestions=suggest_dates(start,end,extra,evaluate,filters.maximum_shortage))
     result = render_forecast(source,filters,start,end,accounts,extra)
     return dict(columns=result[0],result=result[1],message=result[2],chart=result[3],report_summary=result[4],
                 skip_total_row=True,purchase_preview=True,prepared_report_name=prepared_report_name)

@@ -185,3 +185,27 @@ boundClick.call({classList:{contains:name=>name==='cashflow-opening-balance'}},{
 assert(dialog.fields[0].options.includes('Excluded Accounts'));assert(dialog.fields[0].options.includes('Deposit &lt;Restricted&gt;'));
 assert(dialog.fields[0].options.includes('BHD 100.000'));assert(!dialog.fields[0].options.includes('BHD 300.000'));
 console.log('Opening breakdown separates included and excluded balances without adding exclusions to total');
+
+// Supplier display names travel with the saved event and are escaped in drilldown.
+context.$=()=>({attr:name=>name==='data-key'?'2026-11-10':'supplier_payments'});
+report.data=[Object.assign({},rows[0],{sources:[{category:'supplier_payments',amount:25,doctype:'Payment Entry',name:'PE-SUPPLIER',party_type:'Supplier',party:'SUP-001',supplier_name:'Example <Trading>'}]})];
+settings.after_datatable_render();boundClick.call({}, {preventDefault:()=>{}});
+assert(dialog.fields[0].options.includes('Example &lt;Trading&gt;'));
+assert(dialog.fields[0].options.includes('PE-SUPPLIER'));
+console.log('Supplier payment drilldown shows escaped supplier name alongside its document');
+
+// Saved daily reports also use the full period for the baseline comparison.
+const comparisonRows=[Object.assign({},rows[0],{baseline_closing_cash:100,closing_cash:100,
+ _cashflow_context:{report_summary:[{label:'Lowest Balance',value:50,datatype:'Currency',currency:'BHD'},
+ {label:'Lowest Balance Date',value:'2026-11-12'},
+ {label:'Lowest Cash Without Purchase',value:200,datatype:'Currency',currency:'BHD'},
+ {label:'Lowest Cash With Purchase',value:50,datatype:'Currency',currency:'BHD'}]}}),
+ Object.assign({},rows[0],{date:'2026-11-12',baseline_closing_cash:200,closing_cash:50})];
+report.prepare_report_data({columns:[],result:comparisonRows});settings.after_datatable_render();
+assert(!summaryHTML.includes('Lowest Cash With Purchase'));
+assert(summaryHTML.includes('Lowest Cash Without Purchase'));
+assert(summaryHTML.includes('Across the whole forecast, excluding added purchases. Support and extra expenses stay included.'));
+assert(summaryHTML.includes('Across the whole forecast, including added purchases.'));
+assert(summaryHTML.includes('On 10-11-2026'));
+assert(summaryHTML.includes('BHD 100'));
+console.log('Whole-period comparison, baseline date, explanatory tooltips and duplicate removal passed');

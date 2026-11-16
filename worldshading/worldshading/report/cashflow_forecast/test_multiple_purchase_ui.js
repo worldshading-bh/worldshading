@@ -37,6 +37,7 @@ context.frappe.query_reports['Cashflow Forecast'].onload(report);
  second.df.data=[{date:'2026-12-01',amount:500}];
  d.fields_dict.include_customs_vat_1.set_input(1);d.fields_dict.include_customs_vat_1.df.onchange();d.fields_dict.import_charges_1.grid.df.data[1].date='2026-11-25';
  assert.strictEqual(d.fields_dict.import_charges.df.hidden,1);assert.strictEqual(d.fields_dict.import_charges_1.df.hidden,0);
+ assert(d.fields_dict.suggest_date, 'Purchase dialog must offer date suggestions');
  first.df.data[0].amount=1200;
  await d.options.primary_action(d.get_values());
  let sent=JSON.parse(filters.purchase_scenario);assert.strictEqual(sent.purchases.length,2);
