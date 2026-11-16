@@ -1,5 +1,6 @@
 frappe.ui.form.on("Fixed Expense", {
 	refresh: function (frm) {
+		set_expense_identity_fields(frm);
 		frm._expense_currency = frm.doc.currency;
 		if (!frm.is_new() && frappe.model.can_create("GL Payment")) {
 			frm.add_custom_button(__("Create GL Payment"), function () {
@@ -26,6 +27,7 @@ frappe.ui.form.on("Fixed Expense", {
                                 freeze: true,
                                 callback: function (result) {
                                     if (!result.message) return;
+                                    result.message.__unsaved = 1;
                                     frappe.model.with_doctype("GL Payment", function () {
                                         const payment = frappe.model.sync(result.message)[0];
                                         frappe.set_route("Form", "GL Payment", payment.name);
@@ -42,6 +44,7 @@ frappe.ui.form.on("Fixed Expense", {
 				__("Estimated Total ({0})", [frm.doc.company_currency]));
 		}
 	},
+	category: set_expense_identity_fields,
 	currency: function (frm) {
 		const previous = frm._expense_currency;
 		frm._expense_currency = frm.doc.currency;
@@ -84,6 +87,14 @@ frappe.ui.form.on("Fixed Expense", {
 		calculate_expense_totals(frm);
 	}
 });
+
+function set_expense_identity_fields(frm) {
+	const phone = frm.doc.category === "Telephone Bill";
+	const ai = frm.doc.category === "AI Subscription";
+	frm.toggle_reqd("mobile_number", phone);
+	frm.toggle_reqd("ai_service", ai);
+	frm.toggle_reqd("registered_email", ai);
+}
 
 frappe.ui.form.on("Recurring Expense Account", {
 	accounts_add: calculate_expense_totals,

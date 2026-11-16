@@ -5,9 +5,12 @@
  "engine": "InnoDB",
  "field_order": [
   "basic_section",
+  "company",
   "expense_name",
   "category",
-  "company",
+  "ai_service",
+  "mobile_number",
+  "registered_email",
   "details_column",
   "status",
   "responsible_user",
@@ -32,6 +35,7 @@
   "estimated_base_total",
   "base_rate_column",
   "estimate_exchange_rate",
+  "currency_exchange_tolerance",
   "estimate_rate_date",
   "schedule_section",
   "billing_frequency",
@@ -48,19 +52,28 @@
   "automatic_charge",
   "payment_method_reference",
   "account_section",
-  "registered_email",
   "account_identifier",
   "provider_column",
   "service_identifier",
   "portal_url",
   "notes_section",
-  "notes"
+  "notes",
+  "active_expense_identity"
  ],
  "fields": [
   {
    "fieldname": "basic_section",
    "fieldtype": "Section Break",
    "label": "Expense Details"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "remember_last_selected_value": 1,
+   "reqd": 1
   },
   {
    "fieldname": "expense_name",
@@ -74,18 +87,29 @@
    "fieldname": "category",
    "fieldtype": "Select",
    "label": "Category",
-   "options": "\nRent\nUtilities\nHosting\nSoftware Subscription\nAPI Usage\nMaintenance\nInsurance\nOther",
+   "options": "\nRent\nUtilities\nHosting\nSoftware Subscription\nAPI Usage\nMaintenance\nInsurance\nOther\nTelephone Bill\nAI Subscription",
    "in_standard_filter": 1,
    "reqd": 1
   },
   {
-   "fieldname": "company",
-   "fieldtype": "Link",
-   "in_standard_filter": 1,
-   "label": "Company",
-   "options": "Company",
-   "remember_last_selected_value": 1,
-   "reqd": 1
+   "fieldname": "ai_service",
+   "fieldtype": "Select",
+   "label": "AI Service",
+   "options": "\nChatGPT\nClaude\nGemini",
+   "depends_on": "eval:doc.category == 'AI Subscription'"
+  },
+  {
+   "fieldname": "mobile_number",
+   "fieldtype": "Data",
+   "label": "Mobile Number",
+   "depends_on": "eval:doc.category == 'Telephone Bill'"
+  },
+  {
+   "fieldname": "registered_email",
+   "fieldtype": "Data",
+   "label": "Account Email",
+   "options": "Email",
+   "depends_on": "eval:doc.category && doc.category != 'Rent'"
   },
   {
    "fieldname": "details_column",
@@ -241,6 +265,14 @@
    "read_only": 1
   },
   {
+   "fieldname": "currency_exchange_tolerance",
+   "fieldtype": "Currency",
+   "label": "Currency Exchange Tolerance",
+   "options": "company_currency",
+   "default": "0",
+   "depends_on": "eval:doc.amount_type == 'Fixed' && doc.currency && doc.company_currency && doc.currency != doc.company_currency"
+  },
+  {
    "fieldname": "estimate_rate_date",
    "fieldtype": "Date",
    "label": "Rate Date",
@@ -333,15 +365,9 @@
   {
    "fieldname": "account_section",
    "fieldtype": "Section Break",
-   "label": "Account and Service References (Optional)",
+   "label": "Account and Service References",
    "depends_on": "eval:doc.category && doc.category != 'Rent'",
    "collapsible": 1
-  },
-  {
-   "fieldname": "registered_email",
-   "fieldtype": "Data",
-   "label": "Account Email",
-   "options": "Email"
   },
   {
    "fieldname": "account_identifier",
@@ -373,6 +399,15 @@
    "fieldname": "notes",
    "fieldtype": "Small Text",
    "label": "Notes"
+  },
+  {
+   "fieldname": "active_expense_identity",
+   "fieldtype": "Data",
+   "label": "Active Expense Identity",
+   "hidden": 1,
+   "read_only": 1,
+   "no_copy": 1,
+   "unique": 1
   }
  ],
  "modified": "2026-10-01 00:00:00",

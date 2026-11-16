@@ -3,6 +3,9 @@ from __future__ import unicode_literals
 
 import frappe
 import math
+import hashlib
+import json
+import re
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, flt, getdate, nowdate, date_diff
@@ -16,6 +19,10 @@ class FixedExpense(Document):
 			self.validate_accounts()
 		else:
 			self.validate_expense_account()
+		self.validate_expense_identity()
+		tolerance = flt(self.get("currency_exchange_tolerance"))
+		if not math.isfinite(tolerance) or tolerance < 0:
+			frappe.throw(_("Currency Exchange Tolerance must be zero or greater."))
 		if flt(self.expected_amount) < 0:
 			frappe.throw(_("Expected Amount / Budget cannot be negative."))
 		if self.amount_type == "Fixed" and flt(self.expected_amount) <= 0:
@@ -27,6 +34,31 @@ class FixedExpense(Document):
 			self.update_payment_estimate()
 		if self.get("doctype") and self.meta.has_field("estimated_base_total"):
 			self.update_base_estimate()
+
+	def validate_expense_identity(self):
+		self.active_expense_identity = None
+		category = self.get("category")
+		if category not in ("Telephone Bill", "AI Subscription"):
+			return
+		service = self.get("ai_service") if category == "AI Subscription" else None
+		if category == "AI Subscription" and service not in ("ChatGPT", "Claude", "Gemini"):
+			frappe.throw(_("Select an AI Service: ChatGPT, Claude, or Gemini."))
+		field = "mobile_number" if category == "Telephone Bill" else "registered_email"
+		country = frappe.db.get_value("Company", self.company, "country")
+		value = normalize_expense_identity(category, self.get(field), country)
+		self.set(field, value)
+		if self.get("status") != "Active":
+			return
+		key = expense_identity_key(self.company, category, value, service)
+		duplicates = frappe.get_all("Fixed Expense", filters={
+			"active_expense_identity": key, "name": ["!=", self.name or ""]
+		}, fields=["name"], limit_page_length=1)
+		if duplicates:
+			from frappe.utils import get_link_to_form
+			frappe.throw(_("An active {0} already exists for this {1}: {2}").format(
+				service or category, _("mobile number") if category == "Telephone Bill" else _("account email"),
+				get_link_to_form("Fixed Expense", duplicates[0].name)))
+		self.active_expense_identity = key
 
 	def update_base_estimate(self):
 		self.estimated_base_total = 0
@@ -155,6 +187,26 @@ class FixedExpense(Document):
 				frappe.throw(_("End Date cannot be before Start Date."))
 			if self.first_due_date and getdate(self.end_date) < getdate(self.first_due_date):
 				frappe.throw(_("End Date cannot be before First Due Date."))
+
+
+def normalize_expense_identity(category, value, country=None):
+	value = (value or "").strip()
+	if category == "AI Subscription":
+		from frappe.utils import validate_email_address
+		value = value.lower()
+		if not value or re.search(r"[\s,;<>]", value) or validate_email_address(value) != value:
+			frappe.throw(_("Enter one valid Account Email for AI Subscription."))
+		return value
+	if not value:
+		frappe.throw(_("Enter a Mobile Number or billing account number for Telephone Bill."))
+	return value
+
+
+def expense_identity_key(company, category, value, service=None):
+	parts = [company, category, value]
+	if category == "AI Subscription":
+		parts.append(service)
+	return hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 @frappe.whitelist()

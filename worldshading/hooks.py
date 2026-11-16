@@ -359,8 +359,7 @@ doc_events = {
                           "worldshading.api.purchase_order_urgency.clear_cancelled_urgency"],
         "validate": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
         "before_update_after_submit": ["worldshading.api.fixed_expense_payments.protect_history",
-                                       "worldshading.api.purchase_order_urgency.clear_completed_urgency"],
-        "on_trash": "worldshading.api.fixed_expense_payments.protect_history"
+                                       "worldshading.api.purchase_order_urgency.clear_completed_urgency"]
     },
     "Purchase Order": {
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change",

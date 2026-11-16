@@ -69,7 +69,7 @@ class TestPaymentValidation(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        for target in ('_lock_expense', '_validate_items', '_set_initial_workflow'):
+        for target in ('_lock_expense', '_validate_items', 'validate_account_mapping', '_set_initial_workflow'):
             self.stack.enter_context(patch.object(service, target))
         self.stack.enter_context(patch.object(service, '_previous', return_value=None))
         self.stack.enter_context(patch.object(service, 'nowdate', return_value='2026-12-05'))
@@ -127,6 +127,38 @@ class TestPaymentValidation(unittest.TestCase):
         self.assertEqual(state['remaining'], 100)
 
 
+    def test_foreign_tolerance_settles_small_difference(self):
+        self.state_mock.return_value[2].update(dict(amount_type='Fixed', currency='USD',
+            company_currency='BHD', currency_exchange_tolerance=1))
+        for amount in (39, 39.5, 40.5, 41):
+            self.doc.update(dict(total_amount=amount, docstatus=1, custom_adjustment_reason=None,
+                                 custom_close_remaining_balance=0))
+            service.validate_payment(self.doc)
+            self.assertIsNone(self.doc.custom_next_balance_due_date)
+            self.assertEqual(self.doc.custom_close_remaining_balance, int(amount < 40))
+            self.assertTrue(self.doc.custom_adjustment_reason)
+
+    def test_tolerance_draft_does_not_close_and_large_difference_needs_reason(self):
+        self.state_mock.return_value[2].update(dict(amount_type='Fixed', currency='USD',
+            company_currency='BHD', currency_exchange_tolerance=1))
+        self.doc.total_amount = 39
+        service.validate_payment(self.doc)
+        self.assertEqual(self.doc.custom_close_remaining_balance, 0)
+        self.assertFalse(self.doc.get('custom_adjustment_reason'))
+        for amount in (38.999, 41.001):
+            self.doc.total_amount = amount
+            with self.assertRaises(ValueError):
+                service.validate_payment(self.doc)
+
+    def test_local_currency_and_zero_tolerance_keep_reason_requirement(self):
+        snapshot = self.state_mock.return_value[2]
+        for currency, tolerance in [('BHD', 1), ('USD', 0)]:
+            snapshot.update(dict(amount_type='Fixed', currency=currency, company_currency='BHD',
+                                 currency_exchange_tolerance=tolerance))
+            self.doc.total_amount = 39.5
+            with self.assertRaises(ValueError):
+                service.validate_payment(self.doc)
+
     def test_existing_active_payment_blocks_manual_save(self):
         self.state['active'] = ['GLP-existing']
         with self.assertRaises(ValueError):
@@ -149,6 +181,22 @@ class TestPaymentValidation(unittest.TestCase):
         self.assertTrue(service.is_fixed_expense_draft(self.doc))
         self.doc.workflow_state = 'Pending Bank Payment - Chkr'
         self.assertFalse(service.is_fixed_expense_draft(self.doc))
+
+
+class TestAccountMapping(unittest.TestCase):
+    def test_amount_changes_and_reordering_allowed(self):
+        rows = [dict(account='Rent', template_type='Purchase Taxes and Charges Template', tax_template='Zero', net_amount=155),
+                dict(account='Fees', template_type='Purchase Taxes and Charges Template', tax_template='VAT', net_amount=1)]
+        actual = [dict(rows[1], net_amount=2), dict(rows[0], net_amount=100)]
+        service.validate_account_mapping(actual, {'items': rows})
+
+    def test_account_template_and_row_changes_rejected(self):
+        row = dict(account='Rent', template_type='Purchase Taxes and Charges Template', tax_template='Zero')
+        with patch.object(service.frappe, 'throw', side_effect=ValueError):
+            for actual in ([dict(row, account='Other')], [dict(row, tax_template='VAT')],
+                           [dict(row, template_type='Sales Taxes and Charges Template')], [], [row, row]):
+                with self.assertRaises(ValueError):
+                    service.validate_account_mapping(actual, {'items': [row]})
 
 
 if __name__ == '__main__':

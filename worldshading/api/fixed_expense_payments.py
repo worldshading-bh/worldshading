@@ -6,6 +6,7 @@ import calendar
 import copy
 import json
 import math
+from collections import Counter
 from datetime import date, timedelta
 
 import frappe
@@ -75,6 +76,15 @@ def balance_from_payments(amount, rows, precision, amount_type='Fixed'):
             'active': [r.get('name') for r in rows if cint(r.get('docstatus')) == 0]}
 
 
+def within_exchange_tolerance(snapshot, payment_amount, expected_amount):
+    if (snapshot.get('amount_type') != 'Fixed' or not snapshot.get('company_currency')
+            or not snapshot.get('currency') or snapshot['currency'] == snapshot['company_currency']):
+        return False
+    difference = abs(flt(payment_amount - expected_amount, snapshot['precision']))
+    tolerance = flt(snapshot.get('currency_exchange_tolerance'), snapshot['precision'])
+    return payment_amount > 0 and tolerance > 0 and 0 < difference <= tolerance
+
+
 def allocate_rows(original_rows, amount, precision):
     """Allocate gross balance with exact currency rounding; keep original tax rates."""
     rows = copy.deepcopy(original_rows)
@@ -139,6 +149,8 @@ def _new_snapshot(source):
     return {'company': source.company, 'amount': payment.total_amount, 'amount_type': source.amount_type,
             'precision': payment.precision('total_amount'),
             'currency': source.currency,
+            'company_currency': source.company_currency,
+            'currency_exchange_tolerance': flt(source.get('currency_exchange_tolerance')),
             'source_amount': source.expected_total_amount,
             'remarks': payment.remarks,
             'items': [{key: row.get(key) for key in ('account', 'template_type', 'tax_template',
@@ -186,7 +198,9 @@ def payment_context(source_name, scheduled_due_date):
     _lock_expense(source_name)
     source, rows, snapshot, state = _state(source_name, scheduled_due_date)
     _available(state)
-    return {'expense_amount': state['remaining'], 'amount_type': snapshot['amount_type']}
+    return {'expense_amount': state['remaining'], 'amount_type': snapshot['amount_type'],
+            'expense_snapshot': json.dumps(snapshot),
+            'items': allocate_rows(snapshot['items'], state['remaining'], snapshot['precision'])}
 
 
 @frappe.whitelist()
@@ -247,6 +261,15 @@ def make_payment(source_name, scheduled_due_date):
 def _previous(doc):
     return frappe.db.get_value('GL Payment', doc.name, list(MANAGED_FIELDS) +
                               ['custom_expense_amount', 'custom_next_balance_due_date'], as_dict=True) if not doc.is_new() else None
+
+
+def validate_account_mapping(rows, snapshot):
+    fields = ('account', 'template_type', 'tax_template')
+    expected = Counter(tuple(row.get(field) for field in fields) for row in snapshot['items'])
+    actual = Counter(tuple(row.get(field) for field in fields) for row in rows)
+    if actual != expected:
+        frappe.throw(_('Accounts and Tax Templates must match this Fixed Expense payment schedule. '
+                       'Change only the payment amounts.'))
 
 
 def _validate_items(doc, source):
@@ -311,19 +334,27 @@ def validate_payment(doc, method=None):
     doc.custom_expense_snapshot = json.dumps(snapshot)
     doc.custom_expense_amount = state['remaining']
     doc.custom_next_balance_due_date = old.custom_next_balance_due_date if old else None
+    validate_account_mapping(doc.items, snapshot)
     _validate_items(doc, source)
     if doc.total_amount <= 0:
         frappe.throw(_('Enter a payment amount greater than zero.'))
     difference = flt(doc.total_amount - state['remaining'], snapshot['precision'])
     variable = snapshot.get('amount_type') == 'Variable'
+    exchange_adjustment = within_exchange_tolerance(snapshot, doc.total_amount, state['remaining'])
     if variable:
         doc.custom_close_remaining_balance = 0
         doc.custom_next_balance_due_date = None
-    if not variable and difference and not (doc.get('custom_adjustment_reason') or '').strip():
+    if exchange_adjustment:
+        # Close an exchange difference only when the payment completes, never on draft save.
+        doc.custom_close_remaining_balance = int(cint(doc.docstatus) == 1 and difference < 0)
+        doc.custom_next_balance_due_date = None
+        if cint(doc.docstatus) == 1 and not (doc.get('custom_adjustment_reason') or '').strip():
+            doc.custom_adjustment_reason = _('Within currency exchange tolerance.')
+    if not variable and not exchange_adjustment and difference and not (doc.get('custom_adjustment_reason') or '').strip():
         frappe.throw(_('Enter an Adjustment Reason when the payment differs from the Expense Amount.'))
     if cint(doc.get('custom_close_remaining_balance')) and difference >= 0:
         frappe.throw(_('Close Remaining Balance is only needed when paying less than the Expense Amount.'))
-    if not variable and cint(doc.docstatus) == 1 and difference < 0 and not cint(doc.get('custom_close_remaining_balance')):
+    if not variable and not exchange_adjustment and cint(doc.docstatus) == 1 and difference < 0 and not cint(doc.get('custom_close_remaining_balance')):
         doc.custom_next_balance_due_date = next_balance_date(doc.custom_expense_due_date, doc.posting_date, nowdate())
     elif cint(doc.docstatus) == 1:
         doc.custom_next_balance_due_date = None
@@ -363,8 +394,6 @@ def before_cancel(doc, method=None):
 def protect_history(doc, method=None):
     old = _previous(doc)
     if (old and old.custom_expense_due_date) or doc.get('custom_expense_due_date'):
-        if method == 'on_trash':
-            frappe.throw(_('Fixed Expense payment history cannot be deleted.'))
         before = frappe.get_doc('GL Payment', doc.name)
         protected = MANAGED_FIELDS + ('company', 'posting_date', 'payment_type', 'payment_account',
             'cost_center', 'party_type', 'party', 'net_amount', 'tax_amount', 'total_amount',

@@ -65,7 +65,7 @@ Group GL Payments by `custom_fixed_expense` + `custom_scheduled_due_date`.
 - Re-read linked GLs after obtaining the lock. On a first payment derive the snapshot from the master; on later attempts use the first saved snapshot, including a cancelled original. Never trust client-supplied readonly amounts or JSON.
 - Cancelled payments do not count as paid or close a balance. If cancellation exists after the most recent valid payment, skip automatic replacement and let accounts explicitly create the replacement using the existing button. Do not add a hold field or retry screen.
 - Cancel payments in reverse order within a renewal when later non-cancelled payments depend on them. This prevents an old cancellation from silently changing the basis of a later closed balance.
-- Protect managed GLs from deletion, including the existing generic draft cleanup job, so the original snapshot/history survives. A rejected attempt must be corrected through the normal workflow. Confirm that return path during implementation; do not bypass a workflow if it lacks one or silently release rejected reservations.
+- Follow normal ERPNext deletion permissions and checks; no custom Fixed Expense deletion block. Remaining GLs retain their snapshots. If all GLs for a due date are deleted, that occurrence can be generated again from the master. This also applies to permitted deletions by existing cleanup jobs.
 - Prevent changing expense/due date/snapshot on a saved managed payment or altering submitted amounts through update-after-submit.
 
 ## 5. Existing draft validation needs one narrow change
@@ -113,7 +113,7 @@ Interfaces: extend `make_gl_payment(source_name, scheduled_due_date=None)`; serv
 - [ ] Allocate balance-draft amounts proportionally across original account rows with their original tax rates, currency rounding and deterministic final-row correction. Test mixed taxable/zero-tax rows; net + tax must equal the intended payment total.
 - [ ] Lock the master and validate both on save and submission; reject simultaneous duplicate drafts, tampered snapshot/identity, and further payments after settlement.
 - [ ] Store next balance due date on completion of a partial payment. Test cancelled replacement, reverse-order cancellation, rejected reservation and pending reconciliation.
-- [ ] Add compact GL JS without replacing the existing urgency script. Protect managed-document history against deletion/cleanup.
+- [ ] Add compact GL JS without replacing the existing urgency script. Keep standard ERPNext deletion behavior; do not add a custom deletion block.
 
 ### Task 3 — Draft-reference exception and daily creation
 
@@ -153,3 +153,23 @@ No new DocType, extra Fixed Expense fields, separate scheduler module, notificat
 ### Variable expense rule
 
 Variable expenses settle each due occurrence after one completed payment at the actual amount entered. Differences from the budget do not require an adjustment reason, and Close Remaining Balance is hidden. No balance GL is generated for that occurrence. The next regular renewal still generates normally; cancellation permits a deliberate replacement. Fixed expense partial-payment rules remain unchanged. Amount type is captured in the payment snapshot.
+
+### Adjustment dialog
+
+For Fixed expenses, saving an adjusted payment collects the mandatory reason and optional underpayment closure in a popup. Cancel aborts saving. Unchanged adjustments reuse the stored values; changed amounts prompt again with the previous reason prefilled. Stored values are displayed readonly, with Edit Adjustment available to reopen the popup. Workflow actions wait for accepted values to be saved before proceeding. Variable expenses do not prompt. Server-side validations remain authoritative.
+
+### Locked expense account mapping
+
+On GLs linked to Fixed Expense, expense account and purchase VAT template/type are readonly and must match the server-owned original schedule snapshot. Row additions/removals or substituted mappings are rejected on save; reordering and amount adjustments remain allowed. Payment method, bank/cash account and references remain editable under existing validation. Selecting an expense and date on a new manual GL fills the expected rows automatically. Existing drafts with altered mappings should be recreated; ordinary GLs remain editable.
+
+### Telephone Bill and ChatGPT identity
+
+Telephone Bill requires Mobile Number, accepting a mobile number or billing account number without a length restriction or automatic country-code changes. ChatGPT requires one normalized Account Email. A hidden nullable unique key enforces company + category + identifier for Active records; Closed records release the key. Existing categories/records are not automatically reclassified. Required reference fields expand their section. No bench tests or migrate were used.
+
+### AI Subscription category
+
+AI Subscription replaces the standalone ChatGPT category. AI Service is mandatory and limited to ChatGPT, Claude and Gemini; Account Email is mandatory and normalized. Active uniqueness is company + AI service + email, allowing the same email on different services. Existing ChatGPT-category records are converted to AI Subscription / ChatGPT without changing payment links. No Other or Service Name field. Telephone uniqueness is unchanged.
+
+### Per-expense currency exchange tolerance
+
+Fixed Expense now has Currency Exchange Tolerance in company currency, visible only for foreign-currency Fixed amounts. Default zero; accounts can set e.g. BHD 1.000. The allowance is captured in the original payment snapshot. Positive payments within the inclusive allowance need no reason popup and settle on completion; a smaller payment closes the exchange remainder, and a note is recorded automatically. Differences above the allowance retain reason/close/carryover rules. Local-currency and Variable payments are unchanged. Existing saved snapshots without tolerance retain zero allowance; edits to the master apply to new renewal payments.
