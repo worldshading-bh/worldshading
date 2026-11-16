@@ -14,6 +14,8 @@ from frappe.utils import cint, flt, getdate, nowdate, date_diff
 class FixedExpense(Document):
 
 	def validate(self):
+		from worldshading.api.fixed_expense_workflow import set_workflow_status
+		set_workflow_status(self)
 		uses_accounts = self.get("doctype") and self.meta.has_field("accounts")
 		if uses_accounts:
 			self.validate_accounts()
@@ -177,8 +179,6 @@ class FixedExpense(Document):
 			frappe.throw(_("Select the Billing Currency."))
 
 	def validate_schedule(self):
-		if self.status == "Closed" and not self.end_date:
-			frappe.throw(_("End Date is required when the recurring expense is Closed."))
 		if self.start_date and self.first_due_date:
 			if getdate(self.first_due_date) < getdate(self.start_date):
 				frappe.throw(_("First Due Date cannot be before Start Date."))
@@ -219,6 +219,8 @@ def _build_gl_payment(source_name, source=None):
 	"""Prepare an unsaved payment for accounts to review through the normal workflow."""
 	source = source or frappe.get_doc("Fixed Expense", source_name)
 	source.check_permission("read")
+	from worldshading.api.fixed_expense_workflow import require_approved_expense
+	require_approved_expense(source)
 	if not frappe.has_permission("GL Payment", "create"):
 		frappe.throw(_("Not permitted to create GL Payments."), frappe.PermissionError)
 	if source.status != "Active":

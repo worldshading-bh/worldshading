@@ -75,6 +75,7 @@ class TestPaymentValidation(unittest.TestCase):
         self.stack.enter_context(patch.object(service, 'nowdate', return_value='2026-12-05'))
         self.stack.enter_context(patch.object(service.frappe, 'throw', side_effect=ValueError))
         self.source = Mock(company='Example')
+        self.source.get.side_effect = lambda key: {'workflow_state': 'Approved', 'status': 'Active'}.get(key)
         self.state = {'remaining': 40, 'closed': False, 'active': []}
         self.state_mock = self.stack.enter_context(patch.object(service, '_state',
             return_value=(self.source, [], {'company': 'Example', 'amount': 100, 'precision': 3}, self.state)))
@@ -89,6 +90,18 @@ class TestPaymentValidation(unittest.TestCase):
         self.assertNotEqual(self.doc.custom_expense_snapshot, 'tampered')
         self.assertTrue(self.doc.flags.valid_fixed_expense_payment)
         self.source.check_permission.assert_called_with('read')
+
+    def test_new_direct_gl_cannot_bypass_master_approval(self):
+        self.source.get.side_effect = lambda key: {'workflow_state': 'Draft', 'status': 'Active'}.get(key)
+        with self.assertRaises(ValueError):
+            service.validate_payment(self.doc)
+
+    def test_saved_gl_can_continue_after_master_returned_or_closed(self):
+        self.source.get.side_effect = lambda key: {'workflow_state': 'Draft', 'status': 'Closed'}.get(key)
+        self.state_mock.return_value = (self.source, [frappe._dict(name='new')],
+            {'company': 'Example', 'amount': 100, 'precision': 3}, self.state)
+        service.validate_payment(self.doc)
+        self.assertTrue(self.doc.flags.valid_fixed_expense_payment)
 
     def test_under_and_over_payment_require_reason(self):
         for amount in (25, 50):

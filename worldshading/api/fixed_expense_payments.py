@@ -10,6 +10,7 @@ from collections import Counter
 from datetime import date, timedelta
 
 import frappe
+from worldshading.api.fixed_expense_workflow import require_approved_expense, validate_expense_workflow
 from frappe import _
 from frappe.utils import cint, flt, getdate, nowdate
 
@@ -197,6 +198,7 @@ def payment_context(source_name, scheduled_due_date):
     source.check_permission('read')
     _lock_expense(source_name)
     source, rows, snapshot, state = _state(source_name, scheduled_due_date)
+    require_approved_expense(source)
     _available(state)
     return {'expense_amount': state['remaining'], 'amount_type': snapshot['amount_type'],
             'expense_snapshot': json.dumps(snapshot),
@@ -207,9 +209,10 @@ def payment_context(source_name, scheduled_due_date):
 def get_payment_dates(source_name):
     source = frappe.get_doc('Fixed Expense', source_name)
     source.check_permission('read')
+    require_approved_expense(source)
     dates = due_dates(source.first_due_date, source.billing_frequency, source.start_date,
                       due_date(nowdate(), source.billing_frequency, 1), source.end_date) if source.status == 'Active' else []
-    # Include prior carried balances, even if the master has since been closed.
+    # Include prior carried balances for this approved, active master.
     for row in frappe.get_all('GL Payment', filters={'custom_fixed_expense': source_name,
                              'custom_expense_due_date': ['is', 'set']}, fields=['custom_expense_due_date']):
         dates.append(getdate(row.custom_expense_due_date))
@@ -232,6 +235,7 @@ def make_payment(source_name, scheduled_due_date):
         frappe.throw(_('Not permitted to create GL Payments.'), frappe.PermissionError)
     _lock_expense(source_name)
     source, rows, snapshot, state = _state(source_name, scheduled_due_date)
+    require_approved_expense(source)
     _available(state)
     source.validate_payment_defaults()
     payment = frappe.new_doc('GL Payment')
@@ -325,6 +329,8 @@ def validate_payment(doc, method=None):
     _lock_expense(doc.custom_fixed_expense)
     source, rows, snapshot, state = _state(doc.custom_fixed_expense, doc.get('custom_expense_due_date'), doc.name)
     saved = next((r for r in rows if r.name == doc.name), None)
+    if not saved:
+        require_approved_expense(source)
     if saved and doc.get('_original_modified') and str(saved.modified) != str(doc._original_modified):
         frappe.throw(_('This GL Payment changed. Reload it before saving.'), frappe.TimestampMismatchError)
     source.check_permission('read')
@@ -409,10 +415,12 @@ def protect_history(doc, method=None):
 
 def validate_master(doc, method=None):
     if doc.is_new():
+        validate_expense_workflow(doc)
         return
-    old = _lock_expense(doc.name)
+    old = _current_expense(doc.name)
     if doc.get('_original_modified') and str(old.modified) != str(doc._original_modified):
         frappe.throw(_('This Fixed Expense changed. Reload it before saving.'), frappe.TimestampMismatchError)
+    validate_expense_workflow(doc, old)
     if any(str(doc.get(f) or '') != str(old.get(f) or '') for f in ('company', 'currency', 'first_due_date', 'billing_frequency')):
         if frappe.db.sql('select name from `tabGL Payment` where custom_fixed_expense=%s '
                          'and custom_expense_due_date is not null limit 1 for update', (doc.name,)):
@@ -422,14 +430,16 @@ def validate_master(doc, method=None):
 def _due_candidates(today):
     through = getdate(today) + timedelta(days=2)
     candidates = set()
-    for source in frappe.get_all('Fixed Expense', filters={'status': 'Active'},
+    approved = set()
+    for source in frappe.get_all('Fixed Expense', filters={'status': 'Active', 'workflow_state': 'Approved'},
                                 fields=['name', 'first_due_date', 'start_date', 'end_date', 'billing_frequency']):
+        approved.add(source.name)
         for dt in due_dates(source.first_due_date, source.billing_frequency, source.start_date, through, source.end_date):
             candidates.add((source.name, str(dt)))
     for row in frappe.get_all('GL Payment', filters={'docstatus': 1,
                          'custom_next_balance_due_date': ['<=', through], 'custom_fixed_expense': ['is', 'set']},
                          fields=['custom_fixed_expense', 'custom_expense_due_date']):
-        if row.custom_expense_due_date:
+        if row.custom_expense_due_date and row.custom_fixed_expense in approved:
             candidates.add((row.custom_fixed_expense, str(row.custom_expense_due_date)))
     return sorted(candidates)
 

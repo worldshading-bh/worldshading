@@ -58,7 +58,8 @@
   "portal_url",
   "notes_section",
   "notes",
-  "active_expense_identity"
+  "active_expense_identity",
+  "workflow_state"
  ],
  "fields": [
   {
@@ -116,14 +117,15 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "Active",
+   "default": "Inactive",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Active\nClosed",
-   "reqd": 1
+   "options": "Inactive\nActive\nClosed",
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "responsible_user",
@@ -408,6 +410,17 @@
    "read_only": 1,
    "no_copy": 1,
    "unique": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Approval Status",
+   "options": "Workflow State",
+   "default": "Draft",
+   "hidden": 1,
+   "read_only": 1,
+   "no_copy": 1,
+   "in_standard_filter": 1
   }
  ],
  "modified": "2026-10-01 00:00:00",
@@ -444,6 +457,33 @@
    "print": 1,
    "delete": 1,
    "role": "System Manager"
+  },
+  {
+   "role": "Maker - ACC (Workflow)",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1,
+   "export": 1
+  },
+  {
+   "role": "Checker - ACC (Workflow)",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "report": 1,
+   "print": 1,
+   "export": 1
+  },
+  {
+   "role": "Approver - ACC (Workflow)",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "report": 1,
+   "print": 1,
+   "export": 1
   }
  ],
  "search_fields": "expense_name,provider_name,registered_email,service_identifier",

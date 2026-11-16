@@ -62,7 +62,10 @@ doctype_calendar_js = {
 # before_install = "worldshading.install.before_install"
 # after_install = "worldshading.install.after_install"
 
+after_install = "worldshading.api.fixed_expense_workflow.setup_workflow"
+
 after_migrate = [
+    "worldshading.api.fixed_expense_workflow.setup_workflow",
     "worldshading.api.fixed_expense_payments.ensure_payment_index",
     "worldshading.api.currency_exchange.setup_ws_settings_fields"
 ]

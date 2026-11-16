@@ -1,8 +1,10 @@
 frappe.ui.form.on("Fixed Expense", {
 	refresh: function (frm) {
 		set_expense_identity_fields(frm);
+		set_expense_workflow_fields(frm);
 		frm._expense_currency = frm.doc.currency;
-		if (!frm.is_new() && frappe.model.can_create("GL Payment")) {
+		if (!frm.is_new() && frm.doc.workflow_state === "Approved"
+			&& frm.doc.status === "Active" && frappe.model.can_create("GL Payment")) {
 			frm.add_custom_button(__("Create GL Payment"), function () {
 				if (frm.is_dirty()) {
 					frappe.msgprint(__("Save the Fixed Expense before creating a GL Payment."));
@@ -141,4 +143,16 @@ function calculate_expense_totals(frm) {
 		expected_total_amount: flt(net + tax, precision("expected_total_amount", frm.doc))
 	});
 	frm.refresh_field("accounts");
+}
+
+function set_expense_workflow_fields(frm) {
+	if (!frm._expense_editable_fields) {
+		frm._expense_editable_fields = frm.meta.fields.filter(function (field) {
+			return !field.read_only && !["Section Break", "Column Break", "HTML", "Button"].includes(field.fieldtype);
+		}).map(function (field) { return field.fieldname; });
+	}
+	const locked = (frm.doc.workflow_state || "Draft") !== "Draft";
+	frm._expense_editable_fields.forEach(function (fieldname) {
+		frm.set_df_property(fieldname, "read_only", locked ? 1 : 0);
+	});
 }

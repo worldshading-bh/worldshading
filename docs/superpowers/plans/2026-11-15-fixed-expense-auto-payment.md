@@ -173,3 +173,24 @@ AI Subscription replaces the standalone ChatGPT category. AI Service is mandator
 ### Per-expense currency exchange tolerance
 
 Fixed Expense now has Currency Exchange Tolerance in company currency, visible only for foreign-currency Fixed amounts. Default zero; accounts can set e.g. BHD 1.000. The allowance is captured in the original payment snapshot. Positive payments within the inclusive allowance need no reason popup and settle on completion; a smaller payment closes the exchange remainder, and a note is recorded automatically. Differences above the allowance retain reason/close/carryover rules. Local-currency and Variable payments are unchanged. Existing saved snapshots without tolerance retain zero allowance; edits to the master apply to new renewal payments.
+
+
+## Fixed Expense approval workflow — 16 November 2026
+
+Approved design: keep the master non-submittable. Draft → Pending Expense - Chkr → Pending Expense - App → Approved, using existing Maker/Checker/Approver - ACC (Workflow) roles. Return to Draft for corrections; Approved records require an Approver to return them for editing. Status is workflow-controlled: Draft/pending = Inactive, Approved = Active, Closed = Closed. Follow existing role-based approval permissions (including self-approval settings); no additional personal approval-tracking fields.
+
+Implementation (review after completion as requested):
+- [x] Add standard hidden workflow_state and existing Accounts workflow roles to Fixed Expense permissions. Install the scoped Workflow and any missing states/actions using an idempotent setup helper in worldshading/api/fixed_expense_workflow.py; register for future app setup. Initialize existing records to Draft, never auto-approve.
+- [x] Enforce server-side Draft editing by Maker; lock business fields outside Draft, including changes bundled with a return/approval action. Native Frappe validates role transitions. Update fixed_expense.js to lock fields and show Create GL Payment only when Approved + Active.
+- [x] Guard new GLs, manual balance payments, payment-date lookup and automatic candidates. Existing saved GLs continue under their own workflow even when the master is returned/closed. Preserve payment history and duplicate checks.
+- [x] Run database-free tests for roles, edit/transition tampering, approval gating, saved GL continuation and carried-balance candidates. Apply targeted DocType/workflow setup on this site and inspect it read-only; do not run migrate or bench tests or create payments.
+
+Files: Fixed Expense JSON/JS/Python, fixed_expense_payments.py, hooks.py, new fixed_expense_workflow.py, focused tests, this plan. Risk: existing masters cannot generate new payments until approved. Rollback: restore source/configuration backups; remove the new workflow and restore prior master workflow-state values and DocType permissions. No existing GL changes.
+
+Verification: 41 database-free Python checks, workflow-form Node checks and existing adjustment-dialog checks passed. Independent review identified browser/database Date representation differences; normalized dates and added a regression test. Live metadata verified non-submittable workflow, six transitions, all eight existing masters in Draft, and idempotent setup. Read-only checks across the eight masters verified initial actions and unchanged serialized detail comparisons. No GL creation, approvals, bench tests or migrate performed.
+
+Workflow labels: Draft → Request Verification → Pending Expense - Chkr → Expense Verified → Pending Expense - App → Approve → Approved. Request Correction returns either pending state to Draft; Request Editing returns Approved to Draft. Roles and permissions are unchanged.
+
+Workflow-controlled Status: the native Workflow Update Field/Value sets status on each transition, with a server-side consistency check. Status is read-only and new masters default to Inactive. Approvers can Close Expense from Approved; Closed is terminal. Returning to Draft sets Inactive. Existing GLs continue, but no new GL may be generated from an Inactive/Closed master. Close Expense does not require or invent an End Date: state/status stops further payments; any entered End Date retains its existing date validation. Unique expense identifiers remain reserved only for Active masters and are checked again on approval.
+
+Status update verification: 43 database-free Python checks passed. Live Workflow state update_field/update_value mappings and read-only Status metadata verified. All eight existing Draft masters are now Inactive; no records were approved or closed and no GLs were changed.
