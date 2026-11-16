@@ -92,7 +92,7 @@ class DocumentFixture(SimpleNamespace):
 
 
 class PoObligationFixtureTests(unittest.TestCase):
-    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None, horizon=False, supplier_country='Other', company_country='Bahrain', import_vat=0, stored_taxes=None, customs_required=1, import_vat_required=1, glps=None):
+    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None, horizon=False, supplier_country='Other', company_country='Bahrain', import_vat=0, stored_taxes=None, customs_required=1, import_vat_required=1, glps=None, planned=0, journal_planned=0):
         po = DocumentFixture(name='PO-RESIDUAL', base_grand_total=100,
             advance_paid=0, currency=currency, party_account_currency=currency,
             conversion_rate=1, workflow_state=state, supplier='SUPPLIER-TEST',
@@ -111,8 +111,9 @@ class PoObligationFixtureTests(unittest.TestCase):
         source._supplier_horizon_only=horizon
         if horizon:source.end=date.max
         source.documents = lambda dt, filters=None: iter([po] if dt == 'Purchase Order' else (glps or []) if dt == 'GL Payment' else [])
-        source.pending_reference_payments = lambda *args: []
-        source.journals = lambda: SimpleNamespace(reserve=lambda *args: money(0))
+        source.pending_reference_payments = lambda *args: [(frappe._dict(name='PE-SCHEDULED',posting_date=date(2026,12,1)),money(planned))] if planned else []
+        source.consume_reference_payment=lambda *args:None
+        source.journals = lambda: SimpleNamespace(reserve=lambda *args: money(journal_planned))
         source.tax_estimate = lambda po: [dict(account_head='Custom Duty - WS',base_tax_amount_after_discount_amount=customs),
             dict(account_head='Input VAT – Import - WS',base_tax_amount_after_discount_amount=import_vat)]
         source.purchase_orders()
@@ -166,6 +167,24 @@ class PoObligationFixtureTests(unittest.TestCase):
             for overdue in (True,False):
                 source=self.collect(amount,overdue=overdue)
                 self.assertFalse([e for e in source.events+source.overdue if e['category']=='supplier_payments'])
+
+    def test_sub_dinar_residual_after_scheduled_payment_is_ignored(self):
+        for residual in ('0.013','0.999'):
+            source=self.collect(money(50)+money(residual),planned=50)
+            payments=[e for e in source.events if e['category']=='supplier_payments']
+            self.assertEqual([(e['doctype'],e['amount']) for e in payments],[('Payment Entry',50)])
+            self.assertEqual(source.overdue,[])
+
+    def test_post_matching_threshold_keeps_exact_dinar_and_other_currency(self):
+        for currency,residual in [('BHD','1.000'),('USD','0.013')]:
+            source=self.collect(money(50)+money(residual),planned=50,currency=currency)
+            self.assertEqual(sum(e['amount'] for e in source.events if e['doctype']=='Payment Entry'),50)
+            self.assertEqual(sum(e['amount'] for e in source.events if e['doctype']=='Purchase Order'),money(residual))
+
+    def test_sub_dinar_after_journal_matching_does_not_remove_customs(self):
+        source=self.collect('50.013',journal_planned=50,customs=10)
+        self.assertFalse([e for e in source.events if e['category']=='supplier_payments'])
+        self.assertEqual(sum(e['amount'] for e in source.events if e['category']=='customs'),10)
 
     def test_one_dinar_and_on_hold_po_are_still_included(self):
         for state in ('Completed','On Hold'):
@@ -417,3 +436,15 @@ class OverdueReviewFixtureTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+class SupplierNameTests(unittest.TestCase):
+    def test_supplier_gl_payment_keeps_display_name_in_saved_source(self):
+        source=Sources.__new__(Sources)
+        source.start,source.end=date(2026,11,9),date(2026,12,31)
+        source.events,source.warnings,source.include_overdue=[],[],True
+        source.accounts=['Bank'];source.handled_glp=set()
+        glp=SimpleNamespace(name='GL-SUPPLIER',posting_date=date(2026,12,1),payment_type='Outgoing',
+            payment_account='Bank',total_amount=100,party_type='Supplier',party='SUP-001',party_name='Example Trading',items=[])
+        glp.get=lambda key,default=None:getattr(glp,key,default)
+        source.gl_payment(glp)
+        self.assertEqual(source.events[0]['supplier_name'],'Example Trading')

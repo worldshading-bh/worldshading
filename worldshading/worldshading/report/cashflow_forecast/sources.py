@@ -341,7 +341,7 @@ class Sources(object):
                 continue
             pi = frappe.get_doc('Purchase Invoice', record.name)
             pi.check_permission('read')
-            self.register_source('Purchase Invoice', pi.name, party=pi.supplier, party_type='Supplier',
+            self.register_source('Purchase Invoice', pi.name, party=pi.supplier, party_type='Supplier', supplier_name=pi.get('supplier_name') or pi.supplier,
                 workflow_state=pi.get('status') or '', basis='Outstanding invoice schedule; no matched prepared payment for this residual')
             gross, import_tax = money(pi.base_grand_total), invoice_import[pi.name]
             supplier_total = supplier_amount(gross, import_tax)
@@ -470,7 +470,7 @@ class Sources(object):
             for pe in payments:
                 if pe.get('workflow_state') in (None, '', 'Draft'):
                     continue
-                self.register_source('Payment Entry', pe.name, party=pe.get('party') or '', party_type=pe.get('party_type') or '',
+                self.register_source('Payment Entry', pe.name, party=pe.get('party') or '', party_type=pe.get('party_type') or '', supplier_name=(pe.get('party_name') or pe.get('party')) if pe.get('party_type') == 'Supplier' else None,
                     workflow_state=pe.get('workflow_state') or '', basis='Prepared payment document')
                 budget = max(money(pe.base_paid_amount), money(0))
                 allocations = defaultdict(Decimal)
@@ -578,7 +578,7 @@ class Sources(object):
         for po in self.documents('Purchase Order', {'docstatus': 1}):
             if po.get('workflow_state') == 'Legal Dispute':
                 continue
-            self.register_source('Purchase Order', po.name, party=po.get('supplier') or '', party_type='Supplier',
+            self.register_source('Purchase Order', po.name, party=po.get('supplier') or '', party_type='Supplier', supplier_name=po.get('supplier_name') or po.get('supplier'),
                 workflow_state=po.get('workflow_state') or '', basis='Remaining PO commitment not covered by a matched prepared payment')
             # Historical completed POs without any residual supplier amount or future ETA need no tax reconstruction.
             base = money(po.base_grand_total)
@@ -651,7 +651,12 @@ class Sources(object):
             if remaining:
                 planned += self.journals().reserve('Purchase Order', po.name, max(remaining-planned, money(0)))
             consumed = max(full-remaining, money(0)) + planned
-            for r in reconcile_installments(schedule, consumed):
+            uncovered = reconcile_installments(schedule, consumed)
+            # Apply tolerance to the combined uncovered PO balance after PE/JV
+            # matching, never to actual payments or individual installments.
+            if self.currency == 'BHD' and sum((r['amount'] for r in uncovered), money(0)) < money(1):
+                uncovered = []
+            for r in uncovered:
                 self.event(self.due(r['date'], po.name), 'supplier_payments', r['amount'], 'Purchase Order', po.name,
                     'Unbilled supplier commitment; {0}; original due {1}'.format(po.supplier, r['date']))
             if remaining and not schedule:
@@ -773,7 +778,7 @@ class Sources(object):
         Payroll(self).collect()
 
     def gl_payment(self, glp, category=None, customs=False, project_tax=True):
-        self.register_source('GL Payment', glp.name, party=glp.get('party') or '', party_type=glp.get('party_type') or '',
+        self.register_source('GL Payment', glp.name, party=glp.get('party') or '', party_type=glp.get('party_type') or '', supplier_name=(glp.get('party_name') or glp.get('party')) if glp.get('party_type') == 'Supplier' else None,
             workflow_state=glp.get('workflow_state') or '', basis='Prepared GL Payment')
         due = self.due(glp.posting_date, glp.name)
         if glp.payment_type == 'Incoming':
@@ -807,7 +812,7 @@ class Sources(object):
 
     def other_payments(self):
         for glp in self.pending_documents('GL Payment'):
-            self.register_source('GL Payment', glp.name, party=glp.get('party') or '', party_type=glp.get('party_type') or '',
+            self.register_source('GL Payment', glp.name, party=glp.get('party') or '', party_type=glp.get('party_type') or '', supplier_name=(glp.get('party_name') or glp.get('party')) if glp.get('party_type') == 'Supplier' else None,
                 workflow_state=glp.get('workflow_state') or '', basis='Prepared GL Payment')
             if glp.name in self.handled_glp:
                 continue
@@ -829,7 +834,7 @@ class Sources(object):
                 continue
             self.gl_payment(glp)
         for pe in self.pending_documents('Payment Entry'):
-            self.register_source('Payment Entry', pe.name, party=pe.get('party') or '', party_type=pe.get('party_type') or '',
+            self.register_source('Payment Entry', pe.name, party=pe.get('party') or '', party_type=pe.get('party_type') or '', supplier_name=(pe.get('party_name') or pe.get('party')) if pe.get('party_type') == 'Supplier' else None,
                 workflow_state=pe.get('workflow_state') or '', basis='Prepared payment document')
             if pe.payment_type == 'Internal Transfer':
                 if pe.docstatus == 0 and pe.get('workflow_state') in (None, '', 'Draft'):

@@ -157,3 +157,24 @@ class ForecastAdapterUpdatesTests(unittest.TestCase):
         self.assertTrue(any('Purchase 2' in e['description'] for e in events))
         values['purchases'][1]['payments'][0]['amount']=-1
         with self.assertRaises(ValueError):purchase_events(values,'2026-11-10','2027-02-10',template)
+
+class PurchaseSummaryTests(unittest.TestCase):
+    def test_without_purchase_minimum_covers_whole_forecast_and_duplicate_is_removed(self):
+        import frappe
+        from unittest.mock import patch
+        from worldshading.worldshading.report.cashflow_forecast import cashflow_forecast as report
+        source=frappe._dict(company='Example',currency='BHD',opening_balance=100,
+            events=[dict(date=date(2026,11,11),category='other_receipts',amount=100)],
+            historical={},vat_opening=0,accounts_breakdown=[],warnings=[],actual_sales_today=0,
+            overdue=[],journal_stats={},holidays=[],start=date(2026,11,10))
+        filters=frappe._dict(view='Daily')
+        purchase=[dict(date=date(2026,11,12),category='proposed_purchase',amount=150,scenario=True,description='Purchase')]
+        with patch.object(report,'_',side_effect=lambda value:value):
+            result=report.render_forecast(source,filters,date(2026,11,10),date(2026,11,13),['Bank'],purchase)
+            no_purchase=report.render_forecast(source,filters,date(2026,11,10),date(2026,11,13),['Bank'],[])
+        cards={card['label']:card for card in result[4]}
+        self.assertEqual(cards['Lowest Cash Without Purchase']['value'],100)
+        self.assertEqual(cards['Lowest Cash Without Purchase']['date'],'2026-11-10')
+        self.assertEqual(cards['Lowest Balance']['value'],50)
+        self.assertNotIn('Lowest Cash With Purchase',cards)
+        self.assertNotIn('Lowest Cash Without Purchase',[card['label'] for card in no_purchase[4]])

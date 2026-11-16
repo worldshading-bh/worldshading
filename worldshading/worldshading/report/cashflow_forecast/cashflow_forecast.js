@@ -4,6 +4,27 @@
     var method = 'worldshading.worldshading.report.cashflow_forecast.cashflow_forecast.';
     var esc = function (value) { return frappe.utils.escape_html(String(value === undefined || value === null ? '' : value)); };
 
+    // Defaults only: intersect with the permitted company account list at load time.
+    var default_excluded_accounts = [
+        "Cashier Cash Change - WS",
+        "BDB BANK SECURITY DEPOSIT - WS",
+        "Cheque Sales - WS",
+        "Online payment - WS",
+        "Petty Cash - WS",
+        "Cheque Return - WS",
+        "TEMP Adjustment A/C - WS",
+        "WS Payments - WS",
+        "4001 - AUB HAMD TOWN - WS",
+        "***00131 - KFH Bank - Debit Card - WS",
+        "***03431 - BDB Bank - WS",
+        "***18395 - KFH BANK CURRENT ACCOUNT - WS",
+        "BANK TIME DEPOSIT - WS",
+        "***52546 - Al Salam Bank - Savings Account - WS",
+        "***63001 - KFH Benefit pay - WS",
+        "***96002 - AUB RESERVE ACCOUNT BANK - WS",
+        "***96060 - AHLI UNITED BANK - WS"
+];
+
     var detail_fields = [['opening_cash','Opening Cash'],['expected_receipts','Expected Sales Receipts'],
         ['other_receipts','Other Incoming'],['fixed_expenses','Fixed Expenses'],['payroll','Payroll'],
         ['supplier_payments','Supplier Payments'],['customs','Customs'],['import_vat','Import VAT'],
@@ -102,15 +123,30 @@
         });
     }
 
+    function apply_default_exclusions(report) {
+        var field=report.get_filter && report.get_filter('excluded_accounts');
+        if(!field || !field.get_value || report._cashflow_default_company===report.get_filter_value('company'))return Promise.resolve();
+        var company=report.get_filter_value('company'),revision=report._cashflow_defaults_revision || 0;
+        report._cashflow_default_company=company;
+        if((field.get_value() || []).length)return Promise.resolve();
+        return exclusion_options(report,'').then(function(options){
+            if(report.get_filter_value('company')!==company || (report._cashflow_defaults_revision || 0)!==revision)return;
+            set_excluded_values(field,options.filter(function(option){return default_excluded_accounts.indexOf(option.value)>=0;}).map(function(option){return option.value;}));
+        });
+    }
+
     function company_changed(report) {
+        if(report._cashflow_restoring)return Promise.resolve();
+        report._cashflow_defaults_revision=(report._cashflow_defaults_revision || 0)+1;
         report._cashflow_account_options=null;
         var field=report.get_filter && report.get_filter('excluded_accounts');
         if(field)field._options=[];
         set_excluded_values(field,[]);
-        account_scope_changed(report);
+        return apply_default_exclusions(report).then(function(){account_scope_changed(report);});
     }
 
     function account_scope_changed(report) {
+        report._cashflow_defaults_revision=(report._cashflow_defaults_revision || 0)+1;
         if(report.page && report.page.main && report.page.main.find) {
             var box=report.page.main.find('.cashflow-context');
             if(box.html)box.html('');
@@ -696,12 +732,15 @@
                           {charge:__('Import VAT'),date:Number(draft.import_vat_required)?draft.import_vat_date:null}],
                     fields:[{fieldname:'charge',fieldtype:'Data',label:__('Charge'),read_only:1,in_list_view:1},
                             {fieldname:'date',fieldtype:'Date',label:__('Payment Date'),in_list_view:1}]},
+                {fieldname:key('suggest_date',index),fieldtype:'Button',label:__('Suggest Date'),click:suggestion_action},
                 {fieldname:key('remove_purchase',index),fieldtype:'Button',label:__('Remove Purchase'),click:function(){
                     if(busy)return;
                     drafts[index].removed=true;
                     var section=dialog.fields_dict['purchase_section_'+index];section.df.hidden=1;section.refresh();
                     renumber();
-                }}
+                }},
+                {fieldname:key('suggestion',index),fieldtype:'HTML',hidden:1},
+                {fieldname:key('apply_suggestion',index),fieldtype:'Button',label:__('Use Date'),hidden:1,click:function(){return apply_suggestion(index);}}
             ];
         }
         function add_purchase() {
@@ -712,21 +751,15 @@
             });
             var index=drafts.length;
             drafts.push({payments:[{date:frappe.datetime.get_today(),amount:0}],customs_required:0,import_vat_required:0});
-            dialog.add_fields(purchase_fields(index));update_import_fields(index);renumber();
+            dialog.add_fields(purchase_fields(index));update_import_fields(index);renumber();style_purchase_actions();
             var section=dialog.fields_dict['purchase_section_'+index];if(section.collapse)section.collapse(false);
             // Keep Add More below the appended purchase, without recreating any grids.
             var actions=dialog.fields_dict.purchase_actions;
             if(actions && actions.wrapper)actions.wrapper.appendTo(dialog.body);
         }
-        var fields=[];
-        drafts.forEach(function(draft,index){fields=fields.concat(purchase_fields(index));});
-        fields=fields.concat([
-            {fieldname:'purchase_actions',fieldtype:'Section Break'},
-            {fieldname:'add_purchase',fieldtype:'Button',label:__('Add More Purchase'),click:add_purchase},
-            {fieldname:'clear_purchase',fieldtype:'Button',label:__('Clear All Purchases'),click:function(){return finish({});}}
-        ]);
-        dialog=new frappe.ui.Dialog({title:__('Check Purchase'),fields:fields,primary_action_label:__('Check Purchases'),primary_action:function(values){
-            if(busy)return;
+        var suggested={}, suggestedInput=null;
+        function collect_purchases(values) {
+            if(!values)return;
             var purchases=[];
             for(var index=0;index<drafts.length;index++) {
                 if(drafts[index].removed)continue;
@@ -745,7 +778,94 @@
                     customs_date:customs?customsDate:null,import_vat_date:vat?vatDate:null});
             }
             if(!purchases.length){frappe.msgprint(__('Add a supplier payment, or use Clear All Purchases.'));return;}
-            return finish({schema:5,purchases:purchases});
+            return {schema:5,purchases:purchases};
+        }
+        function suggestion_action() {
+            if(busy)return;
+            var purchase=collect_purchases(dialog.get_values());if(!purchase)return;
+            var raw=report.raw_data || {},snapshot=context_for(report),name=raw.prepared_report_name || (raw.doc && raw.doc.name);
+            if(!name || !snapshot.calculation_inputs){frappe.msgprint(__('Generate the report before suggesting dates.'));return;}
+            busy=true;
+            var input=JSON.stringify(purchase);
+            return frappe.call({method:method+'recalculate_purchase',type:'POST',freeze:true,freeze_message:__('Finding purchase dates…'),
+                args:{prepared_report_name:name,suggest_purchase_dates:1,filters:Object.assign({},report.get_filter_values(true),{purchase_scenario:input})}})
+                .then(function(response){
+                    suggested={};suggestedInput=input+'|'+String(report.get_filter_value('maximum_shortage'));
+                    (response.message.suggestions || []).forEach(function(result){suggested[result.purchase_number]=result;});
+                    var number=0;
+                    drafts.forEach(function(draft,index){
+                        if(draft.removed)return;
+                        var rows=dialog.get_values()[key('payments',index)] || [];
+                        if(rows.every(function(row){return !Number(row.amount || 0);}))return;
+                        number++;var result=suggested[number];
+                        draft.suggestion=result;
+                        var valid=result && result.first_cost_date;
+                        var currency=(report.data && report.data[0] && report.data[0].currency) || 'BHD';
+                        var low=valid && result.lowest_cash!==undefined?Number(result.lowest_cash):null;
+                        var state=valid?(low!==null && low<0?'is-tolerated':'is-positive'):'is-unavailable';
+                        var html='<div class="cashflow-result-box '+state+'"><div class="cashflow-result-copy">';
+                        if(valid) {
+                            html+='<div class="cashflow-result-date">'+esc(Number(result.shift_days)===0?__('Payment date'):__('Suggested payment date'))+
+                                ' <strong>'+esc(date_label(result.supplier_date))+'</strong></div>';
+                            if(low!==null) {
+                                html+='<div>'+__('Lowest closing cash after this purchase')+': <strong>'+format_currency(low,currency,3)+'</strong></div>';
+                                html+='<div class="cashflow-result-status">'+(low<0?
+                                    __('Shortage')+' '+format_currency(Math.abs(low),currency,3)+' '+__('is within your')+' '+
+                                    format_currency(report.get_filter_value('maximum_shortage') || 0,currency,3)+' '+__('tolerance.'):
+                                    __('No cash shortage.'))+'</div>';
+                            }
+                            if(result.first_cost_date!==result.supplier_date)html+='<div class="cashflow-result-note">'+__('First customs/VAT payment')+': '+esc(date_label(result.first_cost_date))+'</div>';
+                            html+='<div class="cashflow-result-note">'+__('From the first payment through forecast end.')+'</div>';
+                        } else {
+                            html+='<strong>'+__('No suitable date within this forecast.')+'</strong>';
+                        }
+                        if(purchase.purchases.length>1)html+='<div class="cashflow-result-note">'+__('Other purchases keep their dates.')+'</div>';
+                        html+='</div><div class="cashflow-result-apply"></div></div>';
+                        var resultField=dialog.fields_dict[key('suggestion',index)];
+                        var useField=dialog.fields_dict[key('apply_suggestion',index)];
+                        // Preserve the native button and its handler across result refreshes.
+                        if(useField.$wrapper && useField.$wrapper.detach)useField.$wrapper.detach();
+                        dialog.set_df_property(key('suggestion',index),'hidden',0);
+                        resultField.$wrapper.html(html);
+                        if(useField.$wrapper && useField.$wrapper.appendTo && resultField.$wrapper.find)
+                            useField.$wrapper.appendTo(resultField.$wrapper.find('.cashflow-result-apply'));
+                        dialog.set_df_property(key('apply_suggestion',index),'hidden',valid && Number(result.shift_days)>0?0:1);
+                    });
+                }).then(function(){busy=false;},function(error){busy=false;throw error;});
+        }
+        function apply_suggestion(index) {
+            if(busy)return;
+            var purchase=collect_purchases(dialog.get_values());
+            if(!purchase || JSON.stringify(purchase)+'|'+String(report.get_filter_value('maximum_shortage'))!==suggestedInput){frappe.msgprint(__('Payments changed. Suggest dates again.'));return;}
+            var result=drafts[index].suggestion;if(!result || !result.first_cost_date)return;
+            ['payments','import_charges'].forEach(function(name){
+                var grid=dialog.fields_dict[key(name,index)].grid;
+                (grid.get_data ? grid.get_data() : grid.df.data).forEach(function(row){if(row.date)row.date=frappe.datetime.add_days(row.date,result.shift_days);});
+                grid.refresh();
+            });
+            return suggestion_action();
+        }
+        function style_purchase_actions() {
+            if(!dialog || !dialog.fields_dict)return;
+            Object.keys(dialog.fields_dict).forEach(function(name){
+                var field=dialog.fields_dict[name],wrapper=field.$wrapper;
+                if(!wrapper || !wrapper.addClass)return;
+                if(/^(suggest_date|remove_purchase|add_purchase|clear_purchase)(_|$)/.test(name))wrapper.addClass('cashflow-purchase-action');
+                if(/^suggestion(_|$)/.test(name))wrapper.addClass('cashflow-purchase-result');
+                if(/^apply_suggestion(_|$)/.test(name))wrapper.addClass('cashflow-purchase-use');
+            });
+        }
+        var fields=[];
+        drafts.forEach(function(draft,index){fields=fields.concat(purchase_fields(index));});
+        fields=fields.concat([
+            {fieldname:'purchase_actions',fieldtype:'Section Break'},
+            {fieldname:'add_purchase',fieldtype:'Button',label:__('Add More Purchase'),click:add_purchase},
+            {fieldname:'clear_purchase',fieldtype:'Button',label:__('Clear All Purchases'),click:function(){return finish({});}}
+        ]);
+        dialog=new frappe.ui.Dialog({title:__('Check Purchase'),fields:fields,primary_action_label:__('Check Purchases'),primary_action:function(values){
+            if(busy)return;
+            var purchase=collect_purchases(values);
+            if(purchase)return finish(purchase);
         }});
         dialog.show();
         drafts.forEach(function(draft,index){
@@ -753,7 +873,26 @@
             var section=dialog.fields_dict && dialog.fields_dict['purchase_section_'+index];
             if(section && section.collapse)section.collapse(index!==0);
         });
-        if(dialog.$wrapper)dialog.$wrapper.find('.modal-dialog').css('max-width','740px');
+        style_purchase_actions();
+        if(dialog.$wrapper){
+            dialog.$wrapper.find('.modal-dialog').css('max-width','740px');
+            dialog.$wrapper.addClass('cashflow-purchase-dialog').prepend('<style>'+
+                '.cashflow-purchase-dialog .cashflow-purchase-action{display:inline-block;margin:8px 12px 4px 0;}'+
+                '.cashflow-purchase-dialog .cashflow-purchase-result{display:block;width:100%;margin:12px 0 0;font-size:13px;line-height:1.6;}'+
+                '.cashflow-purchase-dialog .cashflow-result-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid #dce3eb;border-radius:6px;background:#f8fafc;}'+
+                '.cashflow-purchase-dialog .cashflow-result-box.is-tolerated{background:#fff9ed;border-color:#ead8aa;}'+
+                '.cashflow-purchase-dialog .cashflow-result-box.is-positive{background:#f2f8f4;border-color:#cce2d3;}'+
+                '.cashflow-purchase-dialog .cashflow-result-date{margin-bottom:5px;color:#475569;}'+
+                '.cashflow-purchase-dialog .cashflow-result-date strong{display:inline;margin-left:6px;font-size:15px;color:#172b4d;}'+
+                '.cashflow-purchase-dialog .cashflow-result-status{font-weight:500;color:#36704d;margin-top:3px;}'+
+                '.cashflow-purchase-dialog .is-tolerated .cashflow-result-status{color:#855c19;}'+
+                '.cashflow-purchase-dialog .cashflow-result-note{font-size:12px;color:#64748b;margin-top:4px;}'+
+                '.cashflow-purchase-dialog .cashflow-result-apply{flex-shrink:0;}'+
+                '@media(max-width:480px){.cashflow-purchase-dialog .cashflow-result-box{align-items:flex-start;flex-direction:column;gap:8px;}}'+
+                '.cashflow-purchase-dialog .cashflow-purchase-use{display:inline-block;vertical-align:middle;margin:0;}'+
+                '.cashflow-purchase-dialog .cashflow-purchase-result.hide,.cashflow-purchase-dialog .cashflow-purchase-use.hide{display:none;}'+
+                '</style>');
+        }
     }
 
     function show_details(report,key,kind) {
@@ -793,6 +932,7 @@
             var description=item.description || '';
             if(item.scenario) description=item.purchase_number?__('Purchase')+' '+item.purchase_number:(['customs','import_vat'].indexOf(item.category)>=0?__('Proposed purchase'):'');
             if(description && !item.scenario) description=description.replace(/^Scheduled payment; /,'').replace(/; original due \d{4}-\d{2}-\d{2}/g,'');
+            if(item.party_type==='Supplier' && (item.supplier_name || item.party))notes+='<div>'+esc(item.supplier_name || item.party)+'</div>';
             if(description)notes+='<div>'+esc(description)+'</div>';
             if(item.workflow_state)notes+='<div class="text-muted">'+esc(item.workflow_state)+'</div>';
             if(item.original_due_date)notes+='<div class="text-muted">'+__('Due')+': '+esc(date_label(item.original_due_date))+'</div>';
@@ -901,13 +1041,14 @@
             {fieldname:'excluded_accounts',label:__('Exclude Accounts'),fieldtype:'MultiSelectList',default:[],placeholder:__('Exclude Accounts'),
                 get_data:function(text){return exclusion_options(frappe.query_report,text);},on_change:account_scope_changed},
             {fieldname: 'end_date', label: __('Forecast Until'), fieldtype: 'Date', reqd: 1,
-                default: frappe.datetime.add_months(frappe.datetime.get_today(), 3)},
+                default: (Number(frappe.datetime.get_today().slice(0,4))+1)+'-12-31'},
             {fieldname: 'account_scope', fieldtype: 'Data', hidden: 1, default: 'parent-groups-v1'},
             {fieldname:'manual_sales',label:__('Use Average Daily Sales'),fieldtype:'Check',default:0,on_change:function(report){toggle_sales_fields(report);}},
             {fieldname:'average_daily_sales',label:__('Average Daily Sales'),fieldtype:'Currency',precision:3,default:0,description:__('Including VAT.'),depends_on:'eval:doc.manual_sales'},
             {fieldname: 'sales_adjustment', label: __('Sales Change % (+/−)'), fieldtype: 'Float', default: 0,depends_on:'eval:!doc.manual_sales'},
             {fieldname: 'support_amount', label: __('Support Amount'), fieldtype: 'Currency', precision: 3, hidden: 1, default: 0},
             {fieldname: 'support_payments', label: __('Support'), fieldtype: 'Small Text', hidden: 1, default: '[]'},
+            {fieldname:'maximum_shortage',label:__('Max Shortage Tolerance'),fieldtype:'Currency',precision:3,default:1000,on_change:function(){}},
             {fieldname: 'minimum_reserve', label: __('Minimum Cash Reserve'), fieldtype: 'Currency', precision: 3, default: 0},
             {fieldname: 'overdue_policy', fieldtype: 'Data', hidden: 1, default: 'review-v1'},
             {fieldname: 'purchase_scenario', fieldtype: 'Small Text', hidden:1, default:'{}'},
@@ -1030,8 +1171,10 @@
                 (report.filters || []).forEach(function (field) {
                     if (field.df.fieldname === 'forecast_date') field.set_input(frappe.datetime.get_today());
                 });
-                return Promise.resolve();
+                return apply_default_exclusions(report);
             }
+            report._cashflow_defaults_revision=(report._cashflow_defaults_revision || 0)+1;
+            report._cashflow_restoring=true;
             return frappe.call({method: method+'get_prepared_filters',
                 args: {prepared_report_name: params.prepared_report_name}}).then(function (response) {
                 var values = response.message || {};
@@ -1041,7 +1184,7 @@
                     else if (Object.prototype.hasOwnProperty.call(values, name)) field.set_input(values[name]);
                 });
                 toggle_sales_fields(report);
-            });
+            }).then(function(){report._cashflow_restoring=false;},function(error){report._cashflow_restoring=false;throw error;});
         },
         get_datatable_options: function (options) {
             options.disableReorderColumn=false;
@@ -1123,7 +1266,14 @@
                         if (raw.purchase_preview) {download_purchase_check(report);} else window.open(frappe.urllib.get_full_url('/api/method/frappe.core.doctype.prepared_report.prepared_report.download_attachment?dn='+encodeURIComponent(raw.doc.name)));
                     });
             }
-            var summaries = (raw.report_summary || []).slice();
+            var summaries = (raw.report_summary || []).map(function(card){return Object.assign({},card);});
+            // Correct older saved daily comparisons without a new accounting query.
+            var comparison=summaries.find(function(card){return card.label===__('Lowest Cash Without Purchase');});
+            var daily=raw.result || [];
+            if(comparison && daily.length && daily.every(function(row){return !row.month && row.baseline_closing_cash!==undefined && isFinite(Number(row.baseline_closing_cash));})) {
+                var lowest=daily.reduce(function(low,row){return Number(row.baseline_closing_cash)<Number(low.baseline_closing_cash)?row:low;});
+                comparison.value=Number(lowest.baseline_closing_cash);comparison.date=lowest.date;
+            }
             var get_card = function(label){return summaries.find(function(card){return card.label === __(label);});};
             var opening = get_card('Opening Available Cash');
             if (!opening && first) summaries.unshift({label:__('Opening Available Cash'),value:first.opening_cash,datatype:'Currency',currency:first.currency});
@@ -1132,14 +1282,17 @@
                 return /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? String(value).split('-').reverse().join('-') : String(value || '');
             };
             var cards = summaries.filter(function(card){
-                return [__('Lowest Balance Date'),__('Coverage'),__('Actual Sales Today (Reference)')].indexOf(card.label)<0;
+                return [__('Lowest Balance Date'),__('Coverage'),__('Actual Sales Today (Reference)'),__('Lowest Cash With Purchase')].indexOf(card.label)<0;
             }).map(function(card){
-                var label = card.label === __('Lowest Balance') ? __('Lowest Projected Cash') : (card.label === __('Ending Balance') ? __('Ending Cash') : card.label);
+                var label = card.label === __('Lowest Balance') ? __('Lowest Closing Cash') : (card.label === __('Ending Balance') ? __('Ending Cash') : card.label);
                 var value = card.datatype === 'Currency' ? format_currency(card.value,card.currency,3) : esc(date_text(card.value));
                 if (card.label === __('Opening Available Cash')) {
                     value='<button type="button" class="cashflow-opening-balance" title="'+esc(__('View account balances'))+'" aria-label="'+esc(__('View account balances'))+'">'+value+'</button>';
                 }
+                var tooltip=card.label===__('Lowest Balance') ? __('Across the whole forecast, including added purchases.') :
+                    (card.label===__('Lowest Cash Without Purchase') ? __('Across the whole forecast, excluding added purchases. Support and extra expenses stay included.') : '');
                 var note = card.label === __('Lowest Balance') && low_date ? '<small>'+__('On')+' '+esc(date_text(low_date.value))+'</small>' : '';
+                if(card.label===__('Lowest Cash Without Purchase') && card.date)note='<small>'+__('On')+' '+esc(date_text(card.date))+'</small>';
                 if (card.label === __('Opening Available Cash') && snapshot &&
                     Number((snapshot.base_filters || {}).include_overdue) === 1) {
                     var overdue = ((snapshot.calculation_inputs || {}).overdue || []).reduce(function(total,item){
@@ -1152,7 +1305,7 @@
                     }
                 }
                 var risk = card.indicator === 'Red' || (card.datatype === 'Currency' && Number(card.value)<0);
-                return '<div class="cashflow-card'+(risk ? ' is-risk' : '')+'"><div class="cashflow-card-label">'+esc(label)+'</div><strong>'+value+'</strong>'+note+'</div>';
+                return '<div class="cashflow-card'+(risk ? ' is-risk' : '')+'"><div class="cashflow-card-label"'+(tooltip?' title="'+esc(tooltip)+'"':'')+'>'+esc(label)+'</div><strong>'+value+'</strong>'+note+'</div>';
             }).join('');
             var reserve = reserve_for(report);
             if (reserve) cards += '<div class="cashflow-card"><div class="cashflow-card-label">'+__('Minimum Cash Reserve')+'</div><strong>'+format_currency(reserve,first && first.currency,3)+'</strong></div>';
