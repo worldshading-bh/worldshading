@@ -6,6 +6,10 @@ except ImportError:  # standalone tests
     from engine import money, as_date
 
 
+def is_draft_security_cheque(payment):
+    return int(payment.get('docstatus') or 0)==0 and int(payment.get('is_security_cheque') or 0)==1
+
+
 def paid_before(payment, cutoff):
     if int(payment.get('docstatus') or 0) != 1 or as_date(payment['posting_date']) > as_date(cutoff):
         return money(0)

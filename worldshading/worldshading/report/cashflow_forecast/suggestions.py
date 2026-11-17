@@ -60,7 +60,10 @@ def suggest_dates(start, end, events, evaluate, tolerance=1000):
                     break
             else:
                 answer.update(first_cost_date=str(candidate), supplier_date=str(supplier+timedelta(days=shift)),
-                              shift_days=shift, lowest_cash=str(lowest))
+                              shift_days=shift, lowest_cash=str(lowest),
+                              schedule=[dict(date=str(event['date']),category=event['category'],amount=str(money(event['amount'])),
+                                             kind=event.get('scenario_kind')) for event in sorted(shifted,key=lambda event:event['date'])
+                                        if event['category'] in PAYMENTS])
                 break
         results.append(answer)
     return results

@@ -130,6 +130,31 @@ class Payroll(object):
                 related_documents=[dict(doctype='Salary Slip',name=slip.name) for slip in linked])
         self.estimates(actual,advance)
 
+    def loan_repayments(self,employees,first,last):
+        """Read permitted active loans and their unpaid schedules once per run."""
+        result=defaultdict(list)
+        if not employees:return result
+        if not frappe.has_permission('Loan','read'):
+            self.s.warn('Loan read access unavailable; future salary estimates do not include employee loan deductions.')
+            return result
+        loans=frappe.get_list('Loan',filters={'company':self.s.company,'docstatus':1,'repay_from_salary':1,
+            'applicant_type':'Employee','applicant':['in',sorted(set(employees))],'status':'Disbursed'},
+            fields=['name','applicant','total_payment','total_amount_paid'],limit_page_length=0)
+        eligible={loan.name:loan.applicant for loan in loans if money(loan.total_amount_paid)<money(loan.total_payment)}
+        names=sorted(eligible)
+        # Parameterized batches keep query size bounded for large payrolls. The
+        # parent names come only from the permission-filtered Loan read above.
+        for offset in range(0,len(names),500):
+            batch=names[offset:offset+500]
+            rows=frappe.db.sql("""select parent loan,payment_date,total_payment from `tabRepayment Schedule`
+                where parenttype='Loan' and parent in ({0}) and payment_date between %s and %s
+                and ifnull(paid,0)=0 order by payment_date,name""".format(','.join(['%s']*len(batch))),
+                tuple(batch)+(first,last),as_dict=1)
+            for row in rows:
+                amount=money(row.total_payment)
+                if amount>0:result[eligible[row.loan]].append(dict(loan=row.loan,date=as_date(row.payment_date),amount=amount))
+        return result
+
     def estimates(self,actual,advance=0):
         s=self.s
         assignments=defaultdict(list)
@@ -140,6 +165,11 @@ class Payroll(object):
         employees={employee.name:employee for employee in s.documents('Employee',{'status':'Active'})}
         for employee in s.documents('Employee',{'status':'Left','relieving_date':['>=',earliest]}):employees[employee.name]=employee
         employees=list(employees.values())
+        paydays=list(occurrences(date(s.start.year,s.start.month,28),date(s.start.year,s.start.month,1),s.end,1))
+        last_period=period_bounds(paydays[-1].strftime('%Y-%m'),getattr(self,'cycle_day',1))[1] if paydays else s.end
+        estimated=[e.name for e in employees if assignments.get(e.name) and any((e.name,day.strftime('%Y-%m')) not in actual for day in paydays)]
+        loans=self.loan_repayments(estimated,earliest,last_period)
+        s.payroll_loan_names=[]
         for payday in occurrences(date(s.start.year,s.start.month,28),date(s.start.year,s.start.month,1),s.end,1):
             period=payday.strftime('%Y-%m');first,last=period_bounds(period,getattr(self,'cycle_day',1))
             period_days=(last-first).days+1
@@ -150,7 +180,9 @@ class Payroll(object):
                 active_from=max(first,as_date(employee.date_of_joining)) if employee.date_of_joining else first
                 choices=[a for a in assignments.get(employee.name,[]) if as_date(a.from_date)<=active_from]
                 if not choices:
-                    s.warn('{0}: no assignment effective at employment/period start {1}.'.format(employee.name,active_from));continue
+                    if assignments.get(employee.name):
+                        s.warn('{0}: no assignment effective at employment/period start {1}.'.format(employee.name,active_from))
+                    continue
                 assignment=choices[0]
                 if any(active_from<as_date(a.from_date)<=last for a in assignments[employee.name]):
                     s.warn('{0}: salary assignment changes within {1}; baseline uses the starting assignment.'.format(employee.name,period))
@@ -167,9 +199,21 @@ class Payroll(object):
                     s.warn('{0}: salary formula unavailable ({1}); estimate omitted.'.format(employee.name,type(exc).__name__));continue
                 if amount<0:
                     s.warn('{0}: estimated salary is negative; no automatic cash receipt assumed.'.format(employee.name));continue
+                before_loan=amount
+                repayments=[row for row in loans.get(employee.name,[]) if first<=row['date']<=last]
+                loan_total=sum((money(row['amount']) for row in repayments),money(0))
+                loan_names=sorted({row['loan'] for row in repayments})
+                s.payroll_loan_names=sorted(set(s.payroll_loan_names+loan_names))
+                amount=max(before_loan-loan_total,money(0))
+                if loan_total>before_loan:
+                    s.warn('{0}: loan repayments {1:,.3f} exceed estimated salary {2:,.3f} for {3}; cash payroll is zero. Review {4}.'.format(
+                        employee.name,loan_total,before_loan,period,', '.join(loan_names)))
                 scheduled=s.journals().reserve_payable(s.payroll_account,amount,not_before=payday.replace(day=1),not_after=payday.replace(day=monthrange(payday.year,payday.month)[1]),
                     description='Scheduled Payroll Payable payment replaces forward salary estimate')
                 s.event(s.due(payday,employee.name+' payroll'),'payroll',max(amount-scheduled,money(0)),'Salary Structure Assignment',assignment.name,
-                    'Monthly salary estimate; {0}; payment on 28th'.format(period))
+                    'Monthly salary estimate; {0}; payment on 28th{1}'.format(period,
+                        '; loan repayment {0:,.3f}'.format(loan_total) if loan_total else ''),
+                    salary_before_loan=before_loan,loan_repayment=loan_total,salary_after_loan=amount,
+                    related_documents=[dict(doctype='Loan',name=name) for name in loan_names])
         if advance:
             s.warn('Payroll Payable has a debit balance of {0:,.3f}; review salary prepayments. It is not automatically deducted from unrelated future employees.'.format(advance))

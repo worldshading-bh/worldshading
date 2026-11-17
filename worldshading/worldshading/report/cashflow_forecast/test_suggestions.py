@@ -20,6 +20,8 @@ class SuggestedDatesTests(unittest.TestCase):
         result,_=self.run_search(events, fixed=[dict(date='2027-01-02',category='other_receipts',amount=50)])
         self.assertEqual(result[0]['first_cost_date'],'2026-12-31')
         self.assertEqual(result[0]['shift_days'],3)
+        self.assertEqual([row['date'] for row in result[0]['schedule']],['2026-12-31','2027-01-02'])
+        self.assertEqual([row['amount'] for row in result[0]['schedule']],['60.000','60.000'])
         self.assertEqual(events,original)
 
     def test_tolerance_inclusive_and_later_shortage_blocks(self):

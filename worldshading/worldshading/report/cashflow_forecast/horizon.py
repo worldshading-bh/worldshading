@@ -1,14 +1,15 @@
 """Latest reconciled purchase payment date; no writes or forecast-day generation."""
 from datetime import date
-from .engine import as_date, money
+from .engine import as_date, money, maximum_forecast_date
+from .rules import is_draft_security_cheque
 
 
 def adjust_end_date(requested, start, minimum):
     requested, start = as_date(requested), as_date(start)
     minimum = as_date(minimum) if minimum else start
     end = max(requested, minimum)
-    if end < start or (end-start).days > 730:
-        raise ValueError('The last outstanding purchase payment or selected end date is beyond the supported 730-day forecast. Review its payment date before generating the report.')
+    if end < start or end > maximum_forecast_date(start):
+        raise ValueError('The last outstanding purchase payment or selected end date is beyond the supported 3-year forecast. Review its payment date before generating the report.')
     return end
 
 
@@ -39,7 +40,7 @@ def minimum_purchase_end(company, accounts, start, liquidity_accounts=None):
         if not frappe.has_permission(doctype, 'read'):
             frappe.throw('Read access to {0} is required to determine the last purchase payment date.'.format(doctype), frappe.PermissionError)
     # Reuse outstanding/advance/payment matching, but skip taxes, payroll, recurring
-    # expenses and sales. Scan all payment dates so the 730-day guard cannot hide one.
+    # expenses and sales. Scan all payment dates so the 3-year guard cannot hide one.
     source = Sources(company, accounts, start, date.max, False)
     source.liquidity_accounts = liquidity_accounts or accounts
     source._supplier_horizon_only = True
@@ -50,6 +51,8 @@ def minimum_purchase_end(company, accounts, start, liquidity_accounts=None):
     # Submitted future payments already reduced PI/PO balances; active unmatched
     # prepared payments still represent cash in the regular forecast.
     for pe in source.pending_documents('Payment Entry'):
+        if is_draft_security_cheque(pe):
+            continue
         if pe.payment_type != 'Pay' or money(pe.base_paid_amount) <= 0:
             continue
         if pe.docstatus == 0 and pe.get('workflow_state') in (None, '', 'Draft'):

@@ -18,7 +18,7 @@ function Dialog(options){
 }
 const context={__:x=>x,console,format_currency:(value,currency)=>currency+' '+Number(value).toFixed(3),frappe:{query_reports:{},defaults:{get_user_default:()=> 'Example'},
  datetime:{get_today:()=> '2026-11-11',add_months:()=> '2027-02-11',add_days:(value,n)=>{const d=new Date(value+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}},utils:{escape_html:String},ui:{Dialog},show_alert:()=>{},
- call:options=>{requests.push(options);if(options.args.suggest_purchase_dates)return Promise.resolve({message:{suggestions:[{purchase_number:1,first_cost_date:'2026-11-25',supplier_date:'2026-11-30',shift_days:10,lowest_cash:lowestCash},{purchase_number:2,first_cost_date:null}]}});return Promise.resolve({message:{result:[{_cashflow_context:{today_policy:'auto-v1',vat_policy:'quarter-v4',calculation_inputs:{}}}],columns:[],purchase_preview:true,prepared_report_name:'SAVED'}});}}};
+ call:options=>{requests.push(options);if(options.args.suggest_purchase_dates)return Promise.resolve({message:{suggestions:[{purchase_number:1,first_cost_date:'2026-11-25',supplier_date:'2026-11-30',shift_days:10,lowest_cash:lowestCash,schedule:[{date:'2026-11-25',category:'customs',amount:'50.000'},{date:'2026-11-30',category:'proposed_purchase',kind:'supplier',amount:'600.000'},{date:'2026-12-03',category:'proposed_purchase',kind:'supplier',amount:'400.000'}]},{purchase_number:2,first_cost_date:null}]}});return Promise.resolve({message:{result:[{_cashflow_context:{today_policy:'auto-v1',vat_policy:'quarter-v4',calculation_inputs:{}}}],columns:[],purchase_preview:true,prepared_report_name:'SAVED'}});}}};
 vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'cashflow_forecast.js'),'utf8'),context);
 const report={report_name:'Cashflow Forecast',filters:[],page:{add_inner_button:(label,fn)=>{buttons[label]=fn;}},refresh:()=>{},
  get_filter:name=>({set_input:value=>{filters[name]=value;}}),get_filter_value:name=>filters[name],get_filter_values:()=>filters,
@@ -38,6 +38,12 @@ context.frappe.query_reports['Cashflow Forecast'].onload(report);
  assert.strictEqual(requests.length,1);assert.strictEqual(requests[0].args.suggest_purchase_dates,1);
  assert.strictEqual(filters.purchase_scenario,'{}','Suggestion must not apply or enqueue');
  assert(d.fields_dict.suggestion.$wrapper.content.includes('30-11-2026'));
+ assert(d.fields_dict.suggestion.$wrapper.content.includes('03-12-2026'));
+ assert(d.fields_dict.suggestion.$wrapper.content.includes('25-11-2026'));
+ assert(d.fields_dict.suggestion.$wrapper.content.includes('Supplier Payment 2'));
+ assert(d.fields_dict.suggestion.$wrapper.content.includes('Customs'));
+ assert(d.fields_dict.suggestion.$wrapper.content.indexOf('</table>')<d.fields_dict.suggestion.$wrapper.content.indexOf('Lowest closing cash'),'Cash explanation belongs below the payment schedule');
+ assert.strictEqual(d.fields_dict.apply_suggestion.df.label,'Use These Dates');
  assert(d.fields_dict.suggestion.$wrapper.content.includes('within your'));
  assert(d.fields_dict.suggestion.$wrapper.content.includes('2075.047'));
  assert(d.fields_dict.suggestion.$wrapper.content.includes('3000.000'));

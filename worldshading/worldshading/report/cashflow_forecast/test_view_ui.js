@@ -209,3 +209,27 @@ assert(summaryHTML.includes('Across the whole forecast, including added purchase
 assert(summaryHTML.includes('On 10-11-2026'));
 assert(summaryHTML.includes('BHD 100'));
 console.log('Whole-period comparison, baseline date, explanatory tooltips and duplicate removal passed');
+
+report.prepare_report_data({columns:[],result:[Object.assign({},rows[0],{_cashflow_context:{
+ excluded_opening_accounts:[{account:'Deposit',amount:'100.100'},{account:'Adjustment',amount:'-20.050'}],
+ sales_comparison:{current_start:'2026-01-01',current_end:'2026-11-10',previous_start:'2025-01-01',previous_end:'2025-11-10',current:'120.000',previous:'100.000',difference:'20.000',percentage:'20.00'}}})]});
+settings.after_datatable_render();
+assert(summaryHTML.includes('Sales this year'));
+assert(summaryHTML.includes('+20.00%'));
+buttons['Report Notes']();assert(dialog.fields[0].options.includes('80.05'));
+console.log('Signed excluded-account total and year-to-date sales comparison summary passed');
+
+boundClick.call({classList:{contains:name=>name==='cashflow-sales-comparison'}},{preventDefault:()=>{}});
+assert.strictEqual(dialog.title,'Sales Comparison');
+assert(!dialog.fields[0].options.includes('Submitted sales invoices, including VAT and returns.'));
+console.log('Sales comparison popup omits the removed explanatory sentence');
+
+const referenceRow=Object.assign({},rows[0],{date:'2027-11-18',previous_year_sales:110,expected_receipts:110,
+ _cashflow_context:{historical_reference_year:2025,sales_adjustment:0}});
+report.prepare_report_data({columns:[],result:[referenceRow]});
+let referenceTip=settings.formatter(110,0,{fieldname:'expected_receipts'},referenceRow,v=>String(v));
+assert(referenceTip.includes('Reference Sales (2025)'));assert(referenceTip.includes('18-11-2025'));
+referenceRow.date='2028-02-29';referenceRow.previous_year_sales=0;
+referenceTip=settings.formatter(0,0,{fieldname:'expected_receipts'},referenceRow,v=>String(v));
+assert(referenceTip.includes('28-02-2025'));assert(referenceTip.includes('Recorded net sales for this reference date are zero.'));
+console.log('Fixed reference-year tooltip identifies the exact source date and recorded zero sales');

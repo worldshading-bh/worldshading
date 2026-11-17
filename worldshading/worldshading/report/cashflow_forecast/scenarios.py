@@ -2,7 +2,7 @@
 from calendar import monthrange
 from datetime import date, timedelta
 from decimal import Decimal
-from .engine import as_date, money, template_taxes, import_cash_taxes
+from .engine import as_date, money, template_taxes, import_cash_taxes, maximum_forecast_date
 
 
 def support_events(rows, start, end):
@@ -29,8 +29,9 @@ def arrival_date(order, mode, eta=None, lead=0, unit='Days'):
         result = as_date(eta)
     elif mode == 'Lead Time':
         numeric = Decimal(str(lead or 0))
-        if not numeric.is_finite() or numeric < 0 or numeric != int(numeric) or numeric > 730:
-            raise ValueError('Lead time must be a whole nonnegative number, maximum 730.')
+        maximum=36 if unit=='Months' else (maximum_forecast_date(order)-order).days
+        if not numeric.is_finite() or numeric < 0 or numeric != int(numeric) or numeric > maximum:
+            raise ValueError('Lead time must be a whole nonnegative number within 3 calendar years.')
         if unit == 'Days':
             result = order+timedelta(days=int(numeric))
         elif unit == 'Months':
@@ -82,6 +83,8 @@ def purchase_events(values, start, end, template_rows=None):
                     normalized['eta_date'] = str(min(dates.values())) if dates else None
                 for event in purchase_events(normalized,start,end,template_rows):
                     event['purchase_number']=index
+                    if purchase.get('supplier') and event['category']=='proposed_purchase' and event.get('scenario_kind')=='supplier':
+                        event.update(party_type='Supplier',party=purchase['supplier'],supplier_name=purchase.get('supplier_name') or purchase['supplier'])
                     kind = 'import_vat' if event['category'] == 'vat_accrual' else event['category']
                     if kind in dates:
                         event['date'] = dates[kind]

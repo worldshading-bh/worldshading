@@ -161,8 +161,15 @@
         if (adjustment === undefined && Number(row.previous_year_sales) && row.adjusted_sales !== undefined) {
             adjustment = ((Number(row.adjusted_sales)/Number(row.previous_year_sales)-1)*100).toFixed(2);
         }
+        var referenceYear=snapshot.historical_reference_year;
         var text=snapshot.manual_sales ? __('Average Daily Sales')+': '+format_currency(snapshot.average_daily_sales || 0,row.currency,3) :
-            __('Prior-Year Sales')+': '+format_currency(row.previous_year_sales || 0,row.currency,3);
+            (referenceYear?__('Reference Sales')+' ('+referenceYear+')':__('Prior-Year Sales'))+': '+format_currency(row.previous_year_sales || 0,row.currency,3);
+        if(!snapshot.manual_sales && referenceYear && !row.month && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))) {
+            var parts=String(row.date).split('-').map(Number),last=new Date(Date.UTC(Number(referenceYear),parts[1],0)).getUTCDate();
+            var reference=referenceYear+'-'+String(parts[1]).padStart(2,'0')+'-'+String(Math.min(parts[2],last)).padStart(2,'0');
+            text+='\n'+__('Reference date')+': '+date_label(reference);
+            if(!Number(row.previous_year_sales))text+='\n'+__('Recorded net sales for this reference date are zero.');
+        }
         if(!snapshot.manual_sales && adjustment!==undefined)text+='\n'+__('Sales Change')+': '+Number(adjustment)+'%';
         if(snapshot.manual_sales)text+='\n'+__('Holiday Lists')+': '+(snapshot.holiday_list || __('None'));
         text+='\n'+__('Expected Sales Receipts')+': '+format_currency(row.expected_receipts || 0,row.currency,3);
@@ -443,7 +450,24 @@
             return '<button type="button" class="cashflow-manual-input" data-input-kind="'+key+'" title="'+
                 esc(__('View dates and amounts'))+'">'+esc(labels[key])+' · <b>'+format_currency(total,currency,3)+'</b></button>';
         }).join('');
+        var sales=context_for(report).sales_comparison;
+        if(sales){
+            var change=sales.percentage===null || sales.percentage===undefined?'':(Number(sales.percentage)>0?'+':'')+Number(sales.percentage).toFixed(2)+'%';
+            buttons+='<button type="button" class="cashflow-sales-comparison cashflow-manual-input" title="'+esc(__('View sales comparison'))+'">'+__('Sales this year')+(change?' · <b>'+esc(change)+'</b> '+__('vs last year'):'')+'</button>';
+        }
         return buttons ? '<div class="cashflow-manual-inputs">'+buttons+'</div>' : '';
+    }
+
+    function sales_comparison_details(report) {
+        var sales=context_for(report).sales_comparison;if(!sales)return;
+        var currency=(report.raw_data.result[0] || {}).currency;
+        var period=function(first,last){return esc(date_label(first))+' – '+esc(date_label(last));};
+        var percent=sales.percentage===null || sales.percentage===undefined?'—':(Number(sales.percentage)>0?'+':'')+Number(sales.percentage).toFixed(2)+'%';
+        var html='<table class="table table-bordered"><thead><tr><th>'+__('Sales period')+'</th><th class="text-right">'+__('Sales')+'</th></tr></thead><tbody>'+
+            '<tr><td>'+period(sales.current_start,sales.current_end)+'</td><td class="text-right">'+format_currency(sales.current,currency,3)+'</td></tr>'+
+            '<tr><td>'+period(sales.previous_start,sales.previous_end)+'</td><td class="text-right">'+format_currency(sales.previous,currency,3)+'</td></tr>'+
+            '<tr><td><strong>'+__('Difference')+'</strong></td><td class="text-right"><strong>'+format_currency(sales.difference,currency,3)+' ('+esc(percent)+')</strong></td></tr></tbody></table>';
+        new frappe.ui.Dialog({title:__('Sales Comparison'),fields:[{fieldtype:'HTML',options:html}]}).show();
     }
 
     function manual_input_details(report, kind) {
@@ -501,7 +525,8 @@
     function excluded_accounts_html(snapshot, currency) {
         var rows=snapshot.excluded_opening_accounts || [];
         if(!rows.length)return '';
-        var html='<details class="cashflow-expandable">'+collapse_heading(esc(__('Excluded Accounts')))+'<table class="table table-condensed"><tbody>';
+        var total=rows.reduce(function(sum,row){return sum+Math.round((Number(row.amount) || 0)*1000);},0)/1000;
+        var html='<details class="cashflow-expandable">'+collapse_heading(esc(__('Excluded Accounts'))+' · '+format_currency(total,currency,3))+'<table class="table table-condensed"><tbody>';
         rows.forEach(function(row){html+='<tr><td>'+esc(row.account)+'</td><td class="text-right">'+format_currency(row.amount,currency,3)+'</td></tr>';});
         return html+'</tbody></table></details>';
     }
@@ -582,6 +607,31 @@
         catch (e) { return []; }
     }
 
+    var dialog_row_serial=0;
+    function dialog_rows(rows) {
+        var used={},reserved={};
+        (rows || []).forEach(function(row){if(row.name)reserved[row.name]=true;});
+        (rows || []).forEach(function(row,index){
+            if(!row.name || used[row.name]) {
+                do {row.name='cashflow-dialog-row-'+(++dialog_row_serial);} while(reserved[row.name] || used[row.name]);
+            }
+            used[row.name]=true;row.idx=index+1;
+        });
+        return rows;
+    }
+    function safe_dialog_tables(dialog) {
+        Object.keys(dialog.fields_dict || {}).forEach(function(name){
+            var grid=dialog.fields_dict[name].grid;
+            if(!grid || grid.frm || grid._cashflow_rows_safe)return;
+            var refresh=grid.refresh;
+            grid.refresh=function(){
+                dialog_rows(Array.isArray(this.df.data)?this.df.data:(this.get_data?this.get_data():[]));
+                return refresh.apply(this,arguments);
+            };
+            grid._cashflow_rows_safe=true;grid.refresh();
+        });
+    }
+
     function edit_expenses(report, support) {
         var filter = support ? 'support_payments' : 'extra_expenses';
         var title = support ? __('Support') : __('Extra Expenses');
@@ -593,7 +643,7 @@
             fields: [
                 {fieldtype: 'HTML', options: '<p>'+(support ? __('Add incoming support by date.') : __('Add expenses not already included.'))+'</p>'},
                 {fieldname: 'expenses', fieldtype: 'Table', label: title,
-                    cannot_add_rows: false, in_place_edit: true, data: rows,
+                    cannot_add_rows: false, in_place_edit: true, data: dialog_rows(rows),
                     fields: [
                         {fieldname: 'date', fieldtype: 'Date', label: support ? __('Date') : __('Payment Date'), reqd: 1, in_list_view: 1},
                         {fieldname: 'amount', fieldtype: 'Currency', precision: 3, label: __('Amount'), reqd: 1, in_list_view: 1},
@@ -619,6 +669,7 @@
                 dialog.hide();
             }
         });
+        safe_dialog_tables(dialog);
         dialog.show();
     }
 
@@ -715,21 +766,102 @@
                 if(section.head)section.head.find('a').text(section.df.label);
             });
         }
+        function payment_rows(index) {
+            var grid=dialog.fields_dict[key('payments',index)].grid;
+            return grid.get_data?grid.get_data():grid.df.data;
+        }
+        function term_dates(profile,anchor) {
+            var dates=(profile.terms || []).map(function(term){
+                var due=anchor;
+                if(term.basis!=='Day(s) after invoice date') {
+                    var parts=anchor.split('-').map(Number);
+                    due=new Date(Date.UTC(parts[0],parts[1],0)).toISOString().slice(0,10);
+                }
+                if(term.basis==='Month(s) after the end of the invoice month')due=frappe.datetime.add_months(due,term.credit_months || 0);
+                else due=frappe.datetime.add_days(due,term.credit_days || 0);
+                return due<anchor?anchor:due;
+            }).sort();
+            if(!dates.length)return [];
+            var gap=Math.round((Date.parse(anchor+'T00:00:00Z')-Date.parse(dates[0]+'T00:00:00Z'))/86400000);
+            return dates.map(function(due){return frappe.datetime.add_days(due,gap);});
+        }
+        function remember_term_dates(index,initial) {
+            var draft=drafts[index],rows=payment_rows(index);
+            if(!draft._supplier_profile || !rows.length)return;
+            var previous=initial && initial.length===rows.length?initial:rows;
+            var expected=term_dates(draft._supplier_profile,previous[0].date);
+            draft._term_anchor=previous[0].date;
+            draft._term_dates=rows.map(function(row,i){return {row:row,date:previous[i].date,manual:i>0 && (!expected[i] || expected[i]!==previous[i].date)};});
+        }
+        function apply_supplier_terms(index) {
+            var draft=drafts[index],profile=draft._supplier_profile;if(!profile || !profile.terms.length)return;
+            var rows=payment_rows(index),anchor=(rows[0] && rows[0].date) || frappe.datetime.get_today();
+            var dates=term_dates(profile,anchor);
+            dates.forEach(function(due,i){if(!rows[i])rows.push({date:due,amount:0});else rows[i].date=due;});
+            dialog.fields_dict[key('payments',index)].grid.refresh();remember_term_dates(index);
+        }
+        function payment_dates_changed(index) {
+            var draft=drafts[index],state=draft._term_dates,rows=payment_rows(index);
+            if(draft._syncing_dates || !state || !rows.length)return;
+            // Added/reordered rows stay manual; do not guess their template position.
+            if(rows.length!==state.length || rows.some(function(row,i){return row!==state[i].row;})) {
+                draft._term_dates=null;return;
+            }
+            rows.forEach(function(row,i){if(i && row.date!==state[i].date)state[i].manual=true;});
+            if(rows[0].date===draft._term_anchor || !rows[0].date)return;
+            var dates=term_dates(draft._supplier_profile,rows[0].date),changed=false;
+            draft._syncing_dates=true;
+            try {
+                rows.forEach(function(row,i){
+                    if(i && !state[i].manual && dates[i]){row.date=dates[i];changed=true;}
+                    state[i].date=row.date;
+                });
+                draft._term_anchor=rows[0].date;
+                if(changed)dialog.fields_dict[key('payments',index)].grid.refresh();
+            } finally {draft._syncing_dates=false;}
+        }
+        function supplier_changed(index,apply) {
+            if(!dialog)return Promise.resolve();
+            var draft=drafts[index],supplier=dialog.get_value(key('supplier',index));
+            var revision=(draft._supplier_revision || 0)+1;draft._supplier_revision=revision;
+            draft._supplier_profile=null;draft._term_dates=null;draft._supplier_loading=false;
+            if(!supplier)return Promise.resolve();
+            draft._supplier_loading=true;
+            var company=report.get_filter_value('company'),cache=report._cashflow_supplier_defaults || (report._cashflow_supplier_defaults={});
+            var cacheKey=JSON.stringify([company,supplier]);
+            if(!cache[cacheKey])cache[cacheKey]=frappe.call({method:method+'get_supplier_defaults',args:{company:company,supplier:supplier}})
+                .then(function(response){return response.message;},function(error){delete cache[cacheKey];throw error;});
+            var initial=payment_rows(index).map(function(row){return {date:row.date,amount:row.amount};}),before=JSON.stringify(initial);
+            var importRevision=draft._import_revision || 0,chargesBefore=JSON.stringify(dialog.get_value(key('import_charges',index)) || []);
+            return cache[cacheKey].then(function(profile){
+                if(draft._supplier_revision!==revision || dialog.get_value(key('supplier',index))!==supplier || report.get_filter_value('company')!==company || draft.removed)return;
+                draft._supplier_profile=profile;
+                if(apply) {
+                    if((draft._import_revision || 0)===importRevision && chargesBefore===JSON.stringify(dialog.get_value(key('import_charges',index)) || []) && profile.country_known!==false) {
+                        dialog.fields_dict[key('include_customs_vat',index)].set_input(profile.international?1:0);
+                        update_import_fields(index);
+                    }
+                    var current=JSON.stringify(payment_rows(index).map(function(row){return {date:row.date,amount:row.amount};}));
+                    if(before===current)apply_supplier_terms(index);
+                } else {remember_term_dates(index,initial);payment_dates_changed(index);}
+            }).then(function(){if(draft._supplier_revision===revision)draft._supplier_loading=false;},function(error){if(draft._supplier_revision===revision)draft._supplier_loading=false;throw error;});
+        }
         function purchase_fields(index) {
             var draft=drafts[index];
             return [
                 {fieldname:'purchase_section_'+index,fieldtype:'Section Break',label:__('Purchase')+' '+(index+1),collapsible:1},
+                {fieldname:key('supplier',index),fieldtype:'Link',options:'Supplier',label:__('Supplier'),default:draft.supplier || '',onchange:function(){return supplier_changed(index,true);}},
                 {fieldname:key('payments',index),fieldtype:'Table',label:__('Supplier Payments'),in_place_edit:true,
-                    data:draft.payments.map(function(row){return Object.assign({},row);}),fields:[
-                        {fieldname:'date',fieldtype:'Date',label:__('Payment Date'),in_list_view:1,reqd:1},
+                    data:dialog_rows(draft.payments.map(function(row){return Object.assign({},row);})),fields:[
+                        {fieldname:'date',fieldtype:'Date',label:__('Payment Date'),in_list_view:1,reqd:1,onchange:function(){payment_dates_changed(index);}},
                         {fieldname:'amount',fieldtype:'Currency',precision:3,label:__('Amount'),in_list_view:1,reqd:1}]},
                 {fieldname:key('include_customs_vat',index),fieldtype:'Check',label:__('Include Customs & VAT'),
-                    default:Number(draft.customs_required || 0) || Number(draft.import_vat_required || 0),onchange:function(){update_import_fields(index);}},
+                    default:Number(draft.customs_required || 0) || Number(draft.import_vat_required || 0),onchange:function(){drafts[index]._import_revision=(drafts[index]._import_revision || 0)+1;update_import_fields(index);}},
                 {fieldname:key('import_charges',index),fieldtype:'Table',label:__('Customs & VAT'),in_place_edit:true,
                     cannot_add_rows:true,hidden:!Number(draft.customs_required || draft.import_vat_required),
                     description:__('Leave a date blank to exclude that charge.'),
-                    data:[{charge:__('Customs'),date:Number(draft.customs_required)?draft.customs_date:null},
-                          {charge:__('Import VAT'),date:Number(draft.import_vat_required)?draft.import_vat_date:null}],
+                    data:dialog_rows([{charge:__('Customs'),date:Number(draft.customs_required)?draft.customs_date:null},
+                          {charge:__('Import VAT'),date:Number(draft.import_vat_required)?draft.import_vat_date:null}]),
                     fields:[{fieldname:'charge',fieldtype:'Data',label:__('Charge'),read_only:1,in_list_view:1},
                             {fieldname:'date',fieldtype:'Date',label:__('Payment Date'),in_list_view:1}]},
                 {fieldname:key('suggest_date',index),fieldtype:'Button',label:__('Suggest Date'),click:suggestion_action},
@@ -740,7 +872,7 @@
                     renumber();
                 }},
                 {fieldname:key('suggestion',index),fieldtype:'HTML',hidden:1},
-                {fieldname:key('apply_suggestion',index),fieldtype:'Button',label:__('Use Date'),hidden:1,click:function(){return apply_suggestion(index);}}
+                {fieldname:key('apply_suggestion',index),fieldtype:'Button',label:__('Use These Dates'),hidden:1,click:function(){return apply_suggestion(index);}}
             ];
         }
         function add_purchase() {
@@ -760,6 +892,7 @@
         var suggested={}, suggestedInput=null;
         function collect_purchases(values) {
             if(!values)return;
+            if(drafts.some(function(draft){return !draft.removed && draft._supplier_loading;})){frappe.msgprint(__('Please wait for the supplier dates to load.'));return;}
             var purchases=[];
             for(var index=0;index<drafts.length;index++) {
                 if(drafts[index].removed)continue;
@@ -774,7 +907,7 @@
                 if(!rows.length || rows.some(function(row){return !row.date || !isFinite(Number(row.amount)) || Number(row.amount)<=0;})) {
                     frappe.msgprint(__('Enter a date and positive amount for every payment in Purchase')+' '+(purchases.length+1));return;
                 }
-                purchases.push({payments:rows,customs_required:customs,import_vat_required:vat,
+                purchases.push({supplier:values[key('supplier',index)] || null,payments:rows,customs_required:customs,import_vat_required:vat,
                     customs_date:customs?customsDate:null,import_vat_date:vat?vatDate:null});
             }
             if(!purchases.length){frappe.msgprint(__('Add a supplier payment, or use Clear All Purchases.'));return;}
@@ -805,8 +938,20 @@
                         var state=valid?(low!==null && low<0?'is-tolerated':'is-positive'):'is-unavailable';
                         var html='<div class="cashflow-result-box '+state+'"><div class="cashflow-result-copy">';
                         if(valid) {
-                            html+='<div class="cashflow-result-date">'+esc(Number(result.shift_days)===0?__('Payment date'):__('Suggested payment date'))+
-                                ' <strong>'+esc(date_label(result.supplier_date))+'</strong></div>';
+                            var fullSchedule=Array.isArray(result.schedule) && result.schedule.length;
+                            html+='<div class="cashflow-result-date">'+(fullSchedule?'<strong>'+esc(Number(result.shift_days)===0?__('Entered dates fit.'):__('Suggested payment dates'))+'</strong>':
+                                esc(Number(result.shift_days)===0?__('Payment date'):__('Suggested payment date'))+' <strong>'+esc(date_label(result.supplier_date))+'</strong>')+'</div>';
+                            if(!fullSchedule && result.first_cost_date!==result.supplier_date)html+='<div class="cashflow-result-note">'+__('First customs/VAT payment')+': '+esc(date_label(result.first_cost_date))+'</div>';
+                            if(Array.isArray(result.schedule) && result.schedule.length) {
+                                var paymentNumber=0;
+                                html+='<table class="cashflow-suggested-schedule"><thead><tr><th>'+__('Payment')+'</th><th>'+__('Date')+'</th><th class="text-right">'+__('Amount')+'</th></tr></thead><tbody>';
+                                result.schedule.forEach(function(row){
+                                    var type=row.category==='customs'?__('Customs'):(row.category==='import_vat'?__('Import VAT'):
+                                        (row.kind==='arrival'?__('Import Charges'):__('Supplier Payment')+' '+(++paymentNumber)));
+                                    html+='<tr><td>'+esc(type)+'</td><td>'+esc(date_label(row.date))+'</td><td class="text-right">'+format_currency(row.amount,currency,3)+'</td></tr>';
+                                });
+                                html+='</tbody></table>';
+                            }
                             if(low!==null) {
                                 html+='<div>'+__('Lowest closing cash after this purchase')+': <strong>'+format_currency(low,currency,3)+'</strong></div>';
                                 html+='<div class="cashflow-result-status">'+(low<0?
@@ -814,7 +959,6 @@
                                     format_currency(report.get_filter_value('maximum_shortage') || 0,currency,3)+' '+__('tolerance.'):
                                     __('No cash shortage.'))+'</div>';
                             }
-                            if(result.first_cost_date!==result.supplier_date)html+='<div class="cashflow-result-note">'+__('First customs/VAT payment')+': '+esc(date_label(result.first_cost_date))+'</div>';
                             html+='<div class="cashflow-result-note">'+__('From the first payment through forecast end.')+'</div>';
                         } else {
                             html+='<strong>'+__('No suitable date within this forecast.')+'</strong>';
@@ -843,9 +987,11 @@
                 (grid.get_data ? grid.get_data() : grid.df.data).forEach(function(row){if(row.date)row.date=frappe.datetime.add_days(row.date,result.shift_days);});
                 grid.refresh();
             });
+            remember_term_dates(index);
             return suggestion_action();
         }
         function style_purchase_actions() {
+            if(dialog)safe_dialog_tables(dialog);
             if(!dialog || !dialog.fields_dict)return;
             Object.keys(dialog.fields_dict).forEach(function(name){
                 var field=dialog.fields_dict[name],wrapper=field.$wrapper;
@@ -872,6 +1018,7 @@
             update_import_fields(index);
             var section=dialog.fields_dict && dialog.fields_dict['purchase_section_'+index];
             if(section && section.collapse)section.collapse(index!==0);
+            if(draft.supplier)supplier_changed(index,false);
         });
         style_purchase_actions();
         if(dialog.$wrapper){
@@ -879,16 +1026,24 @@
             dialog.$wrapper.addClass('cashflow-purchase-dialog').prepend('<style>'+
                 '.cashflow-purchase-dialog .cashflow-purchase-action{display:inline-block;margin:8px 12px 4px 0;}'+
                 '.cashflow-purchase-dialog .cashflow-purchase-result{display:block;width:100%;margin:12px 0 0;font-size:13px;line-height:1.6;}'+
-                '.cashflow-purchase-dialog .cashflow-result-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid #dce3eb;border-radius:6px;background:#f8fafc;}'+
+                '.cashflow-purchase-dialog .cashflow-result-box{display:block;padding:14px 16px;border:1px solid #dce3eb;border-radius:6px;background:#f8fafc;}'+
                 '.cashflow-purchase-dialog .cashflow-result-box.is-tolerated{background:#fff9ed;border-color:#ead8aa;}'+
                 '.cashflow-purchase-dialog .cashflow-result-box.is-positive{background:#f2f8f4;border-color:#cce2d3;}'+
                 '.cashflow-purchase-dialog .cashflow-result-date{margin-bottom:5px;color:#475569;}'+
                 '.cashflow-purchase-dialog .cashflow-result-date strong{display:inline;margin-left:6px;font-size:15px;color:#172b4d;}'+
+                '.cashflow-purchase-dialog .cashflow-result-date strong:first-child{margin-left:0;}'+
                 '.cashflow-purchase-dialog .cashflow-result-status{font-weight:500;color:#36704d;margin-top:3px;}'+
                 '.cashflow-purchase-dialog .is-tolerated .cashflow-result-status{color:#855c19;}'+
                 '.cashflow-purchase-dialog .cashflow-result-note{font-size:12px;color:#64748b;margin-top:4px;}'+
-                '.cashflow-purchase-dialog .cashflow-result-apply{flex-shrink:0;}'+
-                '@media(max-width:480px){.cashflow-purchase-dialog .cashflow-result-box{align-items:flex-start;flex-direction:column;gap:8px;}}'+
+                '.cashflow-purchase-dialog .cashflow-result-apply{display:flex;justify-content:flex-end;margin-top:12px;}'+
+                '.cashflow-purchase-dialog .cashflow-result-apply:empty{display:none;}'+
+                '.cashflow-purchase-dialog .cashflow-result-apply button{background:#1b1764;border:1px solid #1b1764;color:#fff;padding:7px 14px;border-radius:5px;font-weight:500;font-size:13px;}'+
+                '.cashflow-purchase-dialog .cashflow-result-apply button:hover{background:#292378;border-color:#292378;}'+
+                '.cashflow-purchase-dialog .cashflow-result-copy{min-width:0;flex:1;}'+
+                '.cashflow-purchase-dialog .cashflow-suggested-schedule{width:100%;margin:10px 0 4px;border-collapse:collapse;font-size:12px;}'+
+                '.cashflow-purchase-dialog .cashflow-suggested-schedule th,.cashflow-purchase-dialog .cashflow-suggested-schedule td{padding:5px 8px;border-bottom:1px solid #dce3eb;white-space:nowrap;}'+
+                '.cashflow-purchase-dialog .cashflow-suggested-schedule th:first-child,.cashflow-purchase-dialog .cashflow-suggested-schedule td:first-child{padding-left:0;white-space:normal;}'+
+                '@media(max-width:480px){.cashflow-purchase-dialog .cashflow-result-box{padding:12px;}.cashflow-purchase-dialog .cashflow-result-apply button{width:100%;}}'+
                 '.cashflow-purchase-dialog .cashflow-purchase-use{display:inline-block;vertical-align:middle;margin:0;}'+
                 '.cashflow-purchase-dialog .cashflow-purchase-result.hide,.cashflow-purchase-dialog .cashflow-purchase-use.hide{display:none;}'+
                 '</style>');
@@ -1233,8 +1388,9 @@
             if(report._cashflow_pinned_table && report._cashflow_pinned_table!==table && report._cashflow_pinned_table._cashflow_pin_cleanup)report._cashflow_pinned_table._cashflow_pin_cleanup();
             report._cashflow_pinned_table=table;
             pin_columns(table);
-            report.page.main.off('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total, .cashflow-manual-input').on('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total, .cashflow-manual-input', function (event) {
+            report.page.main.off('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total, .cashflow-manual-input, .cashflow-sales-comparison').on('click.cashflow', '.cashflow-details, .cashflow-opening-balance, .cashflow-overdue-total, .cashflow-manual-input, .cashflow-sales-comparison', function (event) {
                 event.preventDefault();
+                if (this.classList && this.classList.contains('cashflow-sales-comparison')) {sales_comparison_details(report);return;}
                 if (this.classList && this.classList.contains('cashflow-manual-input')) {manual_input_details(report,$(this).attr('data-input-kind'));return;}
                 if (this.classList && this.classList.contains('cashflow-opening-balance')) {opening_balance_details(report);return;}
                 if (this.classList && this.classList.contains('cashflow-overdue-total')) {show_overdue_review(report,saved_overdue_review(report));return;}
@@ -1322,6 +1478,7 @@
 
 
                 '.cashflow-manual-inputs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px;}'+
+                '.cashflow-sales-comparison.cashflow-manual-input{background:#f4f7fa;border-color:#dce3eb;color:#334155;}'+
                 '.cashflow-manual-input{background:#fff9e5;border:1px solid #eadfb9;border-radius:4px;padding:3px 8px;font-size:12px;color:#57481e;cursor:pointer;}'+
                 '.cashflow-manual-input:hover{background:#fff4cc;}'+
                 '.cashflow-page .dt-row:has(.cashflow-negative-cell) .dt-cell{background:#fff4f4!important;}'+

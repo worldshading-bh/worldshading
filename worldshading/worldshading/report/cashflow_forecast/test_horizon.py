@@ -12,7 +12,7 @@ class HorizonTests(unittest.TestCase):
         for requested,expected in [('2027-02-01','2027-03-15'),('2027-03-15','2027-03-15'),('2027-04-01','2027-04-01')]:
             self.assertEqual(str(horizon.adjust_end_date(requested,'2026-11-12','2027-03-15')),expected)
         self.assertEqual(str(horizon.adjust_end_date('2027-02-01','2026-11-12',None)),'2027-02-01')
-        with self.assertRaises(ValueError):horizon.adjust_end_date('2027-02-01','2026-11-12','2029-01-01')
+        with self.assertRaises(ValueError):horizon.adjust_end_date('2027-02-01','2026-11-12','2030-01-01')
 
     def test_only_outstanding_po_related_supplier_dates_set_minimum(self):
         rows=[dict(date='2027-03-15',category='supplier_payments',amount=5,doctype='Purchase Order',name='PO'),
