@@ -2,6 +2,8 @@
 
 **Goal:** Finish the existing Cheque Book and Cheque Leaf register for World Shading's own outgoing cheques.
 
+**Deployment status (2026-11-17):** User explicitly authorized merge to `main` and targeted live activation. Code is merged; the two DocTypes, their native Custom Scripts, permissions and bank-scoped unique index are active. All six current web workers loaded the validators without a restart. Live form metadata and dashboard HTTP checks passed. The existing book and two Available leaves are preserved; no leaves were generated or cancelled. No bench test, migrate, restart or broad cache-clear command was run.
+
 **Approved scope:** The six-step chat plan was accepted on 2026-11-17, with Journal Entry added alongside Payment Entry and GL Payment. This implementation covers the two register DocTypes only. Payment-side reservation, workflow actions, ledger posting and bank-clearance synchronization are a later phase. No collector or handover fields.
 
 **Constraints:** Production ERPNext/Frappe v12, Python 3.6. No bench test, migrate, restart, bulk cache clearing, payment changes or automatic production deployment. Preserve existing cheque records and names. Current baseline: one book, two leaves; 43 database-free fixed-expense tests pass.
@@ -14,6 +16,7 @@
 - `worldshading/public/js/cheque_book.js`, `cheque_leaf.js`: form controls and clickable inventory totals.
 - `worldshading/fixtures/doctype.json`: append the two current custom definitions with minimal field changes; preserve other definitions.
 - `worldshading/hooks.py`: add only cheque events/scripts and fixture names.
+- `worldshading/fixtures/custom_script.json`, `server_script.json`, `custom_docperm.json`: native custom-form scripts, disabled legacy validation, and scoped permissions. Frappe v12 skips `doctype_js` for custom DocTypes, so form scripts are installed through Custom Script instead.
 - `worldshading/tests/test_cheque_register.py`: database-free logic tests with an in-memory storage boundary.
 - `docs/superpowers/plans/2026-11-17-cheque-register-foundation.md`: implementation and activation record.
 
@@ -51,3 +54,15 @@ Hook loading must be verified in the web process; no restart or broad cache-clea
 - Final review: independent reviewer identified the lock-order and dashboard-access issues above; both reproduced with failing checks and corrected. Also corrected readonly form-state reuse, with a failing/passing Node check.
 - Verification: 66 database-free Python unittest checks pass (23 cheque-register checks plus 43 existing checks). Existing two Fixed Expense Node checks and new cheque form checks pass; both new form scripts pass `node --check`. Python syntax parsed using Python 3.6. Unrelated DocType fixtures compare exactly to the base revision; diff whitespace checks pass.
 - Verification limit: no bench test, migrate, database writes, browser test or live MariaDB concurrency test. Lock helpers/storage are substituted in unit tests. Before activation, exercise generation versus ordinary saves, cancellation versus leaf edits, duplicate generation and restricted-user dashboards on a separate v12/MariaDB site.
+
+## Authorized deployment record
+
+- Pre-deployment private snapshot: `sites/erp.worldshading.com/private/cheque-register-rollbacks/20261117T072019Z/before.json` (restricted filesystem permissions). The adjacent `apply.py` records the exact targeted changes; `receipt.json` records successful activation and live checks. No authentication credentials are stored in these files.
+- Main fast-forwarded through `9d7a93b`; deployment additionally synchronizes actual Custom DocPerm record identities in the fixture.
+- Both metadata definitions were saved through normal Frappe DocType APIs, without running migrate. The old book Server Script is disabled; both native Custom Scripts are installed from the versioned JavaScript sources.
+- Existing documents were saved through the new validators to populate bank account, company, currency and normalized cheque number. Names and business values were compared with the snapshot and preserved. The unique index `ws_bank_cheque_unique` covers account plus normalized number; the old globally unique cheque-number index is removed.
+- Administrator-only `activate_worker` loads the updated app hooks in each preloaded web worker. All six worker PIDs were observed with active validators. The server has developer mode enabled; no broad hook-cache flush was performed.
+- Live authenticated GET checks confirmed the native scripts and readonly payment-link fields in form responses. The dashboard returned 2 visible leaves, all Available, against book capacity 50. The database index was checked directly. No business records were created for testing.
+- Refreshed only cached boot permission snapshots for the 23 users holding affected roles, so their next desk load reflects the new permissions.
+- Current verification: 67 database-free Python tests, new cheque form checks, existing Fixed Expense form checks and JavaScript syntax checks. Browser interaction, actual generation/cancellation and concurrent edit testing remain unperformed.
+- Rollback: retain all business records. Restore the two prior metadata definitions, native scripts and custom permission rules from the private snapshot, and revert the cheque code commits. Reload the restored app hooks in the web workers through an authorized targeted maintenance operation. Do not restore global cheque-number uniqueness if later records contain the same printed number at different banks. Added database columns may remain to preserve data; do not drop them automatically.
