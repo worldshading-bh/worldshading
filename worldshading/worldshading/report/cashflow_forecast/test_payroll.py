@@ -172,7 +172,7 @@ class PayrollAdapterTests(unittest.TestCase):
             if dt=='Employee':return iter([employee] if filters.get('status')=='Left' else [])
             return iter([assignment])
         s.documents=documents;s.read_document=lambda *args:structure
-        payroll=Payroll(s);payroll.cycle_day=20
+        payroll=Payroll(s);payroll.cycle_day=20;payroll.loan_repayments=lambda *args:{}
         payroll.estimates({})
         self.assertEqual(s.events[0]['date'],date(2026,11,28))
         self.assertEqual(s.events[0]['amount'],Decimal('164.516'))
@@ -189,7 +189,7 @@ class PayrollAdapterTests(unittest.TestCase):
         structure=frappe._dict(payroll_frequency='Monthly',salary_slip_based_on_timesheet=0,earnings=[row],deductions=[])
         s.documents=lambda dt,filters=None:iter([assignment] if dt=='Salary Structure Assignment' else ([employee] if filters.get('status')=='Active' else []))
         s.read_document=lambda *args:structure
-        Payroll(s).estimates({})
+        payroll=Payroll(s);payroll.loan_repayments=lambda *args:{};payroll.estimates({})
         totals={}
         for event in s.events:totals[event['date']]=totals.get(event['date'],0)+event['amount']
         self.assertEqual(totals,{date(2026,11,28):100,date(2026,12,28):100})

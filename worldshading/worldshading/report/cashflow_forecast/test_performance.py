@@ -56,7 +56,7 @@ class PerformanceTests(unittest.TestCase):
         queries=listings.call_args_list
         self.assertEqual(queries[0][1]['filters']['posting_date'],['between',[date(2025,11,10),date(2025,11,11)]])
         self.assertEqual(queries[1][1]['filters']['posting_date'],s.start)
-        self.assertEqual(queries[2][1]['limit_page_length'],1)
+        self.assertEqual(len(queries),2)
 
     def test_completed_po_header_screen_matches_existing_skip_condition(self):
         s=self.source()

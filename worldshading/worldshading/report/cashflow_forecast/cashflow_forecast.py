@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate
 
-from .engine import money, as_date, days, today_sales, build_forecast, summarize, monthly_rows, PAYMENTS
+from .engine import money, as_date, days, today_sales, build_forecast, summarize, monthly_rows, PAYMENTS, maximum_forecast_date
 from .sources import Sources
 from .horizon import adjust_end_date, minimum_purchase_end
 from .scenarios import purchase_events, support_events
@@ -92,8 +92,8 @@ def validate(filters):
         frappe.throw(_('This forecast date is no longer today. Open a new forecast to use current balances.'))
     try:
         end = as_date(filters.end_date)
-        if end < start or (end-start).days > 730:
-            raise ValueError('End date must be today or later, at most 730 days ahead.')
+        if end < start or end > maximum_forecast_date(start):
+            raise ValueError('End date must be today or later, at most 3 calendar years ahead.')
         for key in ('support_amount', 'minimum_reserve'):
             if money(filters.get(key)) < 0:
                 raise ValueError('Support and reserve cannot be negative.')
@@ -146,6 +146,19 @@ def validate(filters):
                 template = get_company_import_rows(filters.company)
             elif purchase.get('schema') not in (2, 3, 4, 5) and int(purchase.get('international') or 0):
                 template = get_purchase_template(filters.company, purchase.get('tax_template'))['rows']
+        if isinstance(purchase,dict) and purchase.get('schema') in (4,5):
+            suppliers = {}
+            for item in purchase.get('purchases') or []:
+                supplier = item.get('supplier') if isinstance(item,dict) else None
+                if not supplier:
+                    continue
+                if not isinstance(supplier,str):
+                    raise ValueError('Choose a valid supplier.')
+                if supplier not in suppliers:
+                    doc = frappe.get_doc('Supplier',supplier)
+                    doc.check_permission('read')
+                    suppliers[supplier] = doc.get('supplier_name') or supplier
+                item['supplier_name'] = suppliers[supplier]
         events.extend(purchase_events(purchase, start, end, template))
     except (ValueError, TypeError, ArithmeticError) as exc:
         frappe.throw(str(exc))
@@ -198,6 +211,31 @@ def preview_purchase(company, end_date, purchase):
 
 
 @frappe.whitelist()
+def get_supplier_defaults(company, supplier):
+    """Optional planning defaults only; never create or update a purchase."""
+    authorize(company)
+    doc = frappe.get_doc('Supplier', supplier)
+    doc.check_permission('read')
+    company_country = (frappe.db.get_value('Company',company,'country') or '').strip().lower()
+    supplier_country = (doc.get('country') or '').strip().lower()
+    terms = []
+    if doc.get('payment_terms'):
+        template = frappe.get_doc('Payment Terms Template',doc.payment_terms)
+        template.check_permission('read')
+        supported = ('Day(s) after invoice date','Day(s) after the end of the invoice month','Month(s) after the end of the invoice month')
+        for row in template.terms:
+            portion = money(row.get('invoice_portion'))
+            if portion<=0 or row.get('due_date_based_on') not in supported:
+                frappe.throw(_('This supplier template cannot generate payment dates. Enter the payments manually.'))
+            terms.append(dict(portion=str(portion),basis=row.due_date_based_on,
+                              credit_days=int(row.get('credit_days') or 0),credit_months=int(row.get('credit_months') or 0)))
+        if len(terms)>100:
+            frappe.throw(_('Maximum 100 supplier payment dates.'))
+    return dict(supplier=supplier,supplier_name=doc.get('supplier_name') or supplier,payment_terms=doc.get('payment_terms'),terms=terms,
+                country_known=bool(company_country and supplier_country),international=bool(company_country and supplier_country and supplier_country!=company_country))
+
+
+@frappe.whitelist()
 def get_accounts(company, names_only=False):
     authorize(company)
     names = [frappe._dict(name=name) for name in resolve_accounts(company)]
@@ -221,8 +259,8 @@ def normalize_generation_filters(values):
     start = as_date(nowdate())
     try:
         requested = as_date(values.get('end_date'))
-        if (requested-start).days > 730:
-            raise ValueError('End date must be at most 730 days ahead.')
+        if requested > maximum_forecast_date(start):
+            raise ValueError('End date must be at most 3 calendar years ahead.')
         values['excluded_accounts'] = normalize_excluded_accounts(values.get('excluded_accounts'))
         accounts = selected_accounts(values.get('company'), values['excluded_accounts'])
         minimum = minimum_purchase_end(values.get('company'), accounts, start,
@@ -336,11 +374,14 @@ def render_forecast(source, filters, start, end, accounts, extra):
         excluded_opening_accounts=[dict(account=r['account'],amount=str(r['amount'])) for r in (getattr(source,'excluded_accounts_breakdown',None) or [])],
         support_amount=str(money(filters.support_amount)), sales_adjustment=str(money(filters.sales_adjustment)), minimum_reserve=str(money(filters.minimum_reserve)),
         today_policy='auto-v1', warnings=source.warnings, vat_policy='quarter-v4',
+        historical_reference_year=getattr(source,'historical_reference_year',None),
         manual_sales=bool(filters.manual_sales), average_daily_sales=str(money(filters.average_daily_sales)), holiday_list=getattr(source,'holiday_list',None),
         calculation_inputs=calculation_inputs(source), base_filters={k:v for k,v in filters.items() if k not in ('purchase_scenario','prepared_report_name')},
+        sales_comparison=getattr(source,'sales_comparison',None),
         vat_reconciliation=getattr(source,'vat_reconciliation',[]),
         vat_ledger_balance=str(getattr(source,'vat_ledger_balance',0)),
         payroll_policy='ledger-v1', payroll_reconciliation=getattr(source,'payroll_reconciliation',None),
+        payroll_loan_names=getattr(source,'payroll_loan_names',[]),
         overdue_count=len(getattr(source, 'overdue', [])), journal_stats=getattr(source, 'journal_stats', {}), journal_policy='pending-v1')
     return columns(filters.get('view'), has_purchase=bool(proposed), minimum_reserve=filters.minimum_reserve), displayed, message, chart, cards, True
 
@@ -356,6 +397,8 @@ def report_message(source, filters, extra):
         'Payroll forecast: 28th monthly. Customs/import VAT: PO ETA. Quarterly net VAT: 25th of the following month; credits carry forward.',
         'Journal Entries use their net effect on the included account groups. Unlinked salary or expense matches require Accounts review.',
         'Temporary scenario inputs create no accounting transactions. A positive balance is subject to source coverage and assumptions.']
+    if getattr(source,'historical_reference_year',None) and not filters.manual_sales:
+        text.append(escape('Sales forecasts use matching calendar dates from {0} throughout the forecast period.'.format(source.historical_reference_year)))
     if extra:
         text.append('<b>Manual Entries</b><br>'+ '<br>'.join(escape('{0}: {1:,.3f} — {2}'.format(
             e['date'], e['amount'], e['description'])) for e in extra))
@@ -447,9 +490,9 @@ def get_overdue_commitments(filters):
 
 def calculation_inputs(source):
     """Immutable inputs for quick purchase checks; stored only inside protected snapshots."""
-    keys = ('liquidity_accounts','excluded_accounts_breakdown','company','currency','opening_balance','events','historical','vat_opening','accounts_breakdown',
+    keys = ('historical_reference_year','sales_comparison','liquidity_accounts','excluded_accounts_breakdown','company','currency','opening_balance','events','historical','vat_opening','accounts_breakdown',
             'warnings','actual_sales_today','vat_reconciliation','vat_ledger_balance','overdue','journal_stats',
-            'holidays','holiday_list','payroll_reconciliation')
+            'holidays','holiday_list','payroll_reconciliation','payroll_loan_names')
     return {key:getattr(source,key,None) for key in keys}
 
 

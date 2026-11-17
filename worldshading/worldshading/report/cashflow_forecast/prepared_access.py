@@ -36,6 +36,8 @@ def guard_request(report_name, filters=None, user=None):
 def check_payroll_access(result):
     rows = result.get('result') or []
     context = rows[0].get('_cashflow_context', {}) if rows else {}
+    if context.get('sales_comparison') and not frappe.has_permission('Sales Invoice','read'):
+        frappe.throw(_('Sales Invoice access has changed. Generate a new forecast with your current permissions.'),frappe.PermissionError)
     if context.get('vat_policy') in ('quarter-v2', 'quarter-v4'):
         from .sources import TAX_ACCOUNTS
         for key in ('output', 'local', 'import'):
@@ -53,6 +55,15 @@ def check_payroll_access(result):
     if sensitive and not (frappe.has_permission('Salary Structure Assignment', 'read')
                           and frappe.has_permission('Salary Slip', 'read')):
         frappe.throw(_('Payroll access has changed. Generate a new forecast with your current permissions.'), frappe.PermissionError)
+    loan_names=context.get('payroll_loan_names') or []
+    if loan_names:
+        if not frappe.has_permission('Loan','read'):
+            frappe.throw(_('Loan access has changed. Generate a new forecast with your current permissions.'),frappe.PermissionError)
+        company=(context.get('calculation_inputs') or {}).get('company')
+        for name in set(loan_names):
+            loan=frappe.get_doc('Loan',name);loan.check_permission('read')
+            if company and loan.company!=company:
+                frappe.throw(_('Loan company mismatch.'),frappe.PermissionError)
     if payroll_control.get('account'):
         account=frappe.get_doc('Account',payroll_control['account'])
         account.check_permission('read')

@@ -27,6 +27,12 @@ def as_date(value):
     return datetime.strptime(str(value), '%Y-%m-%d').date()
 
 
+def maximum_forecast_date(start):
+    start=as_date(start)
+    year=start.year+3
+    return date(year,start.month,min(start.day,monthrange(year,start.month)[1]))
+
+
 def days(start, end):
     current, end = as_date(start), as_date(end)
     while current <= end:
@@ -122,8 +128,8 @@ def build_forecast(start, end, opening, events, historical, adjustment=0, suppor
     holiday_dates = {as_date(value) for value in (holidays or [])}
     if manual_daily_sales is not None and money(manual_daily_sales) < 0:
         raise ValueError("Average Daily Sales cannot be negative.")
-    if end < start or (end-start).days > 730:
-        raise ValueError('End date must be within 730 days of today.')
+    if end < start or end > maximum_forecast_date(start):
+        raise ValueError('End date must be within 3 calendar years of today.')
     if adjustment < -100:
         raise ValueError('Sales adjustment cannot be below -100%.')
     if money(support) < 0 or money(reserve) < 0:

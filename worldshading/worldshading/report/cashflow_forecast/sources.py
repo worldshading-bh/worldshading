@@ -8,7 +8,7 @@ import frappe
 from frappe.utils import getdate
 
 from .engine import money, as_date, days, occurrences, FREQUENCIES, reconcile_installments, PAYMENTS, import_cash_taxes
-from .rules import supplier_amount, po_remaining, base_outstanding, salary_estimate, supplier_outstanding, arrival_residual, advance_shares, invoice_installments, reserve_installment
+from .rules import supplier_amount, po_remaining, base_outstanding, salary_estimate, supplier_outstanding, arrival_residual, advance_shares, invoice_installments, reserve_installment, is_draft_security_cheque
 
 TAX_ACCOUNTS = {'output': 'Output VAT – Sales - WS', 'local': 'Input VAT – Local - WS',
                 'import': 'Input VAT – Import - WS', 'customs': 'Custom Duty - WS'}
@@ -122,6 +122,7 @@ class Sources(object):
             self.historical_sales()
         else:
             self.manual_sales()
+        self.collect_sales_comparison()
         self.tax_position()
         self.future_tax_events()
         self.collect_commitments()
@@ -199,37 +200,48 @@ class Sources(object):
             frappe.throw('Manual sales requires one On Net Total Output VAT row in the default sales tax template.')
         self.manual_vat_rate = Decimal(str(tax_rows[0].rate or 0))
 
+    def collect_sales_comparison(self):
+        """Two permitted aggregate reads, independent of forecast sales settings."""
+        self.sales_comparison = None
+        if not frappe.has_permission('Sales Invoice', 'read'):
+            return
+        try:
+            previous_end = self.start.replace(year=self.start.year-1)
+        except ValueError:
+            previous_end = date(self.start.year-1,2,28)
+        periods = [(date(self.start.year,1,1),self.start), (date(previous_end.year,1,1),previous_end)]
+        amounts = []
+        for first,last in periods:
+            rows = frappe.get_list('Sales Invoice', filters={'company':self.company,'docstatus':1,
+                'posting_date':['between',[first,last]]}, fields=['sum(base_grand_total) as amount'],limit_page_length=1)
+            amounts.append(money(rows[0].amount) if rows else money(0))
+        current,previous = amounts
+        difference = current-previous
+        self.sales_comparison = dict(current_start=str(periods[0][0]),current_end=str(self.start),
+            previous_start=str(periods[1][0]),previous_end=str(previous_end),current=str(current),previous=str(previous),
+            difference=str(difference),percentage=str(money(difference/previous*100,2)) if previous>0 else None)
+
     def historical_sales(self):
         # Sales are aggregated in base currency, including signed returns and VAT.
         self.actual_sales_today = None
         if not frappe.has_permission('Sales Invoice', 'read'):
             self.warn('Sales Invoice access missing; sales coverage is incomplete.')
             return
-        try:
-            first = self.start.replace(year=self.start.year-1)
-        except ValueError:
-            first = date(self.start.year-1, 2, 28)
-        try:
-            last = self.end.replace(year=self.end.year-1)
-        except ValueError:
-            last = date(self.end.year-1, 2, 28)
-        last = min(last, self.start)
+        self.historical_reference_year = self.start.year-1
+        comparators = [(day,date(self.historical_reference_year,day.month,
+            min(day.day,monthrange(self.historical_reference_year,day.month)[1]))) for day in days(self.start,self.end)]
+        first = min(prior for day,prior in comparators)
+        last = max(prior for day,prior in comparators)
         records = frappe.get_list('Sales Invoice', filters={'company': self.company, 'docstatus': 1,
             'posting_date': ['between', [first, last]]},
             fields=['name', 'posting_date', 'base_grand_total'], limit_page_length=0)
         if last < self.start:
             records += frappe.get_list('Sales Invoice', filters={'company': self.company, 'docstatus': 1,
                 'posting_date': self.start}, fields=['name', 'posting_date', 'base_grand_total'], limit_page_length=0)
-        # Retain coverage-warning semantics without loading the entire history.
-        earliest = frappe.get_list('Sales Invoice', filters={'company': self.company, 'docstatus': 1,
-            'posting_date': ['between', [date(self.start.year-1, 1, 1), self.start]]},
-            fields=['min(posting_date) as posting_date'], order_by='posting_date asc', limit_page_length=1)
-        earliest = [r for r in earliest if r.posting_date]
         invoices = {r.name: r for r in records}
         self.actual_sales_today = money(0)
-        if not invoices and not earliest:
-            self.warn('No accessible submitted historical invoices; sales coverage is incomplete.')
-            return
+        if not any(as_date(row.posting_date).year==self.historical_reference_year for row in invoices.values()):
+            self.warn('No accessible submitted sales invoices in reference year {0}; forecast sales use zero where no reference sales are recorded.'.format(self.historical_reference_year))
         totals, taxes, dates = defaultdict(Decimal), defaultdict(Decimal), set()
         for r in invoices.values():
             day = as_date(r.posting_date)
@@ -246,18 +258,9 @@ class Sources(object):
         for r in tax_rows:
             if r.parent in invoices:
                 taxes[as_date(invoices[r.parent].posting_date)] += money(r.amount)
-        for day in days(self.start, self.end):
-            try:
-                prior = day.replace(year=day.year-1)
-            except ValueError:
-                self.warn('29 February has no exact previous-year comparator; sales are zero for that day.')
-                continue
-            if prior > self.start:
-                self.warn('Forecast extends beyond available prior-year history; unavailable comparator days are zero.')
+        for day,prior in comparators:
             self.historical[str(day)] = totals.get(prior, money(0))
             self.sales_tax[str(day)] = taxes.get(prior, money(0))
-        if earliest and as_date(earliest[0].posting_date) > date(self.start.year-1, self.start.month, min(self.start.day, monthrange(self.start.year-1, self.start.month)[1])):
-            self.warn('Historical invoice coverage starts after the first required comparator date.')
 
     def tax_position(self):
         from .vat_sources import VatSources
@@ -468,6 +471,8 @@ class Sources(object):
             payments = sorted(self.documents('Payment Entry', {'docstatus': 0, 'payment_type': 'Pay'}),
                               key=lambda pe: (as_date(pe.posting_date), pe.name))
             for pe in payments:
+                if is_draft_security_cheque(pe):
+                    continue
                 if pe.get('workflow_state') in (None, '', 'Draft'):
                     continue
                 self.register_source('Payment Entry', pe.name, party=pe.get('party') or '', party_type=pe.get('party_type') or '', supplier_name=(pe.get('party_name') or pe.get('party')) if pe.get('party_type') == 'Supplier' else None,
@@ -626,9 +631,11 @@ class Sources(object):
                     amount = money(amount*supplier_total/base)
                 due = r.due_date
                 if r.get('payment_entry'):
-                    pe = frappe.db.get_value('Payment Entry', r.payment_entry,
-                        ['docstatus', 'posting_date', 'company'], as_dict=1)
-                    if pe and pe.company == self.company and pe.docstatus != 2:
+                    fields=['docstatus','posting_date','company']
+                    if frappe.get_meta('Payment Entry').has_field('is_security_cheque'):
+                        fields.append('is_security_cheque')
+                    pe = frappe.db.get_value('Payment Entry', r.payment_entry,fields,as_dict=1)
+                    if pe and pe.company == self.company and pe.docstatus != 2 and not is_draft_security_cheque(pe):
                         self.handled_pe.add(r.payment_entry)
                         if pe.docstatus == 0 or as_date(pe.posting_date) > self.start:
                             due = pe.posting_date or due
@@ -704,7 +711,7 @@ class Sources(object):
                     self.event(due, 'import_vat', residual_import, 'Purchase Order', po.name, 'Unpaid template import VAT estimate on ETA')
                     self.event(due, 'vat_accrual', -credit_remaining, 'Purchase Order', po.name,
                                'Projected recoverable import VAT; separate from ETA cash payment')
-                else:
+                elif supplier_country:
                     self.warn('{0}: customs/import VAT has no ETA; payment is unscheduled.'.format(po.name))
             elif not customs and not import_vat and (customs_required or vat_required) and company_country and supplier_country and not local_purchase and remaining:
                 self.warn('{0}: foreign PO has no customs/import VAT template amounts.'.format(po.name))
@@ -834,6 +841,8 @@ class Sources(object):
                 continue
             self.gl_payment(glp)
         for pe in self.pending_documents('Payment Entry'):
+            if is_draft_security_cheque(pe):
+                continue
             self.register_source('Payment Entry', pe.name, party=pe.get('party') or '', party_type=pe.get('party_type') or '', supplier_name=(pe.get('party_name') or pe.get('party')) if pe.get('party_type') == 'Supplier' else None,
                 workflow_state=pe.get('workflow_state') or '', basis='Prepared payment document')
             if pe.payment_type == 'Internal Transfer':

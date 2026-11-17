@@ -39,8 +39,6 @@ class Budgets(object):
             return
         candidates = []
         fixed = getattr(s, '_future_fixed_expense_accounts', set())
-        found = False
-        covered_years = set()
         for doc in s.documents('Budget', {'docstatus': 1}):
             year = frappe.get_doc('Fiscal Year', doc.fiscal_year)
             year.check_permission('read')
@@ -48,7 +46,6 @@ class Budgets(object):
             start, end = max(s.start+timedelta(days=1), first), min(s.end, last)
             if start > end:
                 continue
-            found = True
             if first.month != 1 or first.day != 1 or last != date(first.year, 12, 31):
                 s.warn('{0}: non-calendar/short fiscal-year budget requires review; omitted.'.format(doc.name))
                 continue
@@ -72,7 +69,6 @@ class Budgets(object):
                     continue
             else:
                 s.warn('{0}: no Monthly Distribution; annual budget spread evenly across 12 months.'.format(doc.name))
-            covered_years.add(first.year)
             for row in doc.accounts:
                 account = frappe.get_doc('Account', row.account)
                 account.check_permission('read')
@@ -88,14 +84,6 @@ class Budgets(object):
                 if any(e.get('account') == row.account and e.get('doctype') == 'GL Payment' and e['date'] >= start for e in s.events):
                     s.warn('{0}: budget account {1} also has scheduled GL Payments; review overlapping cash assumptions. Budget is not automatically reduced by those payments.'.format(doc.name, row.account))
                 candidates.append((doc, row, percentages, start, end))
-        if not found:
-            s.warn('No submitted Budget covers the forecast period; Budget Expenses are zero. Create/submit the company fiscal-year budgets and monthly distributions to include them.')
-        if found:
-            future = s.start+timedelta(days=1)
-            required = set(range(future.year, s.end.year+1)) if future <= s.end else set()
-            missing = required-covered_years
-            if missing:
-                s.warn('No usable submitted calendar-year Budget covers forecast years {0}; those budget allowances are omitted.'.format(', '.join(str(y) for y in sorted(missing))))
         # Cost-center/project budgets can overlap. Do not blindly sum different scopes.
         for doc, row, percentages, start, end in candidates:
             conflicts = [(d, r) for d, r, p, a, b in candidates if r.account == row.account

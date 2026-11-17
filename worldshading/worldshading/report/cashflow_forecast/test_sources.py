@@ -28,7 +28,7 @@ class PayrollFixtureTests(unittest.TestCase):
         from worldshading.worldshading.report.cashflow_forecast.payroll import Payroll
         source.payroll_account='Payroll';source.journals=lambda:SimpleNamespace(reserve_payable=lambda *args,**kwargs:Decimal(0))
         with patch.object(frappe, 'has_permission', return_value=True), patch.object(frappe, 'get_doc', return_value=structure), \
-             patch.object(Payroll,'slips',return_value=[]),patch.object(Payroll,'booked_rows',return_value=[]):
+             patch.object(Payroll,'slips',return_value=[]),patch.object(Payroll,'booked_rows',return_value=[]),patch.object(Payroll,'loan_repayments',return_value={}):
             source.payroll()
         self.assertEqual(source.events[0]['amount'], 300)
         self.assertEqual(source.events[0]['date'], date(2026, 11, 28))
@@ -92,11 +92,11 @@ class DocumentFixture(SimpleNamespace):
 
 
 class PoObligationFixtureTests(unittest.TestCase):
-    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None, horizon=False, supplier_country='Other', company_country='Bahrain', import_vat=0, stored_taxes=None, customs_required=1, import_vat_required=1, glps=None, planned=0, journal_planned=0):
+    def collect(self, remaining, state='Completed', overdue=True, currency='BHD', customs=0, installments=None, horizon=False, supplier_country='Other', company_country='Bahrain', import_vat=0, stored_taxes=None, customs_required=1, import_vat_required=1, glps=None, planned=0, journal_planned=0, eta=date(2026,12,1)):
         po = DocumentFixture(name='PO-RESIDUAL', base_grand_total=100,
             advance_paid=0, currency=currency, party_account_currency=currency,
             conversion_rate=1, workflow_state=state, supplier='SUPPLIER-TEST',
-            eta_date=date(2026, 12, 1), taxes=[], supplier_country=supplier_country, customs_required=customs_required, import_vat_required=import_vat_required,
+            eta_date=eta, taxes=[], supplier_country=supplier_country, customs_required=customs_required, import_vat_required=import_vat_required,
             payment_schedule=[frappe._dict(due_date=due, payment_amount=amount)
                 for due, amount in (installments or [(date(2026, 10, 1) if overdue else date(2026, 12, 1),100)])])
         po.taxes = stored_taxes or []
@@ -118,6 +118,12 @@ class PoObligationFixtureTests(unittest.TestCase):
             dict(account_head='Input VAT – Import - WS',base_tax_amount_after_discount_amount=import_vat)]
         source.purchase_orders()
         return source
+
+    def test_missing_supplier_country_does_not_warn_about_missing_eta(self):
+        source=self.collect(100,customs=10,supplier_country=None,eta=None)
+        self.assertFalse(any('has no ETA' in warning for warning in source.warnings))
+        source=self.collect(100,customs=10,supplier_country='Spain',eta=None)
+        self.assertTrue(any('has no ETA' in warning for warning in source.warnings))
 
     def test_local_purchase_never_projects_customs_or_import_vat(self):
         for country in ('Bahrain', 'Kuwait'):
