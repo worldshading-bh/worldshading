@@ -303,4 +303,5 @@ def activate_worker():
         if validator not in active.get(doctype, {}).get('validate', []):
             frappe.throw(_('Cheque validation hook did not load.'))
     return {'pid': os.getpid(), 'validators_loaded': True,
-            'form_scripts': {doctype: app_hooks.doctype_js.get(doctype) for doctype in expected}}
+            'form_scripts': {doctype: bool(frappe.db.get_value('Custom Script', {'dt': doctype}, 'script'))
+                             for doctype in expected}}

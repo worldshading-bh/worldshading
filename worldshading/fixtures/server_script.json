@@ -1,0 +1,11 @@
+[
+ {
+  "disabled": 1,
+  "doctype": "Server Script",
+  "doctype_event": "Before Save",
+  "name": "Cheque Book Validation",
+  "reference_doctype": "Cheque Book",
+  "script": "# --------------------------------------------------\r\n# Cheque Book Validation\r\n# Trigger: Before Save\r\n# --------------------------------------------------\r\n\r\nif doc.doctype == \"Cheque Book\":\r\n\r\n    # Convert values safely\r\n    try:\r\n        start = int(doc.first_leaf_no)\r\n        end = int(doc.last_leaf_no)\r\n    except:\r\n        raise Exception(\"Cheque numbers must be numeric.\")\r\n\r\n    # --------------------------------------------------\r\n    # 1\ufe0f\u20e3 Validate Range Order\r\n    # --------------------------------------------------\r\n    if end <= start:\r\n        raise Exception(\"Last Leaf Number must be greater than First Leaf Number.\")\r\n\r\n    # --------------------------------------------------\r\n    # 2\ufe0f\u20e3 Validate Max Range (< 50)\r\n    # --------------------------------------------------\r\n    difference = end - start\r\n\r\n    if difference >= 50:\r\n        raise Exception(\"Cheque book range cannot exceed 50 leaves.\")\r\n\r\n    # --------------------------------------------------\r\n    # 3\ufe0f\u20e3 Auto Calculate No of Leaves\r\n    # --------------------------------------------------\r\n    doc.no_of_leaves = difference + 1\r\n",
+  "script_type": "DocType Event"
+ }
+]

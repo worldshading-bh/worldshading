@@ -244,6 +244,8 @@ scheduler_events = {
 
 
 fixtures = [
+    {"doctype": "Custom Script", "filters": [["dt", "in", ["Cheque Book", "Cheque Leaf"]]]},
+    {"doctype": "Server Script", "filters": [["name", "in", ["Cheque Book Validation"]]]},
     {"doctype": "Custom DocPerm", "filters": [["parent", "in", ["Cheque Book", "Cheque Leaf"]]]},
     {"doctype": "Property Setter", "filters": [["name", "in", ["GL Payment-reference_date-reqd"]]]},
     {
@@ -294,8 +296,6 @@ fixtures = [
 
 
 doctype_js = {
-    "Cheque Book": "public/js/cheque_book.js",
-    "Cheque Leaf": "public/js/cheque_leaf.js",
 	"Item": "public/js/item_packed_dashboard.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",
 	"Purchase Order": "public/js/purchase_order_urgency.js",
