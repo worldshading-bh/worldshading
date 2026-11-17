@@ -274,3 +274,33 @@ def get_book_summary(book_name):
     # records only, matching the permission-filtered leaf list.
     result.pop('missing')
     return result
+
+
+@frappe.whitelist(methods=['POST'])
+def activate_worker():
+    """Load this deployment's hooks in a preloaded worker without restarting it.
+
+    Administrator-only; changes no documents or services. Call once per worker
+    after the two DocType definitions are synchronized. Normal users never need
+    this maintenance action.
+    """
+    _require_post()
+    if frappe.session.user != 'Administrator':
+        frappe.throw(_('Only Administrator can activate cheque register hooks.'), frappe.PermissionError)
+    import importlib
+    import os
+    import worldshading.hooks as app_hooks
+
+    importlib.reload(app_hooks)
+    if hasattr(frappe.local, 'doc_events_hooks'):
+        del frappe.local.doc_events_hooks
+    expected = {
+        'Cheque Book': 'worldshading.api.cheque_register.validate_book',
+        'Cheque Leaf': 'worldshading.api.cheque_register.validate_leaf'
+    }
+    active = frappe.get_doc_hooks()
+    for doctype, validator in expected.items():
+        if validator not in active.get(doctype, {}).get('validate', []):
+            frappe.throw(_('Cheque validation hook did not load.'))
+    return {'pid': os.getpid(), 'validators_loaded': True,
+            'form_scripts': {doctype: app_hooks.doctype_js.get(doctype) for doctype in expected}}

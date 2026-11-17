@@ -259,6 +259,12 @@ class TestRegisterControls(unittest.TestCase):
 
 
 class TestAccountSerialization(unittest.TestCase):
+    def test_worker_activation_is_administrator_only(self):
+        with patch.object(service.frappe, 'session', frappe._dict(user='Accounts User')), \
+                patch.object(service.frappe, 'throw', side_effect=ValueError):
+            with self.assertRaises(ValueError):
+                service.activate_worker()
+
     def test_busy_account_fails_immediately_instead_of_waiting_on_a_row_lock(self):
         def sql(query, values):
             if 'GET_LOCK' not in query or ', 0)' not in query:
