@@ -244,6 +244,7 @@ scheduler_events = {
 
 
 fixtures = [
+    {"doctype": "Custom DocPerm", "filters": [["parent", "in", ["Cheque Book", "Cheque Leaf"]]]},
     {"doctype": "Property Setter", "filters": [["name", "in", ["GL Payment-reference_date-reqd"]]]},
     {
         "doctype": "Custom Field",
@@ -283,7 +284,9 @@ fixtures = [
                 # New UI-created DocTypes (to protect)
                 "Loyalty Trusted Device",
                 "API Settings",
-                "OTP Log"
+                "OTP Log",
+                "Cheque Book",
+                "Cheque Leaf"
             ]]
         ]
     }
@@ -291,6 +294,8 @@ fixtures = [
 
 
 doctype_js = {
+    "Cheque Book": "public/js/cheque_book.js",
+    "Cheque Leaf": "public/js/cheque_leaf.js",
 	"Item": "public/js/item_packed_dashboard.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",
 	"Purchase Order": "public/js/purchase_order_urgency.js",
@@ -349,6 +354,16 @@ doctype_list_js = {
 
 
 doc_events = {
+    "Cheque Book": {
+        "validate": "worldshading.api.cheque_register.validate_book",
+        "on_trash": "worldshading.api.cheque_register.protect_book_deletion",
+        "before_rename": "worldshading.api.cheque_register.protect_rename"
+    },
+    "Cheque Leaf": {
+        "validate": "worldshading.api.cheque_register.validate_leaf",
+        "on_trash": "worldshading.api.cheque_register.protect_leaf_deletion",
+        "before_rename": "worldshading.api.cheque_register.protect_rename"
+    },
     "Item Price": {
         "validate": "worldshading.api.item_price_validation.validate_new_item_price"
     },
