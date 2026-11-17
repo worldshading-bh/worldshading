@@ -16,7 +16,7 @@ assert(!dialog.fields.some(f=>f.fieldname==='international'));
 assert(!dialog.fields.some(f=>['customs_required','import_vat_required','customs_date','import_vat_date'].includes(f.fieldname)));
 assert(dialog.fields.some(f=>f.fieldname==='payments'));
 const charges=dialog.fields.find(f=>f.fieldname==='import_charges'),include=dialog.fields.find(f=>f.fieldname==='include_customs_vat');
-assert(charges.hidden);assert.strictEqual(charges.data.length,2);
+assert(charges.hidden);assert.strictEqual(charges.data.length,2);assert.strictEqual(charges.cannot_delete_rows,true);
 assert(charges.fields.find(f=>f.fieldname==='charge').read_only);assert(!charges.fields.find(f=>f.fieldname==='date').reqd);
 include.default=1;include.onchange();assert.strictEqual(charges.hidden,0);
 include.default=0;include.onchange();assert.strictEqual(charges.hidden,1);

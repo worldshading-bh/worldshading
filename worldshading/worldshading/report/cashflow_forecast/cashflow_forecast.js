@@ -626,7 +626,18 @@
             var refresh=grid.refresh;
             grid.refresh=function(){
                 dialog_rows(Array.isArray(this.df.data)?this.df.data:(this.get_data?this.get_data():[]));
-                return refresh.apply(this,arguments);
+                var result=refresh.apply(this,arguments);
+                if(this.df.cannot_delete_rows) {
+                    // v12 does not implement cannot_delete_rows for dialog grids.
+                    // Keep the two charges editable, with deletion disabled locally.
+                    this.get_selected=function(){return [];};
+                    this.get_selected_children=function(){return [];};
+                    this.add_new_row=function(){};
+                    (this.grid_rows || []).forEach(function(row){row.remove=function(){};});
+                    if(this.wrapper && this.wrapper.addClass)this.wrapper.addClass('cashflow-fixed-charges');
+                    this.refresh_remove_rows_button && this.refresh_remove_rows_button();
+                }
+                return result;
             };
             grid._cashflow_rows_safe=true;grid.refresh();
         });
@@ -858,7 +869,7 @@
                 {fieldname:key('include_customs_vat',index),fieldtype:'Check',label:__('Include Customs & VAT'),
                     default:Number(draft.customs_required || 0) || Number(draft.import_vat_required || 0),onchange:function(){drafts[index]._import_revision=(drafts[index]._import_revision || 0)+1;update_import_fields(index);}},
                 {fieldname:key('import_charges',index),fieldtype:'Table',label:__('Customs & VAT'),in_place_edit:true,
-                    cannot_add_rows:true,hidden:!Number(draft.customs_required || draft.import_vat_required),
+                    cannot_add_rows:true,cannot_delete_rows:true,hidden:!Number(draft.customs_required || draft.import_vat_required),
                     description:__('Leave a date blank to exclude that charge.'),
                     data:dialog_rows([{charge:__('Customs'),date:Number(draft.customs_required)?draft.customs_date:null},
                           {charge:__('Import VAT'),date:Number(draft.import_vat_required)?draft.import_vat_date:null}]),
@@ -1024,6 +1035,7 @@
         if(dialog.$wrapper){
             dialog.$wrapper.find('.modal-dialog').css('max-width','740px');
             dialog.$wrapper.addClass('cashflow-purchase-dialog').prepend('<style>'+
+                '.cashflow-purchase-dialog .cashflow-fixed-charges .grid-remove-rows,.cashflow-purchase-dialog .cashflow-fixed-charges .grid-delete-row,.cashflow-purchase-dialog .cashflow-fixed-charges .grid-row-check,.cashflow-purchase-dialog .cashflow-fixed-charges .grid-duplicate-row,.cashflow-purchase-dialog .cashflow-fixed-charges .grid-insert-row,.cashflow-purchase-dialog .cashflow-fixed-charges .grid-insert-row-below{display:none!important;}'+
                 '.cashflow-purchase-dialog .cashflow-purchase-action{display:inline-block;margin:8px 12px 4px 0;}'+
                 '.cashflow-purchase-dialog .cashflow-purchase-result{display:block;width:100%;margin:12px 0 0;font-size:13px;line-height:1.6;}'+
                 '.cashflow-purchase-dialog .cashflow-result-box{display:block;padding:14px 16px;border:1px solid #dce3eb;border-radius:6px;background:#f8fafc;}'+
