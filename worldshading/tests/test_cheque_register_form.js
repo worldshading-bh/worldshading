@@ -4,9 +4,11 @@ const fs = require('fs');
 const vm = require('vm');
 const events = {};
 const calls = [];
+const confirmations = [];
 const frappe = {
     ui: {form: {on: (dt, handlers) => { events[dt] = handlers; }}},
     call: options => calls.push(options),
+    confirm: (message, yes, no) => confirmations.push({message, yes, no}),
     msgprint: () => {},
     set_route: () => {}
 };
@@ -33,13 +35,22 @@ assert.strictEqual(frm.fields.cheque_number, 0, 'A new leaf must allow entry aft
 assert.strictEqual(frm.fields.cheque_book, 0);
 frm = form(false);
 events['Cheque Book'].refresh(frm);
+const beforeGeneration = calls.length;
 frm.buttons['Generate Missing Leaves']();
+assert.strictEqual(calls.length, beforeGeneration, 'Generation must wait for confirmation');
+assert.strictEqual(confirmations.length, 1);
+if (confirmations[0].no) confirmations[0].no();
+assert.strictEqual(calls.length, beforeGeneration, 'Cancelling confirmation must not call the server');
+frm.buttons['Generate Missing Leaves']();
+confirmations[1].yes();
 assert.strictEqual(calls[calls.length - 1].method, 'worldshading.api.cheque_register.generate_leaves');
 assert.strictEqual(calls[calls.length - 1].args.book_name, 'BOOK');
 frm.is_dirty = () => true;
 const before = calls.length;
+const confirmationsBeforeDirtyClick = confirmations.length;
 frm.buttons['Generate Missing Leaves']();
 assert.strictEqual(calls.length, before, 'Unsaved book changes must not generate leaves from stale values');
+assert.strictEqual(confirmations.length, confirmationsBeforeDirtyClick);
 frm = form(false);
 frm.doc.status = 'Available';
 frm.doc.journal_entry = 'JV';

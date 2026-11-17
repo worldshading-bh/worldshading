@@ -26,18 +26,23 @@ frappe.ui.form.on('Cheque Book', {
                     frappe.msgprint(__('Save the cheque book before generating leaves.'));
                     return;
                 }
-                frappe.call({
-                    method: 'worldshading.api.cheque_register.generate_leaves',
-                    args: {book_name: book_name},
-                    freeze: true,
-                    freeze_message: __('Generating cheque leaves...'),
-                    callback: function(r) {
-                        if (r.exc || !r.message) return;
-                        frappe.msgprint(__('Created {0} cheque leaves. {1} already existed.',
-                            [r.message.created, r.message.existing]));
-                        frm.reload_doc();
+                frappe.confirm(
+                    __('This will create the remaining cheque leaves in this book’s saved number range. Existing leaves will stay unchanged. Created leaves cannot be deleted; unused leaves can be cancelled. Continue?'),
+                    function() {
+                        frappe.call({
+                            method: 'worldshading.api.cheque_register.generate_leaves',
+                            args: {book_name: book_name},
+                            freeze: true,
+                            freeze_message: __('Generating cheque leaves...'),
+                            callback: function(r) {
+                                if (r.exc || !r.message) return;
+                                frappe.msgprint(__('Created {0} cheque leaves. {1} already existed.',
+                                    [r.message.created, r.message.existing]));
+                                frm.reload_doc();
+                            }
+                        });
                     }
-                });
+                );
             });
         }
         frappe.call({
@@ -48,7 +53,7 @@ frappe.ui.form.on('Cheque Book', {
                 if (frm._cheque_inventory_section) frm._cheque_inventory_section.remove();
                 const summary = r.message;
                 const cards = [
-                    {label: __('Visible Leaves'), count: summary.total},
+                    {label: __('Created Leaves'), count: summary.total},
                     {label: __('Book Capacity'), count: summary.expected, capacity: true}
                 ];
                 ['Available', 'Reserved', 'Issued', 'Cleared', 'Cancelled', 'Bounced'].forEach(function(status) {
