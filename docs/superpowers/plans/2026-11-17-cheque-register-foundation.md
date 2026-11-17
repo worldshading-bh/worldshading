@@ -66,3 +66,14 @@ Hook loading must be verified in the web process; no restart or broad cache-clea
 - Refreshed only cached boot permission snapshots for the 23 users holding affected roles, so their next desk load reflects the new permissions.
 - Current verification: 67 database-free Python tests, new cheque form checks, existing Fixed Expense form checks and JavaScript syntax checks. Browser interaction, actual generation/cancellation and concurrent edit testing remain unperformed.
 - Rollback: retain all business records. Restore the two prior metadata definitions, native scripts and custom permission rules from the private snapshot, and revert the cheque code commits. Reload the restored app hooks in the web workers through an authorized targeted maintenance operation. Do not restore global cheque-number uniqueness if later records contain the same printed number at different banks. Added database columns may remain to preserve data; do not drop them automatically.
+
+## Sequential naming update (2026-11-17)
+
+- User approved automatic `CB-00001` book IDs and `CL-000001` leaf IDs, and explicitly authorized renaming the existing test book/leaves. This supersedes the earlier decision to preserve those test-record IDs.
+- Use native v12 autoname rules `CB-.#####` and `CL-.######`. Printed cheque numbers remain separate and unchanged. The book's title remains its bank ledger account; search suggestions include account, first/last cheque number and the optional Book Name description. Standard v12 link inputs store/display the ID, with the account and range in the selection description.
+- Book Name is optional and no longer globally unique or used to allocate IDs. Account/range protections and ordinary rename protection remain in place.
+- Files: this plan and `worldshading/fixtures/doctype.json`; no payment logic or workflows change.
+- Preflight found one book and 50 Available, unlinked leaves; neither naming prefix had an existing counter. Private rollback snapshot: `sites/erp.worldshading.com/private/cheque-register-rollbacks/20261117T081645Z-naming/before.json`.
+- Deployment uses Frappe's normal rename mechanism to update links, attachments and history. The identity guard is suspended only in the single deployment process for the exact snapshotted records; normal web/API saves retain it. A mapping of old/new IDs is retained beside the snapshot for rollback.
+- Verification: compare business fields and book/leaf relationships against the snapshot, verify account/range search through live HTTP, and preview the next IDs in a transaction that is rolled back. No test records need to be created. No bench test, migrate or restart.
+- Rollback: rename each mapped ID back through Frappe before restoring the previous two naming definitions. Preserve any later records and do not lower a series counter if those records have consumed it.
