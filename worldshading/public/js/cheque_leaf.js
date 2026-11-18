@@ -1,5 +1,6 @@
 frappe.ui.form.on('Cheque Leaf', {
     refresh: function(frm) {
+        frm.set_df_property('damaged', 'read_only', 1);
         if (frm.doc.cheque_book) {
             frm.add_custom_button(__('Open Cheque Book'), function() {
                 frappe.set_route('Form', 'Cheque Book', frm.doc.cheque_book);
@@ -43,33 +44,55 @@ frappe.ui.form.on('Cheque Leaf', {
             });
         }
         const linked = frm.doc.payment_entry || frm.doc.gl_payment || frm.doc.journal_entry;
-        if (frm.doc.status !== 'Available' || linked || !frm.perm[0] || !frm.perm[0].write) return;
+        if (frm.doc.status !== 'Available' || frm.doc.signed || linked || !frm.perm[0] || !frm.perm[0].write) return;
         frm.add_custom_button(__('Cancel Unused Leaf'), function() {
             if (frm.is_dirty()) {
                 frappe.msgprint(__('Save the cheque leaf before cancelling it.'));
                 return;
             }
+            let damage_file = null, completed = false, saving = false;
             const dialog = new frappe.ui.Dialog({
                 title: __('Cancel Unused Cheque Leaf'),
                 fields: [
                     {fieldname: 'reason', label: __('Reason'), fieldtype: 'Small Text', reqd: 1},
-                    {fieldname: 'damaged', label: __('Damaged'), fieldtype: 'Check', default: 0}
+                    {fieldname: 'damaged', label: __('Damaged'), fieldtype: 'Check', default: 0},
+                    {fieldname: 'damage_upload', fieldtype: 'HTML',
+                        options: '<p>' + __('A photo or document is required when Damaged is selected. It will be saved privately on this leaf.') + '</p><div class="damage-upload-area"></div>'}
                 ],
                 primary_action_label: __('Cancel Leaf'),
                 primary_action: function(values) {
+                    if (completed || saving) return;
+                    if (frm.is_dirty()) { frappe.msgprint(__('Save the changed cheque leaf before cancelling.')); return; }
+                    const reason = String(values.reason || '').trim();
+                    if (!reason) { frappe.msgprint(__('Enter a cancellation reason.')); return; }
+                    if (values.damaged && !damage_file) {
+                        frappe.msgprint(__('Upload the damaged cheque photo or document before continuing.'));
+                        return;
+                    }
+                    saving = true;
                     frappe.call({
                         method: 'worldshading.api.cheque_register.cancel_unused_leaf',
-                        args: {leaf_name: frm.doc.name, reason: values.reason, damaged: values.damaged || 0},
+                        args: {leaf_name: frm.doc.name, reason: reason, damaged: values.damaged || 0, damage_file: values.damaged ? damage_file : null},
                         freeze: true,
                         callback: function(r) {
-                            if (r.exc) return;
+                            saving = false;
+                            if (r.exc || r.message !== frm.doc.name) return;
+                            completed = true;
                             dialog.hide();
                             frm.reload_doc();
-                        }
+                        },
+                        error: function() { saving = false; }
                     });
                 }
             });
+            dialog.onhide = function() { completed = true; };
             dialog.show();
+            new frappe.ui.FileUploader({
+                doctype: 'Cheque Leaf', docname: frm.doc.name,
+                wrapper: dialog.fields_dict.damage_upload.$wrapper.find('.damage-upload-area'), disable_file_browser: true,
+                method: 'worldshading.api.cheque_register.upload_damaged_leaf_attachment',
+                on_success: function(file) { if (!completed && file && file.name) damage_file = file.name; }
+            });
         });
     }
 });

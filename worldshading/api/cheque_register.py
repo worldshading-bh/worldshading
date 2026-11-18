@@ -183,6 +183,9 @@ def validate_leaf(doc, method=None):
         old = previous.get(field) if previous else None
         if (doc.get(field) or None) != (old or None) and not _tracking_allowed(doc, field):
             frappe.throw(_('Payment details must be updated through the linked payment document.'))
+    old_damaged = cint(previous.get('damaged')) if previous else 0
+    if cint(doc.damaged) != old_damaged and not _tracking_allowed(doc, 'damaged'):
+        frappe.throw(_('Use Cancel Unused Leaf to record cheque damage with a reason and attachment.'))
     old_status = (previous.status or 'Available') if previous else 'Available'
     if doc.status != old_status and not _tracking_allowed(doc, 'status'):
         if not (old_status == 'Available' and doc.status == 'Cancelled' and
@@ -247,9 +250,7 @@ def generate_leaves(book_name):
     return {'created': created, 'existing': len(existing)}
 
 
-@frappe.whitelist(methods=['POST'])
-def cancel_unused_leaf(leaf_name, reason, damaged=0):
-    _require_post()
+def _unused_leaf(leaf_name):
     leaf = frappe.get_doc('Cheque Leaf', leaf_name)
     leaf.check_permission('write')
     book = frappe.get_doc('Cheque Book', leaf.cheque_book)
@@ -260,15 +261,52 @@ def cancel_unused_leaf(leaf_name, reason, damaged=0):
         frappe.throw(_('Cheque leaf changed while waiting. Reload and try again.'))
     leaf = frappe.get_doc(dict(rows[0], doctype='Cheque Leaf'))
     leaf.check_permission('write')
-    if leaf.status != 'Available' or any(leaf.get(field) for field in PAYMENT_FIELDS):
-        frappe.throw(_('Only an Available, unlinked leaf can be cancelled here.'))
+    if leaf.status != 'Available' or cint(leaf.get('signed')) or any(leaf.get(field) for field in PAYMENT_FIELDS):
+        frappe.throw(_('Only an Available, unsigned, unlinked leaf can be cancelled here.'))
+    return leaf
+
+
+@frappe.whitelist(methods=['POST'])
+def cancel_unused_leaf(leaf_name, reason, damaged=0, damage_file=None):
+    _require_post()
+    leaf = _unused_leaf(leaf_name)
     reason = str(reason or '').strip()
     if not reason:
         frappe.throw(_('Enter a cancellation reason.'))
-    leaf.status, leaf.damaged = 'Cancelled', cint(damaged)
+    damaged = cint(damaged)
+    if damaged not in (0, 1):
+        frappe.throw(_('Choose whether this cheque is damaged.'))
+    if damaged:
+        if not damage_file:
+            frappe.throw(_('Upload a photo or document showing the damaged cheque.'))
+        evidence = frappe.get_doc('File', damage_file)
+        evidence.check_permission('read')
+        if (evidence.get('is_folder') or not evidence.get('file_url') or
+                evidence.get('attached_to_doctype') != 'Cheque Leaf' or evidence.get('attached_to_name') != leaf.name):
+            frappe.throw(_('The damage attachment must belong to this cheque leaf.'))
+    leaf.status, leaf.damaged = 'Cancelled', damaged
     leaf.remarks = '{}{}{}'.format(leaf.remarks or '', '\n' if leaf.remarks else '', reason)
-    leaf.save()
+    from worldshading.api.cheque_payments import _tracking_update
+    with _tracking_update(leaf, {'damaged': damaged}):
+        leaf.save()
     return leaf.name
+
+
+
+
+@frappe.whitelist(methods=['POST'])
+def upload_damaged_leaf_attachment():
+    _require_post()
+    if frappe.form_dict.get('doctype') != 'Cheque Leaf':
+        frappe.throw(_('Upload damage evidence only to its cheque leaf.'))
+    leaf = _unused_leaf(frappe.form_dict.get('docname'))
+    content = getattr(frappe.local, 'uploaded_file', None)
+    filename = getattr(frappe.local, 'uploaded_filename', None)
+    if not content or not filename:
+        frappe.throw(_('Choose a photo or document to upload.'))
+    return frappe.get_doc({'doctype': 'File', 'attached_to_doctype': 'Cheque Leaf',
+        'attached_to_name': leaf.name, 'file_name': filename, 'content': content,
+        'is_private': 1, 'folder': 'Home/Attachments'}).insert()
 
 
 @frappe.whitelist()

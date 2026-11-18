@@ -57,6 +57,7 @@ class TestRegisterControls(unittest.TestCase):
                           account='BANK', first_leaf_no='001', last_leaf_no='003',
                           no_of_leaves=3, status='Active')]
         self.leaves = []
+        self.files = []
         self.account = frappe._dict(account_type='Bank', is_group=0,
                                     company='Company', account_currency='BHD')
         self.stack.enter_context(patch.object(service.frappe, 'get_all', side_effect=self.get_all))
@@ -76,7 +77,7 @@ class TestRegisterControls(unittest.TestCase):
             side_effect=lambda name, locked=False: self.get_all('Cheque Leaf', {'cheque_book': name})))
 
     def get_all(self, doctype, filters=None, **kwargs):
-        rows = self.books if doctype == 'Cheque Book' else self.leaves
+        rows = self.files if doctype == 'File' else self.books if doctype == 'Cheque Book' else self.leaves
         def matches(row):
             for key, value in (filters or {}).items():
                 if isinstance(value, (list, tuple)):
@@ -106,7 +107,7 @@ class TestRegisterControls(unittest.TestCase):
                 return doc
             doc.insert = insert
             return doc
-        rows = self.books if doctype == 'Cheque Book' else self.leaves
+        rows = self.files if doctype == 'File' else self.books if doctype == 'Cheque Book' else self.leaves
         return next(r for r in rows if r.name == name)
 
     def leaf(self, **values):
@@ -178,13 +179,41 @@ class TestRegisterControls(unittest.TestCase):
             with self.assertRaises(ValueError):
                 service.validate_leaf(leaf)
 
-    def test_damaged_leaf_requires_reason_and_cannot_stay_available(self):
-        leaf = self.leaf(damaged=1)
+    def test_damage_cannot_be_set_or_cleared_directly_even_with_reason(self):
+        leaf=self.leaf(damaged=1,remarks='Torn during preparation')
         with self.assertRaises(ValueError):
             service.validate_leaf(leaf)
-        leaf.remarks = 'Torn during preparation'
-        service.validate_leaf(leaf)
-        self.assertEqual(leaf.status, 'Cancelled')
+        leaf=self.leaf(status='Cancelled',damaged=1,remarks='Existing damage')
+        leaf._previous=Doc(leaf);leaf.damaged=0
+        with self.assertRaises(ValueError):
+            service.validate_leaf(leaf)
+
+    def evidence(self, **changes):
+        doc=Doc(doctype='File',name='DAMAGE-FILE',is_folder=0,file_url='/private/files/damage.pdf',
+                attached_to_doctype='Cheque Leaf',attached_to_name='LEAF')
+        doc.update(changes);self.files.append(doc);return doc
+
+    def test_damage_requires_exact_leaf_evidence_and_button_context(self):
+        leaf=self.leaf();leaf._previous=Doc(leaf)
+        leaf.save=lambda:service.validate_leaf(leaf);self.leaves.append(leaf)
+        with self.assertRaises(ValueError):
+            service.cancel_unused_leaf('LEAF','Torn corner',damaged=1)
+        self.assertEqual((leaf.status,leaf.damaged),('Available',0))
+        evidence=self.evidence(attached_to_name='OTHER')
+        with self.assertRaises(ValueError):
+            service.cancel_unused_leaf('LEAF','Torn corner',damaged=1,damage_file=evidence.name)
+        evidence.attached_to_name='LEAF';evidence._denied=['read']
+        with self.assertRaises(frappe.PermissionError):
+            service.cancel_unused_leaf('LEAF','Torn corner',damaged=1,damage_file=evidence.name)
+        evidence._denied=[]
+        service.cancel_unused_leaf('LEAF','Torn corner',damaged=1,damage_file=evidence.name)
+        self.assertEqual((leaf.status,leaf.damaged,leaf.remarks),('Cancelled',1,'Torn corner'))
+
+    def test_signed_unused_leaf_cannot_use_damage_or_upload_action(self):
+        leaf=self.leaf(signed=1);leaf._previous=Doc(leaf)
+        leaf.save=lambda:service.validate_leaf(leaf);self.leaves.append(leaf)
+        with self.assertRaises(ValueError):
+            service.cancel_unused_leaf('LEAF','Damaged')
 
     def test_existing_book_and_leaf_cannot_be_deleted(self):
         self.leaves.append(self.leaf())
@@ -243,7 +272,8 @@ class TestRegisterControls(unittest.TestCase):
         self.leaves.append(leaf)
         with self.assertRaises(ValueError):
             service.cancel_unused_leaf('LEAF', '  ')
-        service.cancel_unused_leaf('LEAF', 'Torn corner', damaged=1)
+        self.evidence()
+        service.cancel_unused_leaf('LEAF', 'Torn corner', damaged=1, damage_file='DAMAGE-FILE')
         self.assertEqual((leaf.status, leaf.damaged), ('Cancelled', 1))
         self.assertEqual(leaf.remarks, 'Existing note\nTorn corner')
         with self.assertRaises(ValueError):
@@ -276,6 +306,33 @@ class TestRegisterControls(unittest.TestCase):
         self.assertEqual(result['total'], 1)
         self.assertEqual(result['counts']['Reserved'], 0)
         self.assertNotIn('missing', result)
+
+
+class TestDamageUpload(unittest.TestCase):
+    def test_upload_is_private_and_belongs_to_validated_leaf(self):
+        with patch.object(service.frappe,'local',frappe._dict(uploaded_file=b'photo',uploaded_filename='damage.png')), \
+                patch.object(service.frappe,'form_dict',frappe._dict(doctype='Cheque Leaf',docname='CL-1')), \
+                patch.object(service,'_unused_leaf',return_value=frappe._dict(name='CL-1')), \
+                patch.object(service.frappe,'get_doc',side_effect=lambda values:frappe._dict(insert=lambda:values)):
+            result=service.upload_damaged_leaf_attachment()
+        self.assertEqual((result['attached_to_doctype'],result['attached_to_name'],result['is_private']),('Cheque Leaf','CL-1',1))
+        self.assertEqual(result['content'],b'photo')
+
+    def test_upload_rejects_wrong_target_missing_content_and_write_denial(self):
+        with patch.object(service.frappe,'throw',side_effect=ValueError), \
+                patch.object(service.frappe,'form_dict',frappe._dict(doctype='GL Payment',docname='GL-1')), \
+                self.assertRaises(ValueError):
+            service.upload_damaged_leaf_attachment()
+        with patch.object(service.frappe,'throw',side_effect=ValueError), \
+                patch.object(service.frappe,'local',frappe._dict(uploaded_file=None,uploaded_filename=None)), \
+                patch.object(service.frappe,'form_dict',frappe._dict(doctype='Cheque Leaf',docname='CL-1')), \
+                patch.object(service,'_unused_leaf',return_value=frappe._dict(name='CL-1')), \
+                self.assertRaises(ValueError):
+            service.upload_damaged_leaf_attachment()
+        with patch.object(service.frappe,'form_dict',frappe._dict(doctype='Cheque Leaf',docname='CL-1')), \
+                patch.object(service,'_unused_leaf',side_effect=frappe.PermissionError), \
+                self.assertRaises(frappe.PermissionError):
+            service.upload_damaged_leaf_attachment()
 
 
 class TestAccountSerialization(unittest.TestCase):
