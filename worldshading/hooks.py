@@ -245,7 +245,10 @@ scheduler_events = {
 
 fixtures = [
     {"doctype": "Custom Script", "filters": [["dt", "in", ["Cheque Book", "Cheque Leaf"]]]},
-    {"doctype": "Server Script", "filters": [["name", "in", ["Cheque Book Validation"]]]},
+    {"doctype": "Server Script", "filters": [["name", "in", ["Cheque Book Validation", "Payment Entry Security Cheque Validation"]]]},
+    {"doctype": "Workflow", "filters": [["name", "in", ["Payment Entry", "GL Payment"]]]},
+    {"doctype": "Workflow State", "filters": [["name", "in", ["Prepare Security Cheque"]]]},
+    {"doctype": "Workflow Action Master", "filters": [["name", "in", ["Void Cheque", "Submit Security Cheque"]]]},
     {"doctype": "Custom DocPerm", "filters": [["parent", "in", ["Cheque Book", "Cheque Leaf"]]]},
     {"doctype": "Property Setter", "filters": [["name", "in", ["GL Payment-reference_date-reqd"]]]},
     {

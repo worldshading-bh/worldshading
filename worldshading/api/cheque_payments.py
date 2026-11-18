@@ -7,18 +7,24 @@ from contextlib import contextmanager
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, getdate, now
+from frappe.utils import cint, flt, getdate, now, strip_html
 from frappe.model.workflow import get_transitions, has_approval_access
 from worldshading.api import cheque_register as register
 
 
 CONFIRMATION = 'custom_cheque_signing_confirmation'
 SOURCE_FIELDS = {'Payment Entry': 'payment_entry', 'GL Payment': 'gl_payment'}
-PREPARATION = ('Draft', 'Scheduled', 'Pending Payment - Maker')
+PREPARATION = ('Draft', 'Scheduled', 'Pending Payment - Maker', 'Prepare Security Cheque')
 SIGNING = {
     ('Payment Entry', 'Pending Cheque Payment - App'): ('Approve', 'Pending Reconciliation'),
     ('Payment Entry', 'Pending Security Cheque - App'): ('Approve', 'Handover Security Cheque'),
     ('GL Payment', 'Pending Cheque Payment - App'): ('Paid', 'Pending Reconciliation')
+}
+VOID = {
+    ('Payment Entry', 'Pending Reconciliation'): 'Pending Payment - Maker',
+    ('GL Payment', 'Pending Reconciliation'): 'Draft',
+    ('Payment Entry', 'Handover Security Cheque'): 'Prepare Security Cheque',
+    ('Payment Entry', 'Security Cheque Issued'): 'Prepare Security Cheque'
 }
 
 
@@ -94,7 +100,9 @@ def _values(doc, leaf):
         amount = flt(doc.get('total_amount'), doc.precision('total_amount'))
     if amount <= 0 or not doc.get('reference_date'):
         frappe.throw(_('A positive cheque amount and Cheque Date are required.'))
-    payee = _party_payee(doc)
+    # The printed name is a snapshot once signed, even if a party master is
+    # subsequently renamed. Party identifiers remain part of the locked details.
+    payee = leaf.payee if cint(leaf.get('signed')) else _party_payee(doc)
     return {'leaf': leaf.name, 'account': leaf.account, 'company': doc.company,
             'currency': leaf.currency, 'party_type': doc.get('party_type') or '',
             'party': doc.get('party') or '', 'payee': str(payee or '').strip(),
@@ -119,13 +127,24 @@ def _check_leaf(doc, leaf, values):
         frappe.throw(_('Cheque Date is outside this cheque book validity period.'))
 
 
+def _action_access(doc, action, target):
+    doc.check_permission('write')
+    return any(t.action == action and t.next_state == target and
+               has_approval_access(frappe.session.user, doc, t) for t in get_transitions(doc.as_dict()))
+
+
 def _approval_access(doc):
     pair = SIGNING.get((doc.doctype, doc.get('workflow_state')))
-    if not pair:
+    return bool(pair and _action_access(doc, pair[0], pair[1]))
+
+
+def _void_access(doc):
+    target = VOID.get((doc.doctype, doc.get('workflow_state')))
+    if not target or cint(doc.docstatus) != 0:
         return False
-    doc.check_permission('write')
-    return any(t.action == pair[0] and t.next_state == pair[1] and
-               has_approval_access(frappe.session.user, doc, t) for t in get_transitions(doc.as_dict()))
+    if frappe.session.user != 'Administrator' and 'Finance (Workflow)' not in frappe.get_roles():
+        return False
+    return _action_access(doc, 'Void Cheque', target)
 
 
 def prepare_payment(doc, method=None):
@@ -138,15 +157,25 @@ def prepare_payment(doc, method=None):
             doc.party_name = _party_payee(doc)
 
 
-def _confirmation(doc, previous, values):
+def _confirmation(doc, previous, values, leaf):
     raw, old = doc.get(CONFIRMATION), previous.get(CONFIRMATION) if previous else None
-    if raw and raw != old and raw != 'confirm':
+    void_request = isinstance(raw, str) and raw.startswith('void:')
+    if raw and raw != old and raw != 'confirm' and not void_request:
         frappe.throw(_('Cheque signing confirmation must come from the approval dialog.'))
-    if raw == 'confirm':
+    if raw == 'confirm' or void_request:
+        operation = 'void' if void_request else 'sign'
+        access = _void_access(doc) if void_request else _approval_access(doc)
         if (not previous or doc.workflow_state != previous.workflow_state or
-                not _approval_access(doc) or not values['payee']):
-            frappe.throw(_('Confirm signing only at the permitted cheque approval stage, with a payee.'))
-        acknowledgement = {'user': frappe.session.user, 'confirmed_on': now(), 'details': values}
+                cint(doc.docstatus) != 0 or not access or not values['payee']):
+            frappe.throw(_('Confirm this cheque action only at its permitted workflow stage.'))
+        acknowledgement = {'operation': operation, 'user': frappe.session.user,
+                           'confirmed_on': now(), 'details': values}
+        if void_request:
+            reason = strip_html(raw[5:]).strip()
+            if (not reason or len(reason) > 500 or not cint(leaf.get('signed')) or
+                    leaf.status not in ('Reserved', 'Issued')):
+                frappe.throw(_('A signed cheque and a void reason of 1 to 500 characters are required.'))
+            acknowledgement['reason'] = reason
         doc.set(CONFIRMATION, json.dumps(acknowledgement, sort_keys=True))
         return acknowledgement
     if raw:
@@ -155,7 +184,8 @@ def _confirmation(doc, previous, values):
         except (TypeError, ValueError):
             acknowledgement = {}
         if (acknowledgement.get('details') == values and
-                acknowledgement.get('user') == frappe.session.user):
+                acknowledgement.get('user') == frappe.session.user and
+                acknowledgement.get('operation') in ('sign', 'void')):
             return acknowledgement
     doc.set(CONFIRMATION, None)
     return None
@@ -186,7 +216,9 @@ def validate_payment(doc, method=None):
     if old_leaf and cint(old_leaf.get('signed')):
         expected = _values(previous, old_leaf)
         expected['payee'] = old_leaf.payee
-        if not _outgoing(doc) or new_name != old_name or _values(doc, old_leaf) != expected:
+        payee_changed = (doc.doctype == 'GL Payment' and not doc.get('party') and
+                         (doc.get('cheque_payee') or '') != (previous.get('cheque_payee') or ''))
+        if not _outgoing(doc) or new_name != old_name or payee_changed or _values(doc, old_leaf) != expected:
             frappe.throw(_('Signed cheque details cannot change. Cancel and prepare a replacement if necessary.'))
     if new_name and not _outgoing(doc):
         frappe.throw(_('Our cheque leaves can only be used for outgoing Cheque payments.'))
@@ -213,14 +245,28 @@ def validate_payment(doc, method=None):
         changes = {SOURCE_FIELDS[doc.doctype]: doc.name, 'status': 'Cancelled'}
     else:
         _check_leaf(doc, leaf, values)
-        acknowledgement = _confirmation(doc, previous, values)
+        acknowledgement = _confirmation(doc, previous, values, leaf)
+        void_target = VOID.get((doc.doctype, previous.get('workflow_state'))) if previous else None
+        if void_target and state == void_target:
+            if (not acknowledgement or acknowledgement.get('operation') != 'void' or
+                    not _void_access(previous) or not cint(leaf.get('signed')) or
+                    leaf.status not in ('Reserved', 'Issued') or cint(doc.docstatus) != 0):
+                frappe.throw(_('Use the Finance void confirmation before preparing a replacement cheque.'))
+            note = 'Cheque voided by {} on {}: {}'.format(
+                acknowledgement['user'], acknowledgement['confirmed_on'], acknowledgement['reason'])
+            changes = {'status': 'Cancelled',
+                       'remarks': '{}{}{}'.format(leaf.get('remarks') or '', '\n' if leaf.get('remarks') else '', note)}
+            doc.cheque_leaf = None
+            doc.set(CONFIRMATION, None)
+            _plans()[key] = {'releases': [], 'leaf': leaf, 'changes': changes, 'void_note': note}
+            return
         changes = {field: None for field in register.PAYMENT_FIELDS}
         changes.update({SOURCE_FIELDS[doc.doctype]: doc.name, 'payee': values['payee'],
                         'amount': values['amount'], 'cheque_date': values['cheque_date'],
                         'status': 'Reserved' if leaf.status in ('Available', 'Reserved') else leaf.status})
         pair = SIGNING.get((doc.doctype, previous.get('workflow_state'))) if previous else None
         if pair and doc.get('workflow_state') == pair[1]:
-            if not acknowledgement or not _approval_access(previous):
+            if not acknowledgement or acknowledgement.get('operation') != 'sign' or not _approval_access(previous):
                 frappe.throw(_('Confirm that the physical cheque is signed before approving.'))
             if not cint(leaf.get('signed')):
                 changes.update({'signed': 1, 'signature_confirmed_by': acknowledgement['user'],
@@ -268,6 +314,8 @@ def sync_payment(doc, method=None):
         _apply_leaf(leaf, values)
     if plan['leaf']:
         _apply_leaf(plan['leaf'], plan['changes'])
+    if plan.get('void_note'):
+        doc.add_comment('Comment', plan['void_note'])
 
 
 def before_cancel(doc, method=None):
@@ -280,12 +328,15 @@ def before_delete(doc, method=None):
 
 
 @frappe.whitelist()
-def get_signing_details(doctype, name):
+def get_signing_details(doctype, name, operation='sign'):
     if doctype not in SOURCE_FIELDS:
         frappe.throw(_('Unsupported cheque payment document.'), frappe.PermissionError)
     doc = frappe.get_doc(doctype, name)
     doc.check_permission('read')
-    if not _outgoing(doc) or not _approval_access(doc) or not doc.get('cheque_leaf'):
+    if operation not in ('sign', 'void'):
+        frappe.throw(_('Unsupported cheque action.'))
+    access = _void_access(doc) if operation == 'void' else _approval_access(doc)
+    if not _outgoing(doc) or not access or not doc.get('cheque_leaf'):
         frappe.throw(_('This payment is not ready for cheque signing approval.'))
     leaf = frappe.get_doc('Cheque Leaf', doc.cheque_leaf)
     leaf.check_permission('read')
@@ -293,7 +344,9 @@ def get_signing_details(doctype, name):
     _check_leaf(doc, leaf, values)
     if _owner(leaf) != (doc.doctype, doc.name) or not values['payee']:
         frappe.throw(_('Save the cheque reservation and payee before approving.'))
-    values.update({'cheque_number': leaf.cheque_number, 'signed': cint(leaf.get('signed'))})
+    if operation == 'void' and (not cint(leaf.get('signed')) or leaf.status not in ('Reserved', 'Issued')):
+        frappe.throw(_('Only a signed, uncleared cheque can be voided through this action.'))
+    values.update({'cheque_number': leaf.cheque_number, 'signed': cint(leaf.get('signed')), 'operation': operation})
     return values
 
 

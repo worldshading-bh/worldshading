@@ -11,6 +11,9 @@ from worldshading.api import cheque_payments as service
 
 
 class Doc(frappe._dict):
+    def add_comment(self, kind, text):
+        self.setdefault('_test_comments', []).append((kind, text))
+
     def as_dict(self):
         return {k: v for k, v in self.items() if k != '_previous'}
 
@@ -44,6 +47,7 @@ class TestChequePayments(unittest.TestCase):
             side_effect=lambda doc: ('Supplier One' if doc.get('party') == 'SUP' else 'Other Supplier')
                 if doc.get('party') else doc.get('cheque_payee')))
         self.stack.enter_context(patch.object(service, '_approval_access', return_value=True))
+        self.stack.enter_context(patch.object(service, '_void_access', return_value=True))
         self.stack.enter_context(patch.object(service, 'now', return_value='2026-11-18 10:00:00'))
         self.book = Doc(doctype='Cheque Book', name='CB-1', account='BANK', company='Company',
                         currency='BHD', status='Active', valid_from=None, valid_to=None)
@@ -208,6 +212,65 @@ class TestChequePayments(unittest.TestCase):
         self.assertEqual((leaf.status, leaf.signed, leaf.payment_entry), ('Cancelled', 1, 'PE-1'))
         self.assertEqual(leaf.signature_confirmed_by, 'approver')
 
+    def test_finance_void_returns_draft_for_replacement_and_keeps_old_history(self):
+        for dt, target in [('Payment Entry', 'Pending Payment - Maker'), ('GL Payment', 'Draft')]:
+            if dt == 'GL Payment':
+                self.leaves['CL-1'].update(dict(status='Available', signed=0, payment_entry=None,
+                    gl_payment=None, signature_confirmed_by=None, signature_confirmed_on=None))
+                self.leaves['CL-2'].update(dict(status='Available', signed=0, payment_entry=None, gl_payment=None))
+            doc = self.signed(dt)
+            doc.custom_cheque_signing_confirmation = 'void:Wrong cheque date'
+            self.validate_save(doc)
+            self.assertEqual(self.leaves['CL-1'].status, 'Reserved', 'Saving void acknowledgement alone cannot void')
+            doc.workflow_state = target
+            self.validate_save(doc)
+            leaf = self.leaves['CL-1']
+            self.assertEqual((doc.docstatus, doc.cheque_leaf, leaf.status, leaf.signed), (0, None, 'Cancelled', 1))
+            self.assertEqual(leaf.signature_confirmed_by, 'approver')
+            self.assertIn('Wrong cheque date', leaf.remarks)
+            self.assertEqual(leaf.get(service.SOURCE_FIELDS[dt]), doc.name)
+            doc.cheque_leaf = 'CL-2'
+            service.prepare_payment(doc)
+            self.validate_save(doc)
+            self.assertEqual((self.leaves['CL-2'].status, self.leaves['CL-2'].signed), ('Reserved', 0))
+            self.assertEqual(doc.reference_no, '000102')
+
+    def test_void_requires_finance_permission_reason_and_saved_acknowledgement(self):
+        doc = self.signed()
+        doc.custom_cheque_signing_confirmation = 'void:   '
+        with self.assertRaises(ValueError):
+            service.validate_payment(doc)
+        doc.custom_cheque_signing_confirmation = 'void:Wrong date'
+        with patch.object(service, '_void_access', return_value=False):
+            with self.assertRaises(ValueError):
+                service.validate_payment(doc)
+        doc.custom_cheque_signing_confirmation = None
+        doc.workflow_state = 'Pending Payment - Maker'
+        with self.assertRaises(ValueError):
+            service.validate_payment(doc)
+        self.assertEqual(self.leaves['CL-1'].status, 'Reserved')
+
+    def test_security_void_keeps_security_flag_and_returns_to_security_preparation(self):
+        doc = self.validate_save(self.payment(is_security_cheque=1))
+        doc.workflow_state = 'Pending Security Cheque - App'
+        self.validate_save(doc); self.confirm(doc)
+        doc.workflow_state = 'Handover Security Cheque'
+        self.validate_save(doc)
+        doc.custom_cheque_signing_confirmation = 'void:Returned unused'
+        self.validate_save(doc)
+        doc.workflow_state = 'Prepare Security Cheque'
+        self.validate_save(doc)
+        self.assertEqual((doc.docstatus, doc.is_security_cheque, doc.cheque_leaf), (0, 1, None))
+        self.assertEqual(self.leaves['CL-1'].status, 'Cancelled')
+
+    def test_submitted_payment_cannot_use_draft_void_path(self):
+        doc = self.signed()
+        doc.docstatus = 1; doc.workflow_state = 'Completed'
+        self.validate_save(doc)
+        doc.custom_cheque_signing_confirmation = 'void:Wrong date'
+        with self.assertRaises(ValueError):
+            service.validate_payment(doc)
+
     def test_closing_or_expiring_book_does_not_rewrite_existing_signed_cheque(self):
         doc = self.signed()
         self.book.status = 'Closed'
@@ -284,6 +347,19 @@ class TestChequePayments(unittest.TestCase):
 
 
 class TestNativeApprovalLookup(unittest.TestCase):
+    def test_void_is_finance_only_even_with_a_transition_available(self):
+        doc = Doc(doctype='GL Payment', name='GL-1', workflow_state='Pending Reconciliation',
+                  docstatus=0, owner='maker')
+        transition = Doc(action='Void Cheque', next_state='Draft', allow_self_approval=0)
+        with patch.object(service, 'get_transitions', return_value=[transition]), \
+                patch.object(service.frappe, 'session', frappe._dict(user='reviewer')), \
+                patch.object(service.frappe, 'get_roles', return_value=['Approver - ACC (Workflow)']):
+            self.assertFalse(service._void_access(doc))
+        with patch.object(service, 'get_transitions', return_value=[transition]), \
+                patch.object(service.frappe, 'session', frappe._dict(user='finance')), \
+                patch.object(service.frappe, 'get_roles', return_value=['Finance (Workflow)']):
+            self.assertTrue(service._void_access(doc))
+
     def test_party_payee_uses_the_linked_master_title(self):
         doc = Doc(doctype='GL Payment', party_type='Supplier', party='SUP', party_name='Forged Name')
         def value(dt, name, field):

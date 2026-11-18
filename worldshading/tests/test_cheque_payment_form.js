@@ -3,15 +3,17 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const events = {};
+const registrations = {};
 const calls = [];
 let dialog, failSave = false, silentSave = false;
+let activeDetails;
 const details = {leaf: 'CL-1', cheque_number: '000101', account: 'Bank', company: 'Company',
     party_type: 'Supplier', party: 'SUP', payee: '<img src=x onerror=alert(1)>', amount: 100,
     currency: 'BHD', cheque_date: '2026-11-20'};
 const frappe = {
     validated: true,
     session: {user: 'approver'},
-    ui: {form: {on: (dt, handlers) => { events[dt] = handlers; }},
+    ui: {form: {on: (dt, handlers) => { events[dt] = handlers; registrations[dt] = (registrations[dt] || 0) + 1; }},
         Dialog: function(options) {
             Object.assign(this, options); dialog = this;
             this.show = () => {};
@@ -21,15 +23,20 @@ const frappe = {
     msgprint: () => {},
     call: options => {
         calls.push(options);
-        options.callback({message: details});
+        activeDetails = Object.assign({}, details, {operation: options.args.operation || 'sign'});
+        options.callback({message: activeDetails});
     }
 };
 vm.runInNewContext(fs.readFileSync(__dirname + '/../public/js/cheque_payment.js', 'utf8'),
     {frappe, __: value => value});
+// Both native DocTypes include this file; opening both must not double prompts.
+vm.runInNewContext(fs.readFileSync(__dirname + '/../public/js/cheque_payment.js', 'utf8'),
+    {frappe, __: value => value});
+assert.deepStrictEqual(registrations, {'Payment Entry': 1, 'GL Payment': 1});
 function form(dt, state, action) {
     return {doctype: dt, doc: {doctype: dt, name: dt === 'Payment Entry' ? 'PE-1' : 'GL-1',
         payment_type: dt === 'Payment Entry' ? 'Pay' : 'Outgoing', mode_of_payment: 'Cheque',
-        workflow_state: state, cheque_leaf: 'CL-1'}, selected_workflow_action: action,
+        workflow_state: state, cheque_leaf: 'CL-1', docstatus: 0}, selected_workflow_action: action,
         is_dirty: () => false, saves: 0,
         set_value(field, value) { this.doc[field] = value; return Promise.resolve(); },
         save(action, callback, btn, on_error) {
@@ -41,8 +48,9 @@ function form(dt, state, action) {
                 if (callback) callback({exc: 'Save failed'});
             } else if (callback) {
                 assert.strictEqual(action, 'Save');
-                assert.strictEqual(this.doc.custom_cheque_signing_confirmation, 'confirm');
-                this.doc.custom_cheque_signing_confirmation = JSON.stringify({user: 'approver', details: details});
+                assert.strictEqual(this.doc.custom_cheque_signing_confirmation,
+                    activeDetails.operation === 'void' ? 'void:Wrong date' : 'confirm');
+                this.doc.custom_cheque_signing_confirmation = JSON.stringify({user: 'approver', operation: activeDetails.operation, details: activeDetails});
                 callback({docs: [Object.assign({}, this.doc)]});
             }
             return Promise.resolve();
@@ -74,6 +82,17 @@ async function run() {
         dialog.hide(); await cancelled;
         assert.strictEqual(frm.saves, 0);
         assert.strictEqual(frm.doc.custom_cheque_signing_confirmation, undefined);
+    }
+    for (const dt of ['Payment Entry', 'GL Payment']) {
+        const frm = form(dt, 'Pending Reconciliation', 'Void Cheque');
+        const pending = events[dt].before_workflow_action(frm);
+        assert.ok(pending && pending.then);
+        assert.ok(dialog.fields.some(f => f.fieldname === 'void_reason' && f.reqd));
+        dialog.primary_action({confirm_void: 1, void_reason: '  '});
+        assert.strictEqual(frm.saves, 0);
+        await dialog.primary_action({confirm_void: 1, void_reason: 'Wrong date'});
+        await pending;
+        assert.strictEqual(frm.saves, 1);
     }
     let frm = form('Payment Entry', 'Pending Bank Payment - App', 'Approve');
     assert.strictEqual(events['Payment Entry'].before_workflow_action(frm), undefined);

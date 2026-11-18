@@ -1,0 +1,8 @@
+[
+ {
+  "doctype": "Workflow State",
+  "name": "Prepare Security Cheque",
+  "style": "Warning",
+  "workflow_state_name": "Prepare Security Cheque"
+ }
+]

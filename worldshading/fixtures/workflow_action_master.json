@@ -1,0 +1,12 @@
+[
+ {
+  "doctype": "Workflow Action Master",
+  "name": "Void Cheque",
+  "workflow_action_name": "Void Cheque"
+ },
+ {
+  "doctype": "Workflow Action Master",
+  "name": "Submit Security Cheque",
+  "workflow_action_name": "Submit Security Cheque"
+ }
+]

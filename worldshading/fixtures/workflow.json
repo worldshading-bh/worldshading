@@ -1,0 +1,755 @@
+[
+ {
+  "doctype": "Workflow",
+  "document_type": "Payment Entry",
+  "is_active": 1,
+  "name": "Payment Entry",
+  "override_status": 0,
+  "parent": null,
+  "parentfield": null,
+  "parenttype": null,
+  "send_email_alert": 0,
+  "states": [
+   {
+    "allow_edit": "Cashier",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Draft",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Scheduled",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cash Payment - Chkr",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cash Payment - App",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Bank Payment - Chkr",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Bank Payment - App",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cheque Payment - Chkr",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cheque Payment - App",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Reconciliation",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Finance (Workflow)",
+    "doc_status": "1",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Completed",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Cashier",
+    "doc_status": "2",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Cancelled",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Finance (Workflow)",
+    "doc_status": "2",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Cancelled",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Payment - Maker",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Security Cheque - Chkr",
+    "update_field": "is_security_cheque",
+    "update_value": "1"
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Security Cheque - App",
+    "update_field": "is_security_cheque",
+    "update_value": "1"
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Handover Security Cheque",
+    "update_field": "is_security_cheque",
+    "update_value": "1"
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Security Cheque Issued",
+    "update_field": "is_security_cheque",
+    "update_value": "1"
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "state": "Prepare Security Cheque"
+   }
+  ],
+  "transitions": [
+   {
+    "action": "Submit",
+    "allow_self_approval": 1,
+    "allowed": "Cashier (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Completed",
+    "state": "Draft"
+   },
+   {
+    "action": "Bank Transfer",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Bank Transfer\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Bank Payment - Chkr",
+    "state": "Draft"
+   },
+   {
+    "action": "Payment Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Bank Payment - App",
+    "state": "Pending Bank Payment - Chkr"
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Reconciliation",
+    "state": "Pending Bank Payment - App"
+   },
+   {
+    "action": "Attach",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Completed",
+    "state": "Pending Reconciliation"
+   },
+   {
+    "action": "Cancel",
+    "allow_self_approval": 1,
+    "allowed": "Finance (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Cancelled",
+    "state": "Completed"
+   },
+   {
+    "action": "Cancel",
+    "allow_self_approval": 1,
+    "allowed": "CEO (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Cancelled",
+    "state": "Completed"
+   },
+   {
+    "action": "Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cheque\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cheque Payment - Chkr",
+    "state": "Draft"
+   },
+   {
+    "action": "Cheque Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cheque Payment - App",
+    "state": "Pending Cheque Payment - Chkr"
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Reconciliation",
+    "state": "Pending Cheque Payment - App"
+   },
+   {
+    "action": "Cash",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cash\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cash Payment - Chkr",
+    "state": "Draft"
+   },
+   {
+    "action": "Payment Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cash Payment - App",
+    "state": "Pending Cash Payment - Chkr"
+   },
+   {
+    "action": "Paid",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Completed",
+    "state": "Pending Cash Payment - App"
+   },
+   {
+    "action": "Schedule",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Scheduled",
+    "state": "Draft"
+   },
+   {
+    "action": "Auto",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Payment - Maker",
+    "state": "Scheduled"
+   },
+   {
+    "action": "Submit",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Bank Transfer\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Bank Payment - Chkr",
+    "state": "Pending Payment - Maker"
+   },
+   {
+    "action": "Submit",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cheque\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cheque Payment - Chkr",
+    "state": "Pending Payment - Maker"
+   },
+   {
+    "action": "Submit",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cash\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cash Payment - Chkr",
+    "state": "Pending Payment - Maker"
+   },
+   {
+    "action": "Submit",
+    "allow_self_approval": 1,
+    "allowed": "CEO (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Completed",
+    "state": "Draft"
+   },
+   {
+    "action": "Security Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cheque\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Security Cheque - Chkr",
+    "state": "Draft"
+   },
+   {
+    "action": "Cheque Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cheque\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Security Cheque - App",
+    "state": "Pending Security Cheque - Chkr"
+   },
+   {
+    "action": "Approve",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cheque\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Handover Security Cheque",
+    "state": "Pending Security Cheque - App"
+   },
+   {
+    "action": "Attach and Handover",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cheque\"",
+    "doctype": "Workflow Transition",
+    "next_state": "Security Cheque Issued",
+    "state": "Handover Security Cheque"
+   },
+   {
+    "action": "Submit Security Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": "doc.mode_of_payment == \"Cheque\" and doc.payment_type == \"Pay\" and doc.is_security_cheque == 1 and doc.cheque_leaf",
+    "next_state": "Pending Security Cheque - Chkr",
+    "state": "Prepare Security Cheque"
+   },
+   {
+    "action": "Void Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Finance (Workflow)",
+    "condition": "doc.docstatus == 0 and doc.mode_of_payment == \"Cheque\" and doc.payment_type == \"Pay\" and doc.cheque_leaf and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"signed\") == 1 and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"status\") in (\"Reserved\", \"Issued\")",
+    "next_state": "Pending Payment - Maker",
+    "state": "Pending Reconciliation"
+   },
+   {
+    "action": "Void Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Finance (Workflow)",
+    "condition": "doc.docstatus == 0 and doc.mode_of_payment == \"Cheque\" and doc.payment_type == \"Pay\" and doc.cheque_leaf and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"signed\") == 1 and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"status\") in (\"Reserved\", \"Issued\")",
+    "next_state": "Prepare Security Cheque",
+    "state": "Handover Security Cheque"
+   },
+   {
+    "action": "Void Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Finance (Workflow)",
+    "condition": "doc.docstatus == 0 and doc.mode_of_payment == \"Cheque\" and doc.payment_type == \"Pay\" and doc.cheque_leaf and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"signed\") == 1 and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"status\") in (\"Reserved\", \"Issued\")",
+    "next_state": "Prepare Security Cheque",
+    "state": "Security Cheque Issued"
+   }
+  ],
+  "workflow_name": "Payment Entry",
+  "workflow_state_field": "workflow_state"
+ },
+ {
+  "doctype": "Workflow",
+  "document_type": "GL Payment",
+  "is_active": 1,
+  "name": "GL Payment",
+  "override_status": 0,
+  "parent": null,
+  "parentfield": null,
+  "parenttype": null,
+  "send_email_alert": 0,
+  "states": [
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Draft",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cash Payment - Chkr",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cash Payment - App",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Bank Payment - Chkr",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Bank Payment - App",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cheque Payment - Chkr",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cheque Payment - App",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Reconciliation",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cash Payment - Chkr",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Approver - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Pending Cash Payment - App",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Finance (Workflow)",
+    "doc_status": "1",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Completed",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Finance (Workflow)",
+    "doc_status": "2",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Cancelled",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Maker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Rejected",
+    "update_field": null,
+    "update_value": null
+   },
+   {
+    "allow_edit": "Checker - ACC (Workflow)",
+    "doc_status": "0",
+    "doctype": "Workflow Document State",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Rejected",
+    "update_field": null,
+    "update_value": null
+   }
+  ],
+  "transitions": [
+   {
+    "action": "Bank Transfer",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Bank Payment - Chkr",
+    "state": "Draft"
+   },
+   {
+    "action": "Payment Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": "",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Bank Payment - App",
+    "state": "Pending Bank Payment - Chkr"
+   },
+   {
+    "action": "Paid",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Reconciliation",
+    "state": "Pending Bank Payment - App"
+   },
+   {
+    "action": "Reconciled",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Completed",
+    "state": "Pending Reconciliation"
+   },
+   {
+    "action": "Cancel",
+    "allow_self_approval": 1,
+    "allowed": "Finance (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Cancelled",
+    "state": "Completed"
+   },
+   {
+    "action": "Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cheque Payment - Chkr",
+    "state": "Draft"
+   },
+   {
+    "action": "Cheque Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": "",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cheque Payment - App",
+    "state": "Pending Cheque Payment - Chkr"
+   },
+   {
+    "action": "Paid",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Reconciliation",
+    "state": "Pending Cheque Payment - App"
+   },
+   {
+    "action": "Cash",
+    "allow_self_approval": 1,
+    "allowed": "Maker - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cash Payment - Chkr",
+    "state": "Draft"
+   },
+   {
+    "action": "Payment Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": "doc.total_amount <= 50",
+    "doctype": "Workflow Transition",
+    "next_state": "Completed",
+    "state": "Pending Cash Payment - Chkr"
+   },
+   {
+    "action": "Payment Verified",
+    "allow_self_approval": 1,
+    "allowed": "Checker - ACC (Workflow)",
+    "condition": "doc.total_amount > 50",
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Cash Payment - App",
+    "state": "Pending Cash Payment - Chkr"
+   },
+   {
+    "action": "Paid",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Completed",
+    "state": "Pending Cash Payment - App"
+   },
+   {
+    "action": "Pending Bank Payment - App",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Pending Bank Payment - App",
+    "state": "Pending Reconciliation"
+   },
+   {
+    "action": "Reject",
+    "allow_self_approval": 1,
+    "allowed": "Approver - ACC (Workflow)",
+    "condition": null,
+    "doctype": "Workflow Transition",
+    "next_state": "Rejected",
+    "state": "Pending Bank Payment - App"
+   },
+   {
+    "action": "Void Cheque",
+    "allow_self_approval": 1,
+    "allowed": "Finance (Workflow)",
+    "condition": "doc.docstatus == 0 and doc.mode_of_payment == \"Cheque\" and doc.payment_type == \"Outgoing\" and doc.cheque_leaf and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"signed\") == 1 and frappe.db.get_value(\"Cheque Leaf\", doc.cheque_leaf, \"status\") in (\"Reserved\", \"Issued\")",
+    "next_state": "Draft",
+    "state": "Pending Reconciliation"
+   }
+  ],
+  "workflow_name": "GL Payment",
+  "workflow_state_field": "workflow_state"
+ }
+]
