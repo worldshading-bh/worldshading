@@ -193,6 +193,26 @@ class TestRegisterControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             service.protect_leaf_deletion(self.leaves[0])
 
+    def test_manual_signature_and_audit_values_are_rejected(self):
+        for field, value in [('signed', 1), ('signature_confirmed_by', 'approver'),
+                             ('signature_confirmed_on', '2026-11-18 10:00:00')]:
+            with self.assertRaises(ValueError):
+                service.validate_leaf(self.leaf(**{field: value}))
+
+    def test_validated_payment_context_can_update_tracking_fields(self):
+        from worldshading.api.cheque_payments import _tracking_update
+        leaf = self.leaf()
+        leaf._previous = Doc(leaf)
+        changes = {'payment_entry': 'PE-1', 'status': 'Reserved', 'amount': 100,
+                   'payee': 'Supplier', 'cheque_date': '2026-11-20', 'signed': 1,
+                   'signature_confirmed_by': 'approver',
+                   'signature_confirmed_on': '2026-11-18 10:00:00'}
+        leaf.update(changes)
+        with _tracking_update(leaf, changes):
+            service.validate_leaf(leaf)
+        self.assertEqual((leaf.status, leaf.signed), ('Reserved', 1))
+        self.assertFalse(getattr(service.frappe.local, 'ws_cheque_leaf_update', None))
+
     def test_generation_preserves_existing_leaf_and_is_repeatable(self):
         self.leaves.append(self.leaf(name='LEGACY', cheque_number='1'))
         self.assertEqual(service.generate_leaves('BOOK')['created'], 2)

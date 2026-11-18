@@ -12,7 +12,17 @@ from frappe.utils import cint, getdate
 
 STATUSES = ('Available', 'Reserved', 'Issued', 'Cleared', 'Cancelled', 'Bounced')
 PAYMENT_FIELDS = ('payment_entry', 'gl_payment', 'journal_entry')
-FINANCIAL_FIELDS = PAYMENT_FIELDS + ('amount', 'cheque_date', 'payee', 'cleared_date')
+FINANCIAL_FIELDS = PAYMENT_FIELDS + ('amount', 'cheque_date', 'payee', 'cleared_date',
+    'signed', 'signature_confirmed_by', 'signature_confirmed_on')
+
+
+def _tracking_allowed(doc, field):
+    """Only the validated payment synchronizer can set these exact values."""
+    context = getattr(frappe.local, 'ws_cheque_leaf_update', None) or {}
+    values = context.get('values', {})
+    return (context.get('name') == doc.name and field in values and
+            ((doc.get(field) or None) == (values[field] or None) or
+             str(doc.get(field)) == str(values[field])))
 
 
 def leaf_numbers(first, last):
@@ -167,14 +177,14 @@ def validate_leaf(doc, method=None):
         frappe.throw(_('Invalid cheque leaf status.'))
     if sum(bool(doc.get(field)) for field in PAYMENT_FIELDS) > 1:
         frappe.throw(_('A cheque leaf can link to only one payment document.'))
-    # Readonly metadata is not server security. Until payment integration owns
-    # these values, neither a form nor a direct API save may manufacture them.
+    # Readonly metadata is not server security. Ordinary forms/API payloads
+    # cannot manufacture financial details, signature flags or audit values.
     for field in FINANCIAL_FIELDS:
         old = previous.get(field) if previous else None
-        if (doc.get(field) or None) != (old or None):
+        if (doc.get(field) or None) != (old or None) and not _tracking_allowed(doc, field):
             frappe.throw(_('Payment details must be updated through the linked payment document.'))
     old_status = (previous.status or 'Available') if previous else 'Available'
-    if doc.status != old_status:
+    if doc.status != old_status and not _tracking_allowed(doc, 'status'):
         if not (old_status == 'Available' and doc.status == 'Cancelled' and
                 not any(doc.get(field) for field in PAYMENT_FIELDS) and doc.remarks):
             frappe.throw(_('This status change requires the payment integration.'))
@@ -184,7 +194,8 @@ def validate_leaf(doc, method=None):
         if not str(doc.remarks or '').strip():
             frappe.throw(_('Enter a reason for the damaged cheque.'))
         doc.status = 'Cancelled'
-    if doc.status == 'Cancelled' and old_status == 'Available' and not str(doc.remarks or '').strip():
+    if (doc.status == 'Cancelled' and old_status == 'Available' and
+            not _tracking_allowed(doc, 'status') and not str(doc.remarks or '').strip()):
         frappe.throw(_('Enter a reason for cancelling this cheque leaf.'))
 
 

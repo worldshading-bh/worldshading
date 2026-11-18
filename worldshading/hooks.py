@@ -257,6 +257,11 @@ fixtures = [
                 "Purchase Order-custom_urgent_reason",
                 "Payment Entry-custom_is_urgent",
                 "Payment Entry-custom_urgent_reason",
+                "Payment Entry-cheque_leaf",
+                "Payment Entry-custom_cheque_signing_confirmation",
+                "GL Payment-cheque_leaf",
+                "GL Payment-cheque_payee",
+                "GL Payment-custom_cheque_signing_confirmation",
                 "GL Payment-custom_is_urgent",
                 "GL Payment-custom_urgent_reason",
                 "GL Payment-custom_fixed_expense",
@@ -301,9 +306,11 @@ doctype_js = {
 	"Purchase Order": "public/js/purchase_order_urgency.js",
 	"Payment Entry": [
 		"public/js/payment_entry_urgency.js",
-		"public/js/payment_entry_dashboard.js"
+		"public/js/payment_entry_dashboard.js",
+        "public/js/cheque_payment.js"
 	],
-	"GL Payment": ["public/js/gl_payment_urgency.js", "public/js/fixed_expense_payment.js"],
+	"GL Payment": ["public/js/gl_payment_urgency.js", "public/js/fixed_expense_payment.js",
+                   "public/js/cheque_payment.js"],
 	"Journal Entry": "public/js/journal_entry_urgency.js",
     "Material Request": "public/js/material_request.js",
     "Quotation": [
@@ -371,13 +378,21 @@ doc_events = {
         "validate": "worldshading.api.fixed_expense_payments.validate_master"
     },
     "GL Payment": {
-        "before_validate": "worldshading.api.fixed_expense_payments.validate_payment",
+        "before_validate": ["worldshading.api.fixed_expense_payments.validate_payment",
+                            "worldshading.api.cheque_payments.prepare_payment"],
+        "on_update": "worldshading.api.cheque_payments.sync_payment",
+        "on_update_after_submit": "worldshading.api.cheque_payments.sync_payment",
+        "on_cancel": "worldshading.api.cheque_payments.sync_payment",
+        "on_trash": "worldshading.api.cheque_payments.before_delete",
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change",
         "before_cancel": ["worldshading.api.fixed_expense_payments.before_cancel",
-                          "worldshading.api.purchase_order_urgency.clear_cancelled_urgency"],
-        "validate": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
+                          "worldshading.api.purchase_order_urgency.clear_cancelled_urgency",
+                          "worldshading.api.cheque_payments.before_cancel"],
+        "validate": ["worldshading.api.purchase_order_urgency.clear_completed_urgency",
+                     "worldshading.api.cheque_payments.validate_payment"],
         "before_update_after_submit": ["worldshading.api.fixed_expense_payments.protect_history",
-                                       "worldshading.api.purchase_order_urgency.clear_completed_urgency"]
+                                       "worldshading.api.purchase_order_urgency.clear_completed_urgency",
+                                       "worldshading.api.cheque_payments.validate_payment"]
     },
     "Purchase Order": {
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change",
@@ -509,15 +524,21 @@ doc_events = {
     },
 
     "Payment Entry": {
+        "before_validate": "worldshading.api.cheque_payments.prepare_payment",
+        "on_update": "worldshading.api.cheque_payments.sync_payment",
+        "on_update_after_submit": "worldshading.api.cheque_payments.sync_payment",
+        "on_trash": "worldshading.api.cheque_payments.before_delete",
         "before_update_after_submit": [
             "worldshading.api.purchase_order_urgency.clear_completed_urgency",
-            "worldshading.events.payment_entry_balance_snapshot.refresh_invoice_balance_snapshot_after_submit"
+            "worldshading.events.payment_entry_balance_snapshot.refresh_invoice_balance_snapshot_after_submit",
+            "worldshading.api.cheque_payments.validate_payment"
         ],
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change",
         "validate": [
             "worldshading.api.purchase_order_urgency.clear_completed_urgency",
             "worldshading.events.payment_entry_contact.set_payment_entry_contact",
-            "worldshading.events.payment_entry_balance_snapshot.set_invoice_balance_snapshot"
+            "worldshading.events.payment_entry_balance_snapshot.set_invoice_balance_snapshot",
+            "worldshading.api.cheque_payments.validate_payment"
         ],
         "before_submit": [
             "worldshading.events.service_visit_link.validate_payment_entry_service_visit_customer",
@@ -531,9 +552,11 @@ doc_events = {
         "before_cancel": [
             "worldshading.events.payment_request_status.snapshot_related_statuses",
             "worldshading.events.service_visit_link.unlink_service_visit_payment",
-            "worldshading.api.purchase_order_urgency.clear_cancelled_urgency"
+            "worldshading.api.purchase_order_urgency.clear_cancelled_urgency",
+            "worldshading.api.cheque_payments.before_cancel"
         ],
-        "on_cancel": "worldshading.events.payment_request_status.synchronize_after_cancel"
+        "on_cancel": ["worldshading.events.payment_request_status.synchronize_after_cancel",
+                      "worldshading.api.cheque_payments.sync_payment"]
     },
     "Service Visit": {
         "before_insert": "worldshading.worldshading.doctype.service_visit.service_visit.process_webform_customer",

@@ -659,6 +659,9 @@ def create_customs_payment_from_po(
         "is_customs_payment": 1
     })
 
+    if mode_of_payment == "Cheque":
+        glp.cheque_leaf = cheque_leaf
+
     # --------------------------------------------------
     # Add GL Items (🔥 CORE CHANGE)
     # --------------------------------------------------

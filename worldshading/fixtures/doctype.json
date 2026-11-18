@@ -2765,7 +2765,7 @@
     "print_hide": 0,
     "print_hide_if_no_value": 0,
     "print_width": null,
-    "read_only": 0,
+    "read_only": 1,
     "remember_last_selected_value": 0,
     "report_hide": 0,
     "reqd": 0,
@@ -2776,6 +2776,23 @@
     "trigger": null,
     "unique": 0,
     "width": null
+   },
+   {
+    "depends_on": "eval:doc.signed",
+    "fieldname": "signature_confirmed_by",
+    "fieldtype": "Link",
+    "label": "Signing Confirmed By",
+    "no_copy": 1,
+    "options": "User",
+    "read_only": 1
+   },
+   {
+    "depends_on": "eval:doc.signed",
+    "fieldname": "signature_confirmed_on",
+    "fieldtype": "Datetime",
+    "label": "Signing Confirmed On",
+    "no_copy": 1,
+    "read_only": 1
    },
    {
     "allow_bulk_edit": 0,
