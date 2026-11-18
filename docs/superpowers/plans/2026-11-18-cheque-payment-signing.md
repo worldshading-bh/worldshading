@@ -37,7 +37,7 @@
 - [x] 2. Implement payment hooks and internal leaf updates. Keep permission checks at source; approvers need not gain manual leaf-write permission. Confirmation requires the native workflow transition role and self-approval policy.
 - [x] 3. Test and implement the popup: no request on cancel, checkbox required, server details escaped, successful frm.save before resolve, errors reject; use separate per-DocType handlers so existing forms are preserved.
 - [x] 4. Add metadata, append hooks and repair customs link. Run database-free suites, syntax checks and independent review.
-- [ ] 5. Snapshot targeted live metadata/scripts/workflows/register data, check source/worker readiness, merge and apply only reviewed metadata. Do not advance real payment workflows or create financial test records. Record deployment and limitations.
+- [x] 5. Snapshot targeted live metadata/scripts/workflows/register data, check source/worker readiness, merge and apply only reviewed metadata. Do not advance real payment workflows or create financial test records. Record deployment and limitations.
 
 ## Review focus
 
@@ -61,7 +61,7 @@ Save private before/after snapshots and deployment receipts. Revert only added p
 - Verification before deployment: 93 database-free Python checks; cheque signing, cheque register and both Fixed Expense Node form checks; JavaScript syntax and diff checks pass. No bench runner or real payment workflow was executed.
 - Private preflight snapshot: `sites/erp.worldshading.com/private/cheque-register-rollbacks/20261118T064101Z-payment-signing/before.json`. One book, 50 Available leaves, no manual signatures, no linked leaves/PEs, and no active outgoing cheque drafts were found. Existing active PE/GL/JE workflow definitions are included for unchanged-state verification.
 - Further database-free checks bring the total to 93. A two-connection live MariaDB probe using an artificial lock key (no Account record or business writes) confirmed immediate refusal of a competing mutex request and automatic release on connection close. This is not an end-to-end payment/workflow test.
-- Activation decision pending: existing workflows have no ordinary cancellation/reissue path while the newly signed payment is still docstatus 0. A signed-detail lock would require a controlled exception path for corrections. User was asked whether to include a Finance-only void/reissue path before activation or keep this code prepared until that path is agreed. No production workflow, metadata or payment has been changed for this phase.
+- Initial activation was deferred because signed payments remain draft and needed a correction path. The user subsequently approved Finance-only void/reissue; the extension and activation below supersede that hold.
 
 ## Approved Finance-only void/reissue extension
 
@@ -72,3 +72,15 @@ Save private before/after snapshots and deployment receipts. Revert only added p
 - Security PE retains is_security_cheque=1 throughout replacement preparation. Its safe-exec validation includes the new unique security state. Handover requires an attachment created after the replacement's signing confirmation, so the previous cheque's attachment cannot authorize the new handover.
 - Independent review of this extension found that maker submission initially disallowed the owner. Corrected to match the existing Security Cheque action, with a failing/passing test using native has_approval_access. Finance save on workflow-readonly states is supported by native v12 when the actor has underlying write access; preflight confirms all six Finance users have PE and GL write access.
 - Additional form regression prevents duplicate popup registration when both PE and GL forms load the shared script. RestrictedPython compilation/execution checks exercise the security preparation and fresh-attachment rules. Current total: 103 database-free Python tests, plus signing/register/Fixed Expense Node form checks.
+
+## Production activation: 2026-11-18
+
+- Fast-forwarded production main from `86cadd3` through `fb25d1f` and `0028480`. This work has not been pushed.
+- Current private rollback snapshot: `sites/erp.worldshading.com/private/cheque-register-rollbacks/20261118T071931Z-signing-void/before.json`; successful verification/activation receipt beside it in `receipt.json` (restricted permissions).
+- Applied only the five scoped payment field definitions, leaf Signed protection/two audit fields, new workflow state/actions, the two reviewed workflow extensions and the existing security-cheque validation update. No migrate, bench tests, service restart or payment workflow actions were run. No financial test records were created.
+- The initial post-apply verifier compared complete leaf dictionaries and stopped because newly added empty audit fields changed their shape. Independent verification compared every original field/value, names and counts, and separately verified the new audit values are empty. All original register data is preserved: one book and 50 Available, unsigned leaves.
+- Verified all original PE/GL transitions and state document statuses remain; Journal Entry workflow is unchanged. Verified scoped live fields and security script match the reviewed fixtures.
+- Administrator-only maintenance requests loaded the new hooks in all six existing web workers without a restart. Live metadata requests confirmed both payment forms include the shared script and hidden confirmation fields; leaf metadata shows protected signature/audit fields. Invalidated only affected users' cached boot information for refreshed workflow metadata.
+- Fresh verification on production source: 103 database-free Python checks; signing/register and both Fixed Expense Node checks; JavaScript syntax and diff checks pass. These do not exercise actual financial transactions or production workflow actions.
+- Next manual validation: refresh the ERP form; use a supervised outgoing draft to check reservation and cheque-number fill, cancellation of the signing popup, then confirm signing only after the physical cheque is signed. Finance may use Void Cheque only after the old physical cheque is unusable/stopped; verify its Cancelled leaf retains audit and replacement selection returns through existing approvals. Security replacements require a new attachment after signing.
+- Remaining scope: Journal Entry integration and ordinary cheque handover/bank-clearance synchronization. Signing alone does not mark an ordinary cheque Issued or Cleared.
