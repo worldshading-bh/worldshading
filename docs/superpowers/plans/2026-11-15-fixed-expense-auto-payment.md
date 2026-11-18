@@ -194,3 +194,49 @@ Workflow labels: Draft → Request Verification → Pending Expense - Chkr → E
 Workflow-controlled Status: the native Workflow Update Field/Value sets status on each transition, with a server-side consistency check. Status is read-only and new masters default to Inactive. Approvers can Close Expense from Approved; Closed is terminal. Returning to Draft sets Inactive. Existing GLs continue, but no new GL may be generated from an Inactive/Closed master. Close Expense does not require or invent an End Date: state/status stops further payments; any entered End Date retains its existing date validation. Unique expense identifiers remain reserved only for Active masters and are checked again on approval.
 
 Status update verification: 43 database-free Python checks passed. Live Workflow state update_field/update_value mappings and read-only Status metadata verified. All eight existing Draft masters are now Inactive; no records were approved or closed and no GLs were changed.
+
+
+## Bank Loan repayments — review and proposed implementation (18 November 2026)
+
+Planning only. No loan functionality or accounting records changed during this review.
+
+### Findings from the current system
+
+- Fixed Expense account selection and server validation currently accept only Expense ledgers. Each row requires a Purchase Tax Template. Payment creation, snapshots, duplicate checks, balances and scheduled generation currently query GL Payment only.
+- Journal Entry has no Fixed Expense linkage yet. Keep its existing validations, submission logic, urgency/commission hooks, server scripts and workflow intact.
+- `JV26-01617`: debit AUB loan- Six wheeler 256.334 and Interest for Loan 53.666; credit bank 310.000 BHD.
+- `JV26-01759`: debit BDB Loan 3,364.071 and Interest for Loan 370.929; credit bank 3,735.000 BHD. The September entry `JV26-01496` uses a different principal/interest split for the same total, so a fixed instalment does not imply a fixed split.
+- `JV26-01017` debits only the AUB car loan ledger and credits bank. Interest is also recorded in a separate entry in the samples: do not automatically add interest again to every repayment.
+- These examples use `transaction_type = Other Expenses`. Its existing route is Draft → Pending Other Expenses Transfer → Completed, with Checker approval. Journal Entry's Bank Transfer route separately supports Checker → Approver → Reconciliation. Do not silently switch routes.
+
+### Recommended scope
+
+Reuse Fixed Expense as the repayment schedule; no new loan DocType or amortization engine. It does not become an authoritative outstanding-principal register. Actual loan balances remain in the ledger.
+
+| Area | Proposed behavior |
+| --- | --- |
+| Category | Add Bank Loan. Preserve all other categories. |
+| Accounts | Bank Loan allows same-company, enabled, non-group Liability and Expense ledgers in company currency. Require at least one loan liability row. Other categories remain Expense-only. Apply the rules in the form and on the server. |
+| Amounts | Store the expected instalment breakdown. Principal debits liability; interest/charges debit expense; bank is the balancing credit. The cash-flow amount is the complete bank outflow. |
+| Taxes | Retain the familiar Tax Template column. Principal rows require an explicit zero-tax template selected by accounts. Do not infer VAT treatment from account names. If expense rows include tax, map the calculated tax to its ledger in the JE. |
+| Dates and approval | Reuse tracking start, first due date, frequency, optional end date and Approved + Active gating. Use the final instalment due date as End Date where known. |
+| Manual action | Show Create Journal Entry for Bank Loan; other categories retain Create GL Payment. Block loan creation through the GL endpoint as well as hiding its button. |
+| Journal draft | Prepare an unsaved balanced JE using the selected bank account and expense cost center. Default voucher_type to Journal Entry and transaction_type to Other Expenses to match current split-loan entries. Check JE create permission and start in the native Draft workflow state. Do not submit automatically or fill invented bank references. |
+| Review | Accounts reviews the principal/interest split against the bank statement before submission. Permit amount redistribution between the approved ledgers, even when the total instalment is unchanged. Keep source liability/expense/tax ledgers protected; allow a valid bank-account correction. |
+| Payment difference | Reuse the existing reason, Close Remaining Balance and applicable currency tolerance behavior based on total bank payment. A change of split with the same total does not itself create a balance or require the total-adjustment reason. |
+
+### Small implementation steps
+
+1. **Master and manual JE:** update Fixed Expense JSON/JS/Python for Bank Loan and category-specific accounts. Add a small `worldshading/api/fixed_expense_journal_entries.py` module to prepare and validate loan JEs. Reuse existing schedule/currency helpers rather than introducing a generic accounting framework. Require a valid payment account when preparing the JE; never create an unbalanced placeholder.
+2. **JE linkage and tracking:** add scoped Journal Entry custom fields through fixtures: Fixed Expense, Expense Due Date, Expense Amount, Adjustment Reason and Close Remaining Balance; add the same hidden snapshot/retry fields needed by the current balance logic. Add a small scoped client handler for the adjustment dialog and protected ledgers, without changing unrelated JE behavior. Merge hooks with existing Journal Entry hooks rather than replacing them.
+3. **Duplicate and remaining balance protection:** use Fixed Expense + original Expense Due Date as the key, including manually linked JEs. Reuse the master lock so concurrent manual/automatic requests cannot create two active attempts. One draft/in-progress attempt blocks another; submitted partial payments leave the balance available; paid/closed schedules block further creation. Cancelled entries do not count as paid. Keep normal deletion permissions and preserve later-payment cancellation protections. Count the designated bank credit once as the amount paid, never debit plus credit. Validate positive balanced repayment rows and reject unrelated/reversed postings in linked repayment JEs.
+4. **Share schedule history safely:** extend history lookup only as needed to include GL Payments and linked JEs, with document type + name identifiers, and retain original amount/account snapshots. Prevent switching between Bank Loan and ordinary expense categories after linked payment history exists. Do not count a GL Payment's own generated journal as a second repayment. Preserve existing saved payment workflows when a master is returned/closed.
+5. **Automatic dispatch:** the existing due-two-days-before process chooses JE for Bank Loan and GL Payment otherwise, including remaining-balance retries for the original due date. Keep automation disabled until explicitly activated and reviewed. Generating a JE must never mark the loan paid; only submitted, non-cancelled payments count.
+
+### Verification and rollout
+
+- Database-free checks: loan ledger eligibility versus ordinary expenses; BHD 310 sample debit/credit mapping; principal-only repayment; zero-tax principal and taxed-fee handling; changing split with an unchanged total; rejection of unbalanced or unrelated lines; date/approval gates; direct-link and concurrent duplicate protection; partial/closed/cancelled payment accounting; ordinary GL regression checks.
+- Review the Other Expenses versus Bank Transfer workflow choice before implementation if three-person JE approval is required. Default plan preserves the actual existing loan process; changing workflow routing is a separate explicit decision.
+- Apply targeted metadata/custom-field sync only when implementation is approved. No bench tests or migrate. First review an unsaved draft against a real repayment statement; no automatic submission or backfilling old JEs. Existing loan postings need linking or an appropriate future Tracking Start Date to avoid generating already-paid instalments.
+- Files expected: Fixed Expense JSON/JS/Python; fixed_expense_payments.py; new fixed_expense_journal_entries.py and scoped JE client handler; hooks.py; custom_field.json; focused tests; this plan. All changes remain in worldshading, without ERPNext core edits.
+- Implementation risk: moderate (financial documents and shared payment tracking). Back up affected metadata/configuration before rollout. Rollback source and scoped metadata from backup; preserve any genuine JEs created during review. No automatic deletion of accounting history.
