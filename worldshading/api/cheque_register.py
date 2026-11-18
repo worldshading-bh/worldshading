@@ -183,6 +183,11 @@ def validate_leaf(doc, method=None):
         old = previous.get(field) if previous else None
         if (doc.get(field) or None) != (old or None) and not _tracking_allowed(doc, field):
             frappe.throw(_('Payment details must be updated through the linked payment document.'))
+    old_attachment = previous.get('cheque_attachment') if previous else None
+    if (doc.get('cheque_attachment') or None) != (old_attachment or None) and not _tracking_allowed(doc, 'cheque_attachment'):
+        frappe.throw(_('Use the damage popup to set the damage attachment.'))
+    if doc.get('cheque_attachment') and not cint(doc.damaged):
+        frappe.throw(_('A damage attachment can only be recorded for a damaged cheque.'))
     old_damaged = cint(previous.get('damaged')) if previous else 0
     if cint(doc.damaged) != old_damaged and not _tracking_allowed(doc, 'damaged'):
         frappe.throw(_('Use Cancel Unused Leaf to record cheque damage with a reason and attachment.'))
@@ -284,10 +289,11 @@ def cancel_unused_leaf(leaf_name, reason, damaged=0, damage_file=None):
         if (evidence.get('is_folder') or not evidence.get('file_url') or
                 evidence.get('attached_to_doctype') != 'Cheque Leaf' or evidence.get('attached_to_name') != leaf.name):
             frappe.throw(_('The damage attachment must belong to this cheque leaf.'))
+    leaf.cheque_attachment = evidence.file_url if damaged else None
     leaf.status, leaf.damaged = 'Cancelled', damaged
     leaf.remarks = '{}{}{}'.format(leaf.remarks or '', '\n' if leaf.remarks else '', reason)
     from worldshading.api.cheque_payments import _tracking_update
-    with _tracking_update(leaf, {'damaged': damaged}):
+    with _tracking_update(leaf, {'damaged': damaged, 'cheque_attachment': leaf.cheque_attachment}):
         leaf.save()
     return leaf.name
 

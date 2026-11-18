@@ -208,6 +208,16 @@ class TestRegisterControls(unittest.TestCase):
         evidence._denied=[]
         service.cancel_unused_leaf('LEAF','Torn corner',damaged=1,damage_file=evidence.name)
         self.assertEqual((leaf.status,leaf.damaged,leaf.remarks),('Cancelled',1,'Torn corner'))
+        self.assertEqual(leaf.cheque_attachment,'/private/files/damage.pdf')
+
+    def test_damage_attachment_cannot_be_set_replaced_or_cleared_directly(self):
+        with self.assertRaises(ValueError):
+            service.validate_leaf(self.leaf(cheque_attachment='/files/forged.pdf'))
+        original=self.leaf(status='Cancelled',damaged=1,remarks='Torn',cheque_attachment='/private/files/damage.pdf')
+        for value in (None,'/files/another.pdf'):
+            changed=Doc(original);changed._previous=Doc(original);changed.cheque_attachment=value
+            with self.assertRaises(ValueError):
+                service.validate_leaf(changed)
 
     def test_signed_unused_leaf_cannot_use_damage_or_upload_action(self):
         leaf=self.leaf(signed=1);leaf._previous=Doc(leaf)

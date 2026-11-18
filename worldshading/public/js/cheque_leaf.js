@@ -1,6 +1,7 @@
 frappe.ui.form.on('Cheque Leaf', {
     refresh: function(frm) {
         frm.set_df_property('damaged', 'read_only', 1);
+        frm.set_df_property('cheque_attachment', 'read_only', 1);
         if (frm.doc.cheque_book) {
             frm.add_custom_button(__('Open Cheque Book'), function() {
                 frappe.set_route('Form', 'Cheque Book', frm.doc.cheque_book);

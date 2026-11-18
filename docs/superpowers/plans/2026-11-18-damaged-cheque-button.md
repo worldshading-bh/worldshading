@@ -40,3 +40,10 @@
 - Damaged is now the first field; Reason stays required. Initial upload area is hidden and the checkbox explicitly toggles the preserved HTML wrapper. No depends_on refresh is used, so the child Vue uploader and uploaded selection survive toggling.
 - This supersedes the earlier always-visible upload-area decision. Server damage/evidence checks remain unchanged.
 - Regression failed before correction, then passed for first field, initial hidden state, checked/unchecked visibility and retained uploader. Existing attachment form checks, JS syntax/diff checks pass. Focused independent review confirms native v12 onchange runs after the checkbox value updates and wrapper toggling preserves the uploader.
+
+## Approved dedicated damage attachment display
+
+- Reuse the unused existing `cheque_attachment` field: label Damage Attachment, type Attach (photo/PDF), readonly, no-copy and depends_on damaged. No new column or duplicate File.
+- The damage action fills the field with the validated evidence file_url in the same save/context as Damaged. Direct setting/replacing/clearing is rejected; a field value on an undamaged cheque is rejected.
+- Preflight found no values in the generic attachment field and one damaged leaf with one private attachment. Snapshot that leaf/file/settings and populate only that field after verifying exact ownership and uniqueness; preserve status/reason/history and all other records.
+- Regression tests failed before implementation for missing field population and direct field edits. Deployment includes native metadata/script sync, six-worker module activation, live field checks and plain-language guide update. No real cheque action/upload, migrate, bench tests or restart.
