@@ -35,9 +35,9 @@
 
 ## Task 3: activation and documentation
 
-- [ ] Verify clean scoped diff; commit and merge only these changes, preserving unrelated main edits.
-- [ ] Snapshot affected live register/payment state and prior guide, reload the cheque module in all web workers, verify live scripts/read-only APIs and unchanged business values. No real workflow actions.
-- [ ] Update the private Administrator guide and record receipts, limitations and commits. No push unless requested.
+- [x] Verify clean scoped diff; commit and merge only these changes, preserving unrelated main edits.
+- [x] Snapshot affected live register/payment state and prior guide, reload the cheque module in all web workers, verify live scripts/read-only APIs and unchanged business values. No real workflow actions.
+- [x] Update the private Administrator guide and record receipts, limitations and commits. No push unless requested.
 
 ## Execution evidence
 
@@ -47,3 +47,13 @@
 
 - Independent review found one important permissions issue: native v12 validate_workflow does not itself enforce self-approval policy on direct saves. Corrected the cleared-amendment signing-stage branch to always call the native action/self-approval check, while skipping only the physical acknowledgement. Regression failed before the correction and passed afterward. Reviewer found no other Critical/Important findings or necessary complexity changes.
 - Final pre-activation verification: 116 database-free Python tests, four Node form suites, JavaScript syntax and git diff checks pass. This includes repeat amendments, two contenders, wrong/cross-source ownership, original amendment permission, physical detail locks, cleared-date preservation and transactional transfer timing. No real financial workflow actions were executed.
+
+## Production activation
+
+- Production main fast-forwarded to `05ebb2b`. The user's unrelated fixed-expense plan edit remains untouched. No push performed.
+- Restricted snapshot/receipt directory: `sites/erp.worldshading.com/private/cheque-register-rollbacks/20261118T092132Z-cleared-amendments/`. Includes original books/leaves, current GL and prior Administrator guide.
+- Scoped activation requests reached all six web workers. Native PE/GL form metadata endpoints serve the new already-cleared handler. Invalidated only their server form-script entries and refreshed the standard browser metadata version token so a browser refresh receives the updated script. No schema, field or workflow changes; no bench commands, service restarts or financial workflow actions.
+- Verified the full existing book/leaf records and GLP-2602104 are unchanged. That GL remains signed, draft, Pending Reconciliation; its next successful submission will mark CL-000036 Cleared. No historical data was backfilled.
+- Updated the existing private Administrator guide with the simple completion and Cancel -> Amend flow, physical-detail restrictions, clearance-date rule and verification steps. Preserved its existing explicit sharing rather than changing the user's sharing choices. Guide remains owned by Administrator, Public off, login notifications off.
+- Initial metadata activation polling did not reach all workers; spaced retry confirmed all six. The guide update transaction initially rolled back because the verifier assumed no existing explicit shares; inspection found an existing read share. The successful update verified that all existing shares were preserved. No business records were changed by either attempt.
+- Remaining limitation: production reconciliation/cancel/amend operations were not executed as tests. Verify the full path during a supervised real accounting correction. Incoming cheques and Journal Entry integration remain outside this change; security draft handover remains unchanged.
