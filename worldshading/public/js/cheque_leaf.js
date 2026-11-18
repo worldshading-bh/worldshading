@@ -50,12 +50,15 @@ frappe.ui.form.on('Cheque Leaf', {
                 frappe.msgprint(__('Save the cheque leaf before cancelling it.'));
                 return;
             }
-            let damage_file = null, completed = false, saving = false;
-            const dialog = new frappe.ui.Dialog({
+            let damage_file = null, completed = false, saving = false, dialog;
+            dialog = new frappe.ui.Dialog({
                 title: __('Cancel Unused Cheque Leaf'),
                 fields: [
+                    {fieldname: 'damaged', label: __('Damaged'), fieldtype: 'Check', default: 0,
+                        onchange: function() {
+                            if (dialog) dialog.fields_dict.damage_upload.$wrapper.toggle(!!dialog.get_value('damaged'));
+                        }},
                     {fieldname: 'reason', label: __('Reason'), fieldtype: 'Small Text', reqd: 1},
-                    {fieldname: 'damaged', label: __('Damaged'), fieldtype: 'Check', default: 0},
                     {fieldname: 'damage_upload', fieldtype: 'HTML',
                         options: '<p>' + __('A photo or document is required when Damaged is selected. It will be saved privately on this leaf.') + '</p><div class="damage-upload-area"></div>'}
                 ],
@@ -85,6 +88,8 @@ frappe.ui.form.on('Cheque Leaf', {
                     });
                 }
             });
+            // Toggle the preserved wrapper, without refreshing/destroying Vue.
+            dialog.fields_dict.damage_upload.$wrapper.toggle(!!dialog.get_value('damaged'));
             dialog.onhide = function() { completed = true; };
             dialog.show();
             new frappe.ui.FileUploader({

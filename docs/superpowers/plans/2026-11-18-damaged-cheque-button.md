@@ -34,3 +34,9 @@
 - Live leaf metadata confirms Damaged readonly and the child-mounted evidence uploader. All book/leaf values match the snapshot; all other leaf field behaviour/settings are unchanged. No leaf was cancelled/marked damaged and no upload was performed during deployment.
 - Plain-language private guide now explains the button, reason, required damage evidence, normal reason-only cancellation, uploaded-file-on-dismiss behaviour, and reserved/signed/cleared cases. Existing owner, privacy, notification and sharing settings preserved.
 - 129 database-free Python checks and five form suites passed before activation. Full real upload/cancellation remains a supervised manual check; no bench tests/migrate/restart or financial workflow actions were run.
+
+## User-requested popup order and visibility correction
+
+- Damaged is now the first field; Reason stays required. Initial upload area is hidden and the checkbox explicitly toggles the preserved HTML wrapper. No depends_on refresh is used, so the child Vue uploader and uploaded selection survive toggling.
+- This supersedes the earlier always-visible upload-area decision. Server damage/evidence checks remain unchanged.
+- Regression failed before correction, then passed for first field, initial hidden state, checked/unchecked visibility and retained uploader. Existing attachment form checks, JS syntax/diff checks pass. Focused independent review confirms native v12 onchange runs after the checkbox value updates and wrapper toggling preserves the uploader.

@@ -8,7 +8,7 @@ const confirmations = [];
 let dialog, uploader;
 const frappe = {
     ui: {form: {on: (dt, handlers) => { events[dt] = handlers; }},
-        Dialog: function(options) {Object.assign(this,options);dialog=this;this.fields_dict={damage_upload:{$wrapper:{find: selector => ({selector})}}};this.show=()=>{};this.hide=()=>{if(this.onhide)this.onhide();};},
+        Dialog: function(options) {Object.assign(this,options);dialog=this;this.values={damaged:0};this.get_value=key=>this.values[key];this.fields_dict={damage_upload:{$wrapper:{visible:true,toggle(value){this.visible=value;},find: selector => ({selector})}}};this.show=()=>{};this.hide=()=>{if(this.onhide)this.onhide();};},
         FileUploader: function(options) {uploader=options;}},
     call: options => calls.push(options),
     confirm: (message, yes, no) => confirmations.push({message, yes, no}),
@@ -62,6 +62,14 @@ events['Cheque Leaf'].refresh(frm);
 assert.strictEqual(frm.buttons['Cancel Unused Leaf'], undefined, 'A linked Journal Entry leaf cannot be cancelled as unused');
 frm=form(false);frm.doc.status='Available';let reloads=0;frm.reload_doc=()=>reloads++;
 events['Cheque Leaf'].refresh(frm);frm.buttons['Cancel Unused Leaf']();
+assert.strictEqual(dialog.fields[0].fieldname,'damaged','Damaged must be the first field');
+assert.strictEqual(dialog.fields_dict.damage_upload.$wrapper.visible,false,'Upload area must start hidden');
+const originalUploader=uploader;
+dialog.values.damaged=1;dialog.fields[0].onchange();
+assert.strictEqual(dialog.fields_dict.damage_upload.$wrapper.visible,true,'Checking Damaged shows uploader');
+dialog.values.damaged=0;dialog.fields[0].onchange();
+assert.strictEqual(dialog.fields_dict.damage_upload.$wrapper.visible,false,'Unchecking Damaged hides uploader');
+assert.strictEqual(uploader,originalUploader,'Toggling must retain the existing uploader');
 assert.ok(dialog.fields.some(f=>f.fieldname==='reason' && f.reqd));
 assert.ok(uploader && uploader.method==='worldshading.api.cheque_register.upload_damaged_leaf_attachment');
 assert.notStrictEqual(uploader.wrapper,dialog.fields_dict.damage_upload.$wrapper,'Vue uploader must not replace the native HTML control wrapper');
