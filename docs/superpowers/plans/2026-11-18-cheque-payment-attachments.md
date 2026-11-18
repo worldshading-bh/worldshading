@@ -27,8 +27,8 @@
 
 ## Task 3: activation
 
-- [ ] Snapshot targeted live data/scripts/guide, commit and merge scoped source. Activate six workers, update leaf Custom Script only and refresh PE/GL/leaf form metadata. Do not invoke payment actions or create financial docs/files.
-- [ ] Verify business records unchanged, leaf API/live scripts, private guide and commit status; record deployment limitations. No push unless requested.
+- [x] Snapshot targeted live data/scripts/guide, commit and merge scoped source. Activate six workers, update leaf Custom Script only and refresh PE/GL/leaf form metadata. Do not invoke payment actions or create financial docs/files.
+- [x] Verify business records unchanged, leaf API/live scripts, private guide and commit status; record deployment limitations. No push unless requested.
 
 ## Verification and review
 
@@ -37,3 +37,12 @@
 - In-flight dialog cancellation regression failed before completed-state guards and passed afterward. Cancelling during readiness checking or save never resumes reconciliation. Failed/silent v12 saves cannot authorize workflow continuation.
 - Native FileUploader makes images public by default in this v12 build. The small authorized GL upload callback uses native File insertion with is_private=1 and preserves native file/source permissions, size limits, storage and rollback handling. No duplicate File references or binary copies are created.
 - Scope clarification: the leaf section displays all current attachments of its linked payment, subject to permissions. If Finance reuses a payment for a replacement leaf, both old and new payment documents may be listed; only post-signing attachments qualify for that replacement's completion. This is a live view, not an immutable file archive. Payment file deletion still removes a link from this view; no new retention policy is introduced.
+
+## Production activation
+
+- Production main fast-forwarded to `79de014`. The unrelated fixed-expense plan edit remains untouched; no push performed.
+- Private rollback snapshot and receipt: `sites/erp.worldshading.com/private/cheque-register-rollbacks/20261118T100207Z-payment-attachments/`. Contains the prior leaf Custom Script, guide/sharing and full book/leaf records.
+- Saved only Cheque Leaf-Client through the normal Custom Script API, then activated all six existing web workers with the scoped Administrator helper. No service restart. Invalidated PE/GL/leaf server form-script caches and refreshed the standard browser metadata version token.
+- Live metadata verifies GL reconciliation/upload code and leaf Payment Attachments custom script. Read-only live leaf API succeeds. Book/leaf values match the pre-deployment snapshot exactly (one book, 50 leaves at this deployment; the user had regenerated the previously deleted test leaf).
+- Updated the private Administrator guide with upload timing, private GL upload, leaf section, access checks, native amendment inheritance, shared-payment replacement files and live-view limitations. Existing sharing, owner, Public-off and notification-off settings preserved.
+- Final checks: 125 database-free Python tests and five Node suites pass, with JS syntax and diff checks. Actual file upload/reconciliation actions were not exercised on production. No business documents/files were created or changed, no bench tests/migrate/restart and no schema/workflow changes.
