@@ -191,8 +191,7 @@ has_permission = {
 scheduler_events = {
     "daily": [
 
-        # Activate after the existing test Fixed Expenses are retired.
-        # "worldshading.api.fixed_expense_payments.create_due_payments",
+        "worldshading.api.fixed_expense_payments.create_due_payments",
         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
         "worldshading.scheduler_events.draft_cleanup_schedule.execute",
         "worldshading.scheduler_events.prepared_report_cleanup.execute",

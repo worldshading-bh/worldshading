@@ -459,7 +459,7 @@ def _auto_eligible(rows, snapshot, through):
 
 
 def create_due_payments():
-    """Daily job. Register only after the existing test masters have been retired."""
+    """Daily draft creation for approved, active Fixed Expenses."""
     through = getdate(nowdate()) + timedelta(days=2)
     for source_name, scheduled_date in _due_candidates(nowdate()):
         try:

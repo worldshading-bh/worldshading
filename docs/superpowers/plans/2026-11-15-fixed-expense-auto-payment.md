@@ -240,3 +240,7 @@ Reuse Fixed Expense as the repayment schedule; no new loan DocType or amortizati
 - Apply targeted metadata/custom-field sync only when implementation is approved. No bench tests or migrate. First review an unsaved draft against a real repayment statement; no automatic submission or backfilling old JEs. Existing loan postings need linking or an appropriate future Tracking Start Date to avoid generating already-paid instalments.
 - Files expected: Fixed Expense JSON/JS/Python; fixed_expense_payments.py; new fixed_expense_journal_entries.py and scoped JE client handler; hooks.py; custom_field.json; focused tests; this plan. All changes remain in worldshading, without ERPNext core edits.
 - Implementation risk: moderate (financial documents and shared payment tracking). Back up affected metadata/configuration before rollout. Rollback source and scoped metadata from backup; preserve any genuine JEs created during review. No automatic deletion of accounting history.
+
+## Automatic creation activated — 18 November 2026
+
+User explicitly approved activation. Enabled `worldshading.api.fixed_expense_payments.create_due_payments` in the daily scheduler and refreshed its scoped live scheduler cache. This supersedes earlier disabled/activation-pending notes. Pre-activation preview returned no eligible drafts. Scheduler and short workers were running; no catch-up batch, GL submission, migrate or bench tests were run. Rollback: comment out this daily handler and refresh the scoped scheduler cache.
