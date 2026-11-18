@@ -26,6 +26,9 @@ class Doc(frappe._dict):
     def is_new(self):
         return not self.get('_previous')
 
+    def has_permission(self, permission):
+        return permission not in self.get('_denied', [])
+
     def check_permission(self, permission):
         if permission in self.get('_denied', []):
             raise frappe.PermissionError
@@ -52,6 +55,11 @@ class TestChequePayments(unittest.TestCase):
         self.book = Doc(doctype='Cheque Book', name='CB-1', account='BANK', company='Company',
                         currency='BHD', status='Active', valid_from=None, valid_to=None)
         self.sources = {}
+        self.files = [Doc(doctype='File', name='FILE-'+dt, file_name='cheque.pdf',
+            file_url='/private/files/cheque.pdf', is_folder=0, is_private=1,
+            attached_to_doctype=dt, attached_to_name=name, creation='2026-11-18 10:01:00')
+            for dt, name in [('Payment Entry','PE-1'),('GL Payment','GL-1')]]
+        self.stack.enter_context(patch.object(service.frappe, 'get_all', side_effect=self.file_rows))
         self.leaves = {
             name: Doc(doctype='Cheque Leaf', name=name, account='BANK', company='Company', currency='BHD',
                       cheque_book='CB-1', cheque_number=number, status='Available', signed=0,
@@ -64,7 +72,26 @@ class TestChequePayments(unittest.TestCase):
         self.stack.enter_context(patch.object(service.frappe, 'get_doc', side_effect=self.get_doc))
         self.stack.enter_context(patch.object(service, '_apply_leaf', side_effect=self.apply_leaf))
 
+    def file_rows(self, dt, filters=None, **kwargs):
+        if dt != 'File':
+            raise AssertionError('Unexpected query: '+dt)
+        rows = list(self.files)
+        for key, value in (filters or {}).items():
+            if isinstance(value, (list, tuple)):
+                if value[0] == '>=':
+                    rows = [r for r in rows if str(r.get(key) or '') >= str(value[1])]
+                elif value == ['is', 'set']:
+                    rows = [r for r in rows if r.get(key)]
+                else:
+                    raise AssertionError('Unsupported test filter')
+            else:
+                rows = [r for r in rows if r.get(key) == value]
+        limit = kwargs.get('limit_page_length')
+        return rows[:limit] if limit else rows
+
     def get_doc(self, dt, name):
+        if dt == 'File':
+            return next(r for r in self.files if r.name == name)
         if dt == 'Cheque Leaf':
             return self.leaves[name]
         if dt == 'Cheque Book':
@@ -124,6 +151,11 @@ class TestChequePayments(unittest.TestCase):
         doc = self.payment(original.doctype, name=original.name + '-1',
                            amended_from=original.name, posting_date='2026-11-23')
         doc.update(changes)
+        # Native v12 copies the original attachments on amendment insertion.
+        for item in list(self.files):
+            if item.attached_to_doctype == original.doctype and item.attached_to_name == original.name:
+                copied = Doc(item); copied.name += '-'+doc.name; copied.attached_to_name = doc.name
+                self.files.append(copied)
         return doc
 
     def test_submission_clears_signed_cheque_and_uses_clearance_date(self):
@@ -268,6 +300,83 @@ class TestChequePayments(unittest.TestCase):
         second = self.validate_save(self.amendment(first))
         self.assertEqual((self.leaves['CL-1'].gl_payment, self.leaves['CL-1'].status), (second.name, 'Cleared'))
         self.assertEqual(self.leaves['CL-1'].cleared_date, '2026-11-22')
+
+    def test_submission_requires_current_cheque_attachment_before_mutating_leaf(self):
+        for dt in ('GL Payment', 'Payment Entry'):
+            with self.subTest(dt=dt):
+                self.leaves['CL-1'].update(dict(status='Available', signed=0, gl_payment=None, payment_entry=None))
+                doc = self.signed(dt)
+                doc.update(dict(docstatus=1, workflow_state='Completed'))
+                for file in self.files:
+                    file.creation = '2026-11-18 09:00:00'
+                with self.assertRaises(ValueError):
+                    service.validate_payment(doc)
+                self.assertEqual(self.leaves['CL-1'].status, 'Reserved')
+                for file in self.files:
+                    file.creation = '2026-11-18 10:01:00'
+                self.validate_save(doc)
+                self.assertEqual(self.leaves['CL-1'].status, 'Cleared')
+
+    def test_missing_attachment_does_not_block_draft_cancel_or_historical_updates(self):
+        doc = self.signed('GL Payment')
+        self.files = []
+        self.validate_save(doc)
+        doc.docstatus = 2
+        service.before_cancel(doc); service.sync_payment(doc)
+        self.assertEqual(self.leaves['CL-1'].status, 'Cancelled')
+        # A previously cleared/submitted document remains editable in allowed fields.
+        doc.docstatus = 1; doc._previous = Doc(doc.as_dict())
+        self.leaves['CL-1'].status = 'Cleared'
+        self.validate_save(doc)
+
+    def test_cleared_amendment_requires_its_inherited_or_new_attachment(self):
+        old = self.cancelled_cleared()
+        doc = self.validate_save(self.amendment(old))
+        doc.update(dict(docstatus=1, workflow_state='Completed'))
+        self.files = [r for r in self.files if r.attached_to_name != doc.name]
+        with self.assertRaises(ValueError):
+            service.validate_payment(doc)
+        inherited = Doc(next(r for r in self.files if r.attached_to_doctype == doc.doctype)); inherited.name='INHERITED'; inherited.attached_to_name=doc.name
+        inherited.creation='2026-11-01 00:00:00'
+        self.files.append(inherited)
+        self.validate_save(doc)
+        self.assertEqual(self.leaves['CL-1'].status, 'Cleared')
+
+    def test_leaf_lists_payment_files_with_source_and_file_permissions(self):
+        doc = self.validate_save(self.payment('GL Payment'))
+        self.sources[(doc.doctype,doc.name)] = doc
+        item = Doc(self.files[-1]); item.name='DENIED'; item._denied=['read']; self.files.append(item)
+        unsafe = Doc(self.files[-2]); unsafe.name='UNSAFE'; unsafe.file_url='javascript:alert(1)'; self.files.append(unsafe)
+        result = service.get_leaf_attachments('CL-1')
+        self.assertEqual(result['payment_name'], 'GL-1')
+        self.assertEqual([r['name'] for r in result['files']], ['FILE-GL Payment'])
+        doc._denied=['read']
+        result = service.get_leaf_attachments('CL-1')
+        self.assertTrue(result['restricted']); self.assertEqual(result['files'], [])
+        self.leaves['CL-1']._denied=['read']
+        with self.assertRaises(frappe.PermissionError):
+            service.get_leaf_attachments('CL-1')
+
+    def test_unlinked_leaf_and_journal_attachment_view(self):
+        self.assertEqual(service.get_leaf_attachments('CL-2')['files'], [])
+        leaf=self.leaves['CL-2']; leaf.journal_entry='JV-1'
+        self.sources[('Journal Entry','JV-1')] = Doc(doctype='Journal Entry',name='JV-1')
+        self.files.append(Doc(doctype='File',name='JV-FILE',file_name='proof.pdf',file_url='/files/proof.pdf',
+                              attached_to_doctype='Journal Entry',attached_to_name='JV-1',is_folder=0))
+        result=service.get_leaf_attachments('CL-2')
+        self.assertEqual(result['payment_type'], 'Journal Entry')
+        self.assertEqual([r['name'] for r in result['files']], ['JV-FILE'])
+
+    def test_gl_reconciliation_precheck_reports_attachment_without_advancing_workflow(self):
+        doc=self.signed('GL Payment'); self.sources[(doc.doctype,doc.name)]=doc
+        with patch.object(service,'_action_access',return_value=True):
+            result=service.get_reconciliation_details(doc.name)
+            self.assertTrue(result['has_attachment'])
+            self.files=[]
+            self.assertFalse(service.get_reconciliation_details(doc.name)['has_attachment'])
+        self.assertEqual(doc.workflow_state,'Pending Reconciliation')
+        with patch.object(service,'_action_access',return_value=False), self.assertRaises(ValueError):
+            service.get_reconciliation_details(doc.name)
 
     def test_save_reserves_one_leaf_and_copies_bank_details(self):
         doc = self.payment()
@@ -504,6 +613,41 @@ class TestChequePayments(unittest.TestCase):
         doc = self.validate_save(self.payment())
         with self.assertRaises(ValueError):
             service.before_delete(doc)
+
+
+class TestPrivateChequeUpload(unittest.TestCase):
+    def test_native_upload_bytes_are_saved_privately_only_to_authorized_gl(self):
+        captured = []
+        def file_doc(values):
+            captured.append(values)
+            return SimpleNamespace(insert=lambda: values)
+        with patch.object(service.frappe, 'local', SimpleNamespace(uploaded_file=b'signed copy',uploaded_filename='cheque.png')), \
+                patch.object(service.frappe, 'form_dict', frappe._dict(doctype='GL Payment',docname='GL-1')), \
+                patch.object(service, 'get_reconciliation_details', return_value={'has_attachment':False}), \
+                patch.object(service.frappe, 'get_doc', side_effect=file_doc):
+            result=service.upload_cheque_attachment()
+        self.assertEqual(result['is_private'],1)
+        self.assertEqual((result['attached_to_doctype'],result['attached_to_name']),('GL Payment','GL-1'))
+        self.assertEqual(result['content'],b'signed copy')
+
+    def test_empty_upload_never_creates_a_file(self):
+        with patch.object(service.frappe,'throw',side_effect=ValueError), \
+                patch.object(service.frappe,'local',SimpleNamespace(uploaded_file=b'',uploaded_filename='empty.png')), \
+                patch.object(service.frappe,'form_dict',frappe._dict(doctype='GL Payment',docname='GL-1')), \
+                patch.object(service,'get_reconciliation_details',return_value={'has_attachment':False}), \
+                patch.object(service.frappe,'get_doc',side_effect=AssertionError('Must not create File')), \
+                self.assertRaises(ValueError):
+            service.upload_cheque_attachment()
+
+    def test_upload_denies_wrong_document_and_unpermitted_workflow(self):
+        with patch.object(service.frappe,'throw',side_effect=ValueError), \
+                patch.object(service.frappe,'form_dict',frappe._dict(doctype='Journal Entry',docname='JV-1')), \
+                self.assertRaises(ValueError):
+            service.upload_cheque_attachment()
+        with patch.object(service.frappe,'form_dict',frappe._dict(doctype='GL Payment',docname='GL-1')), \
+                patch.object(service,'get_reconciliation_details',side_effect=frappe.PermissionError), \
+                self.assertRaises(frappe.PermissionError):
+            service.upload_cheque_attachment()
 
 
 class TestNativeApprovalLookup(unittest.TestCase):

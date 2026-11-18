@@ -19,7 +19,7 @@
         return ['Pending Cheque Payment - App', 'Pending Security Cheque - App'].includes(state) &&
             frm.selected_workflow_action === 'Approve' ? 'sign' : null;
     }
-    function save_confirmation(frm, expected) {
+    function save_payment(frm, expected) {
         // v12 frm.save catches failures, so a resolved promise alone is not
         // evidence of persistence. Require its successful response callback.
         return new Promise(function(resolve, reject) {
@@ -29,6 +29,11 @@
                 const doc = response && !response.exc && response.docs && response.docs.find(function(row) {
                     return row.doctype === frm.doctype && row.name === frm.doc.name;
                 });
+                if (!doc) {
+                    reject(new Error('Payment save did not return the saved document'));
+                    return;
+                }
+                if (!expected) { resolve(); return; }
                 let acknowledgement;
                 try { acknowledgement = doc && JSON.parse(doc[confirmation_field]); } catch (error) { /* invalid reply */ }
                 const keys = ['leaf', 'account', 'company', 'currency', 'party_type', 'party', 'payee', 'amount', 'cheque_date'];
@@ -122,7 +127,7 @@
                             saving = true;
                             frappe.validated = true;
                             return frm.set_value(confirmation_field, voiding ? 'void:' + reason : 'confirm')
-                                .then(function() { return save_confirmation(frm, details); })
+                                .then(function() { return save_payment(frm, details); })
                                 .then(function() {
                                     if (completed) return;
                                     completed = true;
@@ -150,6 +155,75 @@
             });
         });
     }
+    function reconciliation_details(frm) {
+        return new Promise(function(resolve, reject) {
+            frappe.call({
+                method: 'worldshading.api.cheque_payments.get_reconciliation_details',
+                args: {name: frm.doc.name}, error: reject,
+                callback: function(r) {
+                    if (r.exc || !r.message) reject(new Error('Cheque attachment check failed'));
+                    else resolve(r.message);
+                }
+            });
+        });
+    }
+    function confirm_reconciliation(frm) {
+        frappe.validated = false;
+        if (frm.is_dirty()) {
+            frappe.msgprint(__('Save the payment before reconciling the cheque.'));
+            return Promise.reject(new Error('Save payment first'));
+        }
+        return new Promise(function(resolve, reject) {
+            reconciliation_details(frm).then(function(details) {
+                if (frm.is_dirty()) throw new Error('Payment changed during attachment check');
+                if (details.has_attachment) { frappe.validated = true; resolve(); return; }
+                let completed = false, saving = false;
+                const dialog = new frappe.ui.Dialog({
+                    title: __('Attach Signed Cheque Copy'),
+                    fields: [{fieldtype: 'HTML', fieldname: 'uploader',
+                        options: '<p>' + __('Upload the signed cheque copy or bank confirmation. Files are stored privately on this payment.') + '</p>'}],
+                    primary_action_label: __('Continue Reconciliation'),
+                    primary_action: function() {
+                        if (completed || saving) return;
+                        if (frm.is_dirty()) { frappe.msgprint(__('Save the changed payment before reconciling.')); return; }
+                        saving = true;
+                        return reconciliation_details(frm).then(function(current) {
+                            if (completed) return;
+                            if (!current.has_attachment) {
+                                saving = false;
+                                frappe.msgprint(__('Upload the signed cheque copy before continuing.'));
+                                return;
+                            }
+                            if (frm.is_dirty()) throw new Error('Payment changed during attachment check');
+                            frappe.validated = true;
+                            return save_payment(frm).then(function() {
+                                if (completed) { frappe.validated = false; return; }
+                                completed = true; dialog.hide(); frappe.validated = true; resolve();
+                            });
+                        }).catch(function(error) {
+                            completed = true; dialog.hide(); frappe.validated = false; reject(error);
+                        });
+                    }
+                });
+                dialog.onhide = function() {
+                    if (!completed) { completed = true; frappe.validated = false; reject(new Error('Cheque attachment cancelled')); }
+                };
+                dialog.show();
+                new frappe.ui.FileUploader({
+                    doctype: frm.doctype, docname: frm.doc.name,
+                    wrapper: dialog.fields_dict.uploader.$wrapper, disable_file_browser: true,
+                    method: 'worldshading.api.cheque_payments.upload_cheque_attachment'
+                });
+            }).catch(reject);
+        });
+    }
+    function before_workflow_action(frm) {
+        if (frm.doctype === 'GL Payment' && is_outgoing_cheque(frm) && frm.doc.docstatus === 0 &&
+                frm.doc.workflow_state === 'Pending Reconciliation' && frm.selected_workflow_action === 'Reconciled') {
+            return confirm_reconciliation(frm);
+        }
+        return confirm_signing(frm);
+    }
     ['Payment Entry', 'GL Payment'].forEach(function(doctype) {
         frappe.ui.form.on(doctype, {
             setup: function(frm) {
@@ -170,7 +244,7 @@
                     }
                 });
             },
-            before_workflow_action: confirm_signing
+            before_workflow_action: before_workflow_action
         });
     });
 })();

@@ -228,6 +228,16 @@ def _confirmation(doc, previous, values, leaf):
     return None
 
 
+def _has_payment_attachment(doc, leaf):
+    filters = {'attached_to_doctype': doc.doctype, 'attached_to_name': doc.name,
+               'is_folder': 0, 'file_url': ['is', 'set']}
+    # A replacement must not reuse the previous cheque's payment attachments.
+    # Cleared amendments retain their inherited documents and original signature.
+    if leaf.status != 'Cleared' and leaf.get('signature_confirmed_on'):
+        filters['creation'] = ['>=', leaf.signature_confirmed_on]
+    return bool(frappe.get_all('File', filters=filters, fields=['name'], limit_page_length=1))
+
+
 def validate_payment(doc, method=None):
     if doc.doctype not in SOURCE_FIELDS:
         return
@@ -319,6 +329,9 @@ def validate_payment(doc, method=None):
             doc.set(CONFIRMATION, None)
         if cint(doc.docstatus) == 1 and not (cint(leaf.get('signed')) or changes.get('signed')):
             frappe.throw(_('Complete the cheque signing approval before submitting this payment.'))
+        if (cint(doc.docstatus) == 1 and (not previous or cint(previous.docstatus) != 1) and
+                not _has_payment_attachment(doc, leaf)):
+            frappe.throw(_('Attach the signed cheque copy to this payment after signing and before completing reconciliation.'))
         if cint(doc.docstatus) == 1:
             changes.update({'status': 'Cleared', 'cleared_date': leaf.get('cleared_date') or
                             str(getdate(doc.get('clearance_date') or now()))})
@@ -405,6 +418,64 @@ def get_signing_details(doctype, name, operation='sign'):
     values.update({'cheque_number': leaf.cheque_number, 'signed': cint(leaf.get('signed')), 'operation': operation,
                    'already_cleared': cleared_amendment and operation == 'sign'})
     return values
+
+
+@frappe.whitelist()
+def get_reconciliation_details(name):
+    doc = frappe.get_doc('GL Payment', name)
+    doc.check_permission('read')
+    if (not _outgoing(doc) or cint(doc.docstatus) != 0 or
+            doc.workflow_state != 'Pending Reconciliation' or not doc.get('cheque_leaf') or
+            not _action_access(doc, 'Reconciled', 'Completed')):
+        frappe.throw(_('This payment is not ready for cheque reconciliation.'))
+    leaf = frappe.get_doc('Cheque Leaf', doc.cheque_leaf)
+    leaf.check_permission('read')
+    if _owner(leaf) != (doc.doctype, doc.name) or not cint(leaf.get('signed')):
+        frappe.throw(_('Save and sign this payment cheque before reconciliation.'))
+    return {'has_attachment': _has_payment_attachment(doc, leaf)}
+
+
+@frappe.whitelist(methods=['POST'])
+def upload_cheque_attachment():
+    """Native FileUploader callback; cheque images must not default to public."""
+    register._require_post()
+    if frappe.form_dict.get('doctype') != 'GL Payment':
+        frappe.throw(_('Upload a cheque copy only to its GL Payment.'))
+    name = frappe.form_dict.get('docname')
+    get_reconciliation_details(name)  # Native action, write and ownership checks.
+    content = getattr(frappe.local, 'uploaded_file', None)
+    filename = getattr(frappe.local, 'uploaded_filename', None)
+    if not content or not filename:
+        frappe.throw(_('Choose a file to upload for this cheque.'))
+    return frappe.get_doc({'doctype': 'File', 'attached_to_doctype': 'GL Payment',
+        'attached_to_name': name, 'file_name': filename, 'content': content,
+        'is_private': 1, 'folder': 'Home/Attachments'}).insert()
+
+
+@frappe.whitelist()
+def get_leaf_attachments(leaf_name):
+    leaf = frappe.get_doc('Cheque Leaf', leaf_name)
+    leaf.check_permission('read')
+    owner = _owner(leaf)
+    result = {'files': [], 'restricted': False}
+    if not owner:
+        return result
+    result.update({'payment_type': owner[0], 'payment_name': owner[1]})
+    payment = frappe.get_doc(*owner)
+    if not payment.has_permission('read'):
+        result['restricted'] = True
+        return result
+    rows = frappe.get_all('File', filters={'attached_to_doctype': owner[0],
+        'attached_to_name': owner[1], 'is_folder': 0, 'file_url': ['is', 'set']},
+        fields=['name', 'file_name', 'file_url', 'is_private'], order_by='creation asc', limit_page_length=0)
+    for row in rows:
+        # File permissions can be stricter than payment/leaf access. Never turn
+        # a leaf link into a grant to private files or unsafe external URLs.
+        if (not row.file_url.startswith(('/files/', '/private/files/', 'https://', 'http://')) or
+                not frappe.get_doc('File', row.name).has_permission('read')):
+            continue
+        result['files'].append({key: row.get(key) for key in ('name', 'file_name', 'file_url', 'is_private')})
+    return result
 
 
 @frappe.whitelist(methods=['POST'])

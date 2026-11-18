@@ -17,7 +17,7 @@ const frappe = {
         {frappe, __: text => text});
 });
 function form(is_new) {
-    return {doc: {name: 'BOOK', status: 'Active'}, perm: [{write: 1}], fields: {}, buttons: {},
+    return {dashboard: {add_section: () => ({remove: () => {}, html: () => {}}), show: () => {}}, doc: {name: 'BOOK', status: 'Active'}, perm: [{write: 1}], fields: {}, buttons: {},
         is_new: () => is_new, is_dirty: () => false,
         set_df_property(name, prop, value) { this.fields[name] = value; },
         add_custom_button(label, callback) { this.buttons[label] = callback; }};
