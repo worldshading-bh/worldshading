@@ -303,6 +303,7 @@ def activate_worker():
     import worldshading.hooks as app_hooks
 
     importlib.reload(app_hooks)
+    importlib.reload(importlib.import_module('worldshading.api.cheque_payments'))
     if hasattr(frappe.local, 'doc_events_hooks'):
         del frappe.local.doc_events_hooks
     expected = {

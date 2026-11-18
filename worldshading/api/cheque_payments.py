@@ -109,9 +109,41 @@ def _values(doc, leaf):
             'amount': amount, 'cheque_date': str(getdate(doc.reference_date))}
 
 
-def _check_leaf(doc, leaf, values):
+def _cleared_original(doc):
+    """Native Amend is the only route for retaining an already-cleared cheque."""
+    if not doc.get('amended_from'):
+        return None
+    original = frappe.get_doc(doc.doctype, doc.amended_from)
+    original.check_permission('read')
+    if not original.get('cheque_leaf'):
+        return None
+    leaf = frappe.get_doc('Cheque Leaf', original.cheque_leaf)
+    if leaf.status != 'Cleared':
+        return None
+    if cint(original.docstatus) != 2 or not _outgoing(original):
+        frappe.throw(_('Amend the cancelled outgoing payment to retain its cleared cheque.'))
+    return original
+
+
+def _check_cleared_amendment(doc, leaf, original):
+    if not original:
+        return False
+    if (doc.get('cheque_leaf') != original.cheque_leaf or leaf.status != 'Cleared' or
+            not cint(leaf.get('signed')) or not _outgoing(doc) or
+            _values(doc, leaf) != _values(original, leaf) or
+            (not doc.get('party') and (doc.get('cheque_payee') or '') != (original.get('cheque_payee') or ''))):
+        frappe.throw(_('An accounting amendment must retain the same cleared cheque, bank, payee, amount and cheque date.'))
     owner = _owner(leaf)
-    if owner and owner != (doc.doctype, doc.name):
+    if owner not in ((doc.doctype, original.name), (doc.doctype, doc.name)):
+        frappe.throw(_('This cleared cheque has already been linked to another amendment.'))
+    if owner == (doc.doctype, original.name):
+        original.check_permission('amend')
+    return True
+
+
+def _check_leaf(doc, leaf, values, cleared_amendment=False):
+    owner = _owner(leaf)
+    if owner and owner != (doc.doctype, doc.name) and not cleared_amendment:
         frappe.throw(_('This cheque leaf is already linked to another payment.'))
     if cint(leaf.get('damaged')) or leaf.status not in ('Available', 'Reserved', 'Issued', 'Cleared'):
         frappe.throw(_('This cheque leaf is not usable.'))
@@ -149,6 +181,11 @@ def _void_access(doc):
 
 def prepare_payment(doc, method=None):
     """Supply the actual printed reference before native bank validation runs."""
+    original = _cleared_original(doc)
+    if original:
+        if doc.get('cheque_leaf') and doc.cheque_leaf != original.cheque_leaf:
+            frappe.throw(_('Retain the original cleared cheque on this amendment.'))
+        doc.cheque_leaf = original.cheque_leaf
     if doc.get('cheque_leaf') and _outgoing(doc):
         leaf = frappe.get_doc('Cheque Leaf', doc.cheque_leaf)
         leaf.check_permission('read')
@@ -197,6 +234,11 @@ def validate_payment(doc, method=None):
     key = (doc.doctype, doc.name)
     _plans().pop(key, None)
     previous = doc.get_doc_before_save()
+    if previous and doc.get('amended_from') != previous.get('amended_from'):
+        frappe.throw(_('A saved payment cannot change its amendment reference.'))
+    original = _cleared_original(doc)
+    if original and not doc.get('cheque_leaf'):
+        frappe.throw(_('A cleared cheque amendment cannot remove its cheque.'))
     state = doc.get('workflow_state') or 'Draft'
     old_name = previous.get('cheque_leaf') if previous else None
     new_name = doc.get('cheque_leaf')
@@ -236,15 +278,17 @@ def validate_payment(doc, method=None):
         return
 
     leaf = leaves[new_name]
+    cleared_amendment = _check_cleared_amendment(doc, leaf, original)
     values = _values(doc, leaf)
+    amendment_note = None
     cancelling = cint(doc.docstatus) == 2 or method == 'before_cancel'
     if cancelling:
         if _owner(leaf) not in (None, (doc.doctype, doc.name)):
             frappe.throw(_('This cheque leaf belongs to another payment.'))
         doc.set(CONFIRMATION, None)
-        changes = {SOURCE_FIELDS[doc.doctype]: doc.name, 'status': 'Cancelled'}
+        changes = {SOURCE_FIELDS[doc.doctype]: doc.name, 'status': 'Cleared' if leaf.status == 'Cleared' else 'Cancelled'}
     else:
-        _check_leaf(doc, leaf, values)
+        _check_leaf(doc, leaf, values, cleared_amendment)
         acknowledgement = _confirmation(doc, previous, values, leaf)
         void_target = VOID.get((doc.doctype, previous.get('workflow_state'))) if previous else None
         if void_target and state == void_target:
@@ -266,7 +310,8 @@ def validate_payment(doc, method=None):
                         'status': 'Reserved' if leaf.status in ('Available', 'Reserved') else leaf.status})
         pair = SIGNING.get((doc.doctype, previous.get('workflow_state'))) if previous else None
         if pair and doc.get('workflow_state') == pair[1]:
-            if not acknowledgement or acknowledgement.get('operation') != 'sign' or not _approval_access(previous):
+            if not _approval_access(previous) or (not cleared_amendment and
+                    (not acknowledgement or acknowledgement.get('operation') != 'sign')):
                 frappe.throw(_('Confirm that the physical cheque is signed before approving.'))
             if not cint(leaf.get('signed')):
                 changes.update({'signed': 1, 'signature_confirmed_by': acknowledgement['user'],
@@ -274,13 +319,22 @@ def validate_payment(doc, method=None):
             doc.set(CONFIRMATION, None)
         if cint(doc.docstatus) == 1 and not (cint(leaf.get('signed')) or changes.get('signed')):
             frappe.throw(_('Complete the cheque signing approval before submitting this payment.'))
+        if cint(doc.docstatus) == 1:
+            changes.update({'status': 'Cleared', 'cleared_date': leaf.get('cleared_date') or
+                            str(getdate(doc.get('clearance_date') or now()))})
+        if cleared_amendment and _owner(leaf) == (doc.doctype, original.name):
+            amendment_note = 'Cleared cheque retained from cancelled {} {} in amendment {}.'.format(
+                doc.doctype, original.name, doc.name)
+            changes['remarks'] = '{}{}{}'.format(leaf.get('remarks') or '',
+                '\n' if leaf.get('remarks') else '', amendment_note)
         if (doc.doctype == 'Payment Entry' and previous and
                 previous.get('workflow_state') == 'Handover Security Cheque' and
                 doc.get('workflow_state') == 'Security Cheque Issued'):
             if not cint(leaf.get('signed')):
                 frappe.throw(_('Confirm cheque signing before security cheque handover.'))
             changes['status'] = 'Issued'
-    _plans()[key] = {'releases': releases, 'leaf': leaf, 'changes': changes}
+    _plans()[key] = {'releases': releases, 'leaf': leaf, 'changes': changes,
+                     'amendment_note': amendment_note}
 
 
 @contextmanager
@@ -314,8 +368,9 @@ def sync_payment(doc, method=None):
         _apply_leaf(leaf, values)
     if plan['leaf']:
         _apply_leaf(plan['leaf'], plan['changes'])
-    if plan.get('void_note'):
-        doc.add_comment('Comment', plan['void_note'])
+    for field in ('void_note', 'amendment_note'):
+        if plan.get(field):
+            doc.add_comment('Comment', plan[field])
 
 
 def before_cancel(doc, method=None):
@@ -341,12 +396,14 @@ def get_signing_details(doctype, name, operation='sign'):
     leaf = frappe.get_doc('Cheque Leaf', doc.cheque_leaf)
     leaf.check_permission('read')
     values = _values(doc, leaf)
-    _check_leaf(doc, leaf, values)
+    cleared_amendment = _check_cleared_amendment(doc, leaf, _cleared_original(doc))
+    _check_leaf(doc, leaf, values, cleared_amendment)
     if _owner(leaf) != (doc.doctype, doc.name) or not values['payee']:
         frappe.throw(_('Save the cheque reservation and payee before approving.'))
     if operation == 'void' and (not cint(leaf.get('signed')) or leaf.status not in ('Reserved', 'Issued')):
         frappe.throw(_('Only a signed, uncleared cheque can be voided through this action.'))
-    values.update({'cheque_number': leaf.cheque_number, 'signed': cint(leaf.get('signed')), 'operation': operation})
+    values.update({'cheque_number': leaf.cheque_number, 'signed': cint(leaf.get('signed')), 'operation': operation,
+                   'already_cleared': cleared_amendment and operation == 'sign'})
     return values
 
 

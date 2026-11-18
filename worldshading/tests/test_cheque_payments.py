@@ -51,6 +51,7 @@ class TestChequePayments(unittest.TestCase):
         self.stack.enter_context(patch.object(service, 'now', return_value='2026-11-18 10:00:00'))
         self.book = Doc(doctype='Cheque Book', name='CB-1', account='BANK', company='Company',
                         currency='BHD', status='Active', valid_from=None, valid_to=None)
+        self.sources = {}
         self.leaves = {
             name: Doc(doctype='Cheque Leaf', name=name, account='BANK', company='Company', currency='BHD',
                       cheque_book='CB-1', cheque_number=number, status='Available', signed=0,
@@ -68,6 +69,8 @@ class TestChequePayments(unittest.TestCase):
             return self.leaves[name]
         if dt == 'Cheque Book':
             return self.book
+        if (dt, name) in self.sources:
+            return self.sources[(dt, name)]
         raise AssertionError('Unexpected document lookup: ' + dt)
 
     def apply_leaf(self, leaf, values):
@@ -108,6 +111,163 @@ class TestChequePayments(unittest.TestCase):
         doc.workflow_state = 'Pending Reconciliation'
         self.validate_save(doc)
         return doc
+
+    def cancelled_cleared(self, dt='GL Payment'):
+        doc = self.signed(dt)
+        # Fixture represents a previously submitted/reconciled bank cheque.
+        doc.update(dict(docstatus=2, workflow_state='Cancelled'))
+        self.leaves['CL-1'].update(dict(status='Cleared', cleared_date='2026-11-22'))
+        self.sources[(dt, doc.name)] = Doc(doc.as_dict())
+        return self.sources[(dt, doc.name)]
+
+    def amendment(self, original, **changes):
+        doc = self.payment(original.doctype, name=original.name + '-1',
+                           amended_from=original.name, posting_date='2026-11-23')
+        doc.update(changes)
+        return doc
+
+    def test_submission_clears_signed_cheque_and_uses_clearance_date(self):
+        for dt in ('Payment Entry', 'GL Payment'):
+            with self.subTest(dt=dt):
+                # Each source type has its own independent leaf fixture.
+                self.leaves['CL-1'].update(dict(status='Available', signed=0, payment_entry=None,
+                                          gl_payment=None, signature_confirmed_by=None))
+                doc = self.signed(dt)
+                doc.update(dict(docstatus=1, workflow_state='Completed', clearance_date='2026-11-22'))
+                self.validate_save(doc)
+                leaf = self.leaves['CL-1']
+                self.assertEqual((leaf.status, str(leaf.cleared_date)), ('Cleared', '2026-11-22'))
+                doc.clearance_date = '2026-11-25'
+                self.validate_save(doc)
+                self.assertEqual(str(leaf.cleared_date), '2026-11-22')
+
+    def test_submission_without_bank_clearance_date_uses_confirmation_day(self):
+        doc = self.signed('GL Payment')
+        doc.update(dict(docstatus=1, workflow_state='Completed'))
+        self.validate_save(doc)
+        self.assertEqual(str(self.leaves['CL-1'].cleared_date), '2026-11-18')
+
+    def test_cancel_cleared_payment_preserves_bank_fact_signature_and_owner(self):
+        doc = self.cancelled_cleared()
+        # Model native cancellation: previous document is still submitted.
+        doc._previous = Doc(doc.as_dict()); doc._previous.docstatus = 1
+        service.before_cancel(doc)
+        service.sync_payment(doc)
+        leaf = self.leaves['CL-1']
+        self.assertEqual((leaf.status, leaf.gl_payment, leaf.signed), ('Cleared', 'GL-1', 1))
+        self.assertEqual((leaf.cleared_date, leaf.signature_confirmed_by), ('2026-11-22', 'approver'))
+
+    def test_amendment_transfers_only_after_successful_save_and_preserves_history(self):
+        for dt in ('GL Payment', 'Payment Entry'):
+            with self.subTest(dt=dt):
+                self.leaves['CL-1'].update(dict(status='Available', signed=0, payment_entry=None, gl_payment=None))
+                old = self.cancelled_cleared(dt)
+                doc = self.amendment(old, posting_date='2026-11-24', remarks='Corrected expense account')
+                service.prepare_payment(doc)
+                service.validate_payment(doc)
+                leaf = self.leaves['CL-1']
+                self.assertEqual(leaf.get(service.SOURCE_FIELDS[dt]), old.name,
+                                 'Validation/failed payment saves must not transfer ownership')
+                service.sync_payment(doc)
+                self.assertEqual(leaf.get(service.SOURCE_FIELDS[dt]), doc.name)
+                self.assertEqual((leaf.status, leaf.cleared_date, leaf.signed), ('Cleared', '2026-11-22', 1))
+                self.assertEqual(old.cheque_leaf, 'CL-1')
+                self.assertIn(old.name, doc._test_comments[0][1])
+
+    def test_missing_leaf_is_restored_only_for_verified_cleared_amendment(self):
+        old = self.cancelled_cleared()
+        doc = self.amendment(old, cheque_leaf=None)
+        service.prepare_payment(doc)
+        self.assertEqual((doc.cheque_leaf, doc.reference_no), ('CL-1', '000101'))
+
+    def test_amendment_cannot_select_another_leaf_or_change_physical_details(self):
+        old = self.cancelled_cleared()
+        for changes in ({'cheque_leaf': 'CL-2'}, {'payment_account': 'OTHER BANK'},
+                        {'company': 'Other Company'}, {'total_amount': 101},
+                        {'reference_date': '2026-11-21'}, {'party': 'OTHER'},
+                        {'mode_of_payment': 'Cash'}, {'payment_type': 'Incoming'}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                doc = self.amendment(old, **changes)
+                service.prepare_payment(doc)
+                service.validate_payment(doc)
+        self.assertEqual(self.leaves['CL-1'].gl_payment, old.name)
+
+    def test_duplicate_wrong_parent_unsigned_or_non_cancelled_source_cannot_claim_leaf(self):
+        old = self.cancelled_cleared()
+        with self.assertRaises(ValueError):
+            service.validate_payment(self.payment('GL Payment', name='DUPLICATE'))
+        other = Doc(old); other.name = 'OTHER'; other.cheque_leaf = 'CL-2'
+        self.sources[('GL Payment', 'OTHER')] = other
+        with self.assertRaises(ValueError):
+            service.validate_payment(self.amendment(old, amended_from='OTHER'))
+        for changes in ({'docstatus': 1}, {'docstatus': 0}):
+            old.update(changes)
+            with self.assertRaises(ValueError):
+                service.validate_payment(self.amendment(old))
+        old.docstatus = 2
+        self.leaves['CL-1'].signed = 0
+        with self.assertRaises(ValueError):
+            service.validate_payment(self.amendment(old))
+
+    def test_amendment_requires_permission_on_cancelled_source(self):
+        old = self.cancelled_cleared()
+        old._denied = ['amend']
+        with self.assertRaises(frappe.PermissionError):
+            service.validate_payment(self.amendment(old))
+
+    def test_two_amendments_cannot_claim_same_cleared_leaf(self):
+        old = self.cancelled_cleared()
+        first = self.validate_save(self.amendment(old))
+        with self.assertRaises(ValueError):
+            service.validate_payment(self.amendment(old, name='GL-1-OTHER'))
+        self.assertEqual(self.leaves['CL-1'].gl_payment, first.name)
+
+    def test_cleared_amendment_keeps_existing_workflow_without_resigning(self):
+        old = self.cancelled_cleared()
+        doc = self.validate_save(self.amendment(old))
+        doc.workflow_state = 'Pending Cheque Payment - App'
+        self.validate_save(doc)
+        self.sources[(doc.doctype, doc.name)] = doc
+        details = service.get_signing_details(doc.doctype, doc.name)
+        self.assertTrue(details['already_cleared'])
+        doc.workflow_state = 'Pending Reconciliation'
+        self.validate_save(doc)
+        self.assertEqual(self.leaves['CL-1'].signature_confirmed_on, '2026-11-18 10:00:00')
+        self.assertEqual(self.leaves['CL-1'].status, 'Cleared')
+        doc.update(dict(docstatus=1, workflow_state='Completed'))
+        self.validate_save(doc)
+        self.assertEqual(self.leaves['CL-1'].cleared_date, '2026-11-22')
+
+    def test_cleared_amendment_still_requires_native_signing_action_permission(self):
+        old = self.cancelled_cleared()
+        doc = self.validate_save(self.amendment(old))
+        doc.workflow_state = 'Pending Cheque Payment - App'
+        self.validate_save(doc)
+        doc.workflow_state = 'Pending Reconciliation'
+        with patch.object(service, '_approval_access', return_value=False):
+            with self.assertRaises(ValueError):
+                service.validate_payment(doc)
+        self.assertEqual(self.leaves['CL-1'].status, 'Cleared')
+
+    def test_saved_amendment_cannot_detach_leaf_or_change_ancestry(self):
+        old = self.cancelled_cleared()
+        doc = self.validate_save(self.amendment(old))
+        for changes in ({'cheque_leaf': None}, {'cheque_leaf': 'CL-2'}, {'amended_from': None}):
+            changed = Doc(doc); changed.update(changes)
+            with self.assertRaises(ValueError):
+                service.validate_payment(changed)
+
+    def test_repeated_cancel_amend_chain_preserves_physical_cheque(self):
+        old = self.cancelled_cleared()
+        first = self.validate_save(self.amendment(old))
+        first.docstatus = 1; first.workflow_state = 'Completed'
+        self.validate_save(first)
+        first.docstatus = 2; first.workflow_state = 'Cancelled'
+        service.before_cancel(first); service.sync_payment(first)
+        self.sources[(first.doctype, first.name)] = Doc(first.as_dict())
+        second = self.validate_save(self.amendment(first))
+        self.assertEqual((self.leaves['CL-1'].gl_payment, self.leaves['CL-1'].status), (second.name, 'Cleared'))
+        self.assertEqual(self.leaves['CL-1'].cleared_date, '2026-11-22')
 
     def test_save_reserves_one_leaf_and_copies_bank_details(self):
         doc = self.payment()

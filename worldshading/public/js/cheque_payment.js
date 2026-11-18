@@ -74,6 +74,13 @@
                         reject(new Error('Unexpected cheque action'));
                         return;
                     }
+                    // The server verified the cancelled original, ownership and
+                    // unchanged physical cheque. Existing approvals still run.
+                    if (!voiding && details.already_cleared === true) {
+                        frappe.validated = true;
+                        resolve();
+                        return;
+                    }
                     const rows = [
                         [__('Cheque'), details.cheque_number + ' (' + details.leaf + ')'],
                         [__('Bank Account'), details.account],

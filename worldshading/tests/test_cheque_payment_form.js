@@ -84,6 +84,17 @@ async function run() {
         assert.strictEqual(frm.doc.custom_cheque_signing_confirmation, undefined);
     }
     for (const dt of ['Payment Entry', 'GL Payment']) {
+        const frm = form(dt, 'Pending Cheque Payment - App', dt === 'Payment Entry' ? 'Approve' : 'Paid');
+        details.already_cleared = true;
+        const previousDialog = dialog;
+        const result = events[dt].before_workflow_action(frm);
+        assert.strictEqual(dialog, previousDialog, 'A server-verified cleared amendment must not open another signing dialog');
+        await result;
+        assert.strictEqual(frm.saves, 0, 'Already-cleared amendments do not need a new signing acknowledgement');
+        assert.strictEqual(frappe.validated, true);
+    }
+    delete details.already_cleared;
+    for (const dt of ['Payment Entry', 'GL Payment']) {
         const frm = form(dt, 'Pending Reconciliation', 'Void Cheque');
         const pending = events[dt].before_workflow_action(frm);
         assert.ok(pending && pending.then);
