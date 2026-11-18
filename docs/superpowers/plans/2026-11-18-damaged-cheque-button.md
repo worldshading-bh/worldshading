@@ -47,3 +47,11 @@
 - The damage action fills the field with the validated evidence file_url in the same save/context as Damaged. Direct setting/replacing/clearing is rejected; a field value on an undamaged cheque is rejected.
 - Preflight found no values in the generic attachment field and one damaged leaf with one private attachment. Snapshot that leaf/file/settings and populate only that field after verifying exact ownership and uniqueness; preserve status/reason/history and all other records.
 - Regression tests failed before implementation for missing field population and direct field edits. Deployment includes native metadata/script sync, six-worker module activation, live field checks and plain-language guide update. No real cheque action/upload, migrate, bench tests or restart.
+
+### Damage attachment field activation
+
+- Main fast-forwarded to `957e927`. Independent focused review found no Important defects. Fresh verification: 130 database-free Python checks and five Node form suites, JS syntax/diff checks pass.
+- Restricted before/receipt snapshot: `sites/erp.worldshading.com/private/cheque-register-rollbacks/20261118T114726Z-damage-attachment-field/`.
+- Reused only the existing attachment field/settings and refreshed leaf Custom Script; activated six workers and verified live Attach/readonly/conditional/no-copy metadata. No new column, migration or restart.
+- Populated CL-000049's previously empty reference from its sole existing private File d735c3ecb5 after snapshot/identity/permission checks. File unchanged; other values on this leaf (except normal modification timestamps) and all other leaves preserved. No upload, cancellation or payment action performed.
+- Plain-language private guide now explains the conditional Damage Attachment field and same-file behaviour. Existing note privacy/sharing preserved. Source is committed locally, not pushed.
