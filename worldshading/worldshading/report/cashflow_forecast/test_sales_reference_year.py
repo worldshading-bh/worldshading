@@ -1,6 +1,6 @@
-"""Forecast years repeat a single completed reference year's calendar sales."""
+"""Use the latest historical matching calendar date, never an unrecorded future date."""
 import unittest
-from unittest.mock import patch,Mock
+from unittest.mock import patch, Mock
 from datetime import date
 from types import SimpleNamespace
 import frappe
@@ -12,43 +12,46 @@ class SalesReferenceYearTests(unittest.TestCase):
         source.historical={};source.sales_tax={};source.warnings=[]
         return source
 
-    def test_current_and_next_forecast_year_use_same_completed_reference(self):
-        source=self.source(date(2026,11,17),date(2027,12,31))
-        prior=frappe._dict(name='REF',posting_date=date(2025,11,18),base_grand_total=110)
-        today=frappe._dict(name='TODAY',posting_date=source.start,base_grand_total=25)
-        with patch.object(frappe,'has_permission',return_value=True),patch.object(frappe,'get_list',side_effect=[[prior],[today],[frappe._dict(posting_date=date(2025,1,1))]]) as listing, \
-             patch.object(frappe,'db',SimpleNamespace(sql=Mock(return_value=[frappe._dict(parent='REF',amount=10)]))):
+    def load(self,source,records,taxes=None):
+        listing=Mock(side_effect=[records,[]])
+        with patch.object(frappe,'has_permission',return_value=True),patch.object(frappe,'get_list',listing), \
+             patch.object(frappe,'db',SimpleNamespace(sql=Mock(return_value=taxes or []))):
             source.historical_sales()
-        self.assertEqual(source.historical['2026-11-18'],110)
-        self.assertEqual(source.historical['2027-11-18'],110)
-        self.assertEqual(source.sales_tax['2026-11-18'],10)
-        self.assertEqual(source.sales_tax['2027-11-18'],10)
-        self.assertEqual(source.actual_sales_today,25)
-        self.assertEqual(source.historical_reference_year,2025)
-        self.assertFalse(any('beyond available' in warning for warning in source.warnings))
-        self.assertEqual(listing.call_args_list[0][1]['filters']['posting_date'],['between',[date(2025,1,1),date(2025,12,31)]])
+        return listing
 
-    def test_leap_day_uses_february_28_when_reference_year_is_not_leap(self):
-        source=self.source(date(2027,11,17),date(2028,3,1))
-        prior=frappe._dict(name='REF',posting_date=date(2026,2,28),base_grand_total=55)
-        with patch.object(frappe,'has_permission',return_value=True),patch.object(frappe,'get_list',side_effect=[[prior],[],[frappe._dict(posting_date=date(2026,1,1))]]), \
-             patch.object(frappe,'db',SimpleNamespace(sql=Mock(return_value=[]))):source.historical_sales()
+    def test_previous_year_when_historical_and_fallback_only_after_today(self):
+        source=self.source(date(2026,11,18),date(2027,12,31))
+        rows=[frappe._dict(name='OLD',posting_date=date(2025,11,19),base_grand_total=110),
+              frappe._dict(name='JAN',posting_date=date(2026,1,2),base_grand_total=220),
+              frappe._dict(name='BOUNDARY',posting_date=date(2026,11,18),base_grand_total=25),
+              frappe._dict(name='FUTURE',posting_date=date(2026,11,19),base_grand_total=999)]
+        listing=self.load(source,rows,[frappe._dict(parent='JAN',amount=20),frappe._dict(parent='OLD',amount=10)])
+        self.assertEqual(source.historical['2027-01-02'],220)
+        self.assertEqual(source.sales_tax['2027-01-02'],20)
+        self.assertEqual(source.historical['2027-11-18'],25)
+        self.assertEqual(source.historical['2027-11-19'],110)
+        self.assertEqual(source.sales_tax['2027-11-19'],10)
+        self.assertEqual(source.historical['2026-11-19'],110)
+        self.assertEqual(source.actual_sales_today,25)
+        fallback=[p for p in source.historical_reference_periods if p['fallback']]
+        self.assertEqual(fallback,[dict(forecast_from='2027-11-19',forecast_to='2027-12-31',reference_from='2025-11-19',reference_to='2025-12-31',fallback=True)])
+        query=listing.call_args_list[0][1]['filters']['posting_date'][1]
+        self.assertLessEqual(query[1],source.start)
+        self.assertLessEqual(listing.call_count,2)
+
+    def test_zero_sales_day_is_not_replaced_with_older_sales(self):
+        source=self.source(date(2026,11,18),date(2027,1,3))
+        self.load(source,[frappe._dict(name='OLD',posting_date=date(2025,1,2),base_grand_total=55)])
+        self.assertEqual(source.historical['2027-01-02'],0)
+
+    def test_leap_day_uses_february_28_of_latest_historical_year(self):
+        source=self.source(date(2026,11,18),date(2028,3,1))
+        self.load(source,[frappe._dict(name='FEB',posting_date=date(2026,2,28),base_grand_total=55)])
         self.assertEqual(source.historical['2028-02-29'],55)
         self.assertEqual(source.historical['2028-02-28'],55)
 
-    def test_no_reference_invoices_still_warns_and_does_not_invent_sales(self):
-        source=self.source(date(2026,11,17),date(2026,11,18))
-        today=frappe._dict(name='TODAY',posting_date=source.start,base_grand_total=25)
-        with patch.object(frappe,'has_permission',return_value=True),patch.object(frappe,'get_list',side_effect=[[],[today],[]]), \
-             patch.object(frappe,'db',SimpleNamespace(sql=Mock(return_value=[]))):source.historical_sales()
-        self.assertEqual(source.historical['2026-11-18'],0)
-        self.assertTrue(any('2025' in warning for warning in source.warnings))
-
-    def test_first_invoice_on_january_2_is_not_an_incomplete_history_warning(self):
-        source=self.source(date(2026,11,17),date(2027,12,31))
-        prior=frappe._dict(name='REF',posting_date=date(2025,1,2),base_grand_total=55)
-        with patch.object(frappe,'has_permission',return_value=True),patch.object(frappe,'get_list',side_effect=[[prior],[],[frappe._dict(posting_date=date(2025,1,2))]]), \
-             patch.object(frappe,'db',SimpleNamespace(sql=Mock(return_value=[]))):source.historical_sales()
-        self.assertFalse(any('coverage starts' in warning for warning in source.warnings))
-        self.assertEqual(source.historical['2027-01-01'],0)
-        self.assertEqual(source.historical['2027-01-02'],55)
+    def test_no_reference_invoices_warns_without_inventing_sales(self):
+        source=self.source(date(2026,11,18),date(2026,11,19))
+        self.load(source,[])
+        self.assertEqual(source.historical['2026-11-19'],0)
+        self.assertTrue(source.warnings)

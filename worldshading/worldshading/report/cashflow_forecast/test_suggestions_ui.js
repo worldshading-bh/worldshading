@@ -27,7 +27,7 @@ const report={report_name:'Cashflow Forecast',filters:[],page:{add_inner_button:
 context.frappe.query_reports['Cashflow Forecast'].onload(report);
 (async()=>{
  const settings=context.frappe.query_reports['Cashflow Forecast'];
- assert.strictEqual(settings.filters.find(f=>f.fieldname==='end_date').default,'2027-12-31');
+ assert.strictEqual(settings.filters.find(f=>f.fieldname==='end_date').default,'2027-11-11');
  assert.strictEqual(settings.filters.find(f=>f.fieldname==='maximum_shortage').default,1000);
  buttons['Check Purchase']();const d=dialog;
  d.fields_dict.payments.grid.df.data=[{date:'2026-11-20',amount:600},{date:'2026-11-23',amount:400}];

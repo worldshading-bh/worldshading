@@ -161,9 +161,10 @@
         if (adjustment === undefined && Number(row.previous_year_sales) && row.adjusted_sales !== undefined) {
             adjustment = ((Number(row.adjusted_sales)/Number(row.previous_year_sales)-1)*100).toFixed(2);
         }
-        var referenceYear=snapshot.historical_reference_year;
+        var period=(snapshot.historical_reference_periods || []).find(function(item){return String(row.date)>=item.forecast_from && String(row.date)<=item.forecast_to;});
+        var referenceYear=period && !row.month?Number(period.reference_from.slice(0,4)):snapshot.historical_reference_year;
         var text=snapshot.manual_sales ? __('Average Daily Sales')+': '+format_currency(snapshot.average_daily_sales || 0,row.currency,3) :
-            (referenceYear?__('Reference Sales')+' ('+referenceYear+')':__('Prior-Year Sales'))+': '+format_currency(row.previous_year_sales || 0,row.currency,3);
+            (referenceYear?__('Reference Sales')+' ('+referenceYear+')':(snapshot.historical_reference_periods?__('Reference Sales'):__('Prior-Year Sales')))+': '+format_currency(row.previous_year_sales || 0,row.currency,3);
         if(!snapshot.manual_sales && referenceYear && !row.month && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))) {
             var parts=String(row.date).split('-').map(Number),last=new Date(Date.UTC(Number(referenceYear),parts[1],0)).getUTCDate();
             var reference=referenceYear+'-'+String(parts[1]).padStart(2,'0')+'-'+String(Math.min(parts[2],last)).padStart(2,'0');
@@ -572,6 +573,15 @@
         if(Number(snapshot.support_amount)) html+='<tr><td>'+__('Support Added to Opening Cash')+'</td><td>'+format_currency(snapshot.support_amount,first.currency,3)+'</td></tr>';
         if(actual) html+='<tr><td>'+__('Actual Sales Today')+'</td><td>'+(actual.datatype==='Currency'?format_currency(actual.value,actual.currency,3):esc(actual.value))+'</td></tr>';
         html+='</tbody></table>';
+        if(!snapshot.manual_sales && snapshot.historical_reference_periods) {
+            html+='<h5>'+__('Sales Reference Dates')+'</h5><p>'+__('Sales use the previous year’s matching date. Future comparison dates use an earlier year; recorded zero-sales days stay zero.')+'</p>';
+            var fallbacks=snapshot.historical_reference_periods.filter(function(period){return period.fallback;});
+            if(fallbacks.length) {
+                html+='<table class="table table-condensed"><thead><tr><th>'+__('Forecast Dates')+'</th><th>'+__('Sales Dates Used')+'</th></tr></thead><tbody>';
+                fallbacks.forEach(function(period){html+='<tr><td>'+esc(date_label(period.forecast_from)+' – '+date_label(period.forecast_to))+'</td><td>'+esc(date_label(period.reference_from)+' – '+date_label(period.reference_to))+'</td></tr>';});
+                html+='</tbody></table>';
+            }
+        }
         if(accounts.length) {
             html+='<details class="cashflow-expandable">'+collapse_heading(esc(__('Opening Account Balances')))+'<table class="table table-condensed"><thead><tr><th>'+__('Account')+'</th><th class="text-right">'+__('Balance')+'</th></tr></thead><tbody>';
             accounts.forEach(function(account){html+='<tr><td>'+esc(account.account)+'</td><td class="text-right">'+format_currency(account.amount,first.currency,3)+'</td></tr>';});
@@ -796,8 +806,18 @@
             var gap=Math.round((Date.parse(anchor+'T00:00:00Z')-Date.parse(dates[0]+'T00:00:00Z'))/86400000);
             return dates.map(function(due){return frappe.datetime.add_days(due,gap);});
         }
+        function remember_po_dates(index) {
+            var draft=drafts[index],rows=payment_rows(index);
+            if(!rows.length || !rows[0].date)return;
+            draft._po_date_mode=true;draft._term_anchor=rows[0].date;
+            var anchor=Date.parse(rows[0].date+'T00:00:00Z');
+            draft._term_dates=rows.map(function(row,i){return {row:row,date:row.date,
+                manual:i>0 && row.follow_first===false,
+                offset_days:Math.round((Date.parse(row.date+'T00:00:00Z')-anchor)/86400000)};});
+        }
         function remember_term_dates(index,initial) {
             var draft=drafts[index],rows=payment_rows(index);
+            if(draft._po_date_mode){remember_po_dates(index);return;}
             if(!draft._supplier_profile || !rows.length)return;
             var previous=initial && initial.length===rows.length?initial:rows;
             var expected=term_dates(draft._supplier_profile,previous[0].date);
@@ -818,9 +838,13 @@
             if(rows.length!==state.length || rows.some(function(row,i){return row!==state[i].row;})) {
                 draft._term_dates=null;return;
             }
-            rows.forEach(function(row,i){if(i && row.date!==state[i].date)state[i].manual=true;});
+            rows.forEach(function(row,i){
+                if(i && row.date!==state[i].date)state[i].manual=true;
+                if(i && draft._po_date_mode && state[i].manual)row.follow_first=false;
+            });
             if(rows[0].date===draft._term_anchor || !rows[0].date)return;
-            var dates=term_dates(draft._supplier_profile,rows[0].date),changed=false;
+            var dates=draft._po_date_mode?state.map(function(item){return frappe.datetime.add_days(rows[0].date,item.offset_days);}):
+                term_dates(draft._supplier_profile,rows[0].date),changed=false;
             draft._syncing_dates=true;
             try {
                 rows.forEach(function(row,i){
@@ -833,9 +857,15 @@
         }
         function supplier_changed(index,apply) {
             if(!dialog)return Promise.resolve();
-            var draft=drafts[index],supplier=dialog.get_value(key('supplier',index));
+            var draft=drafts[index];
+            if(draft._setting_po)return Promise.resolve();
+            if(apply && dialog.get_value(key('draft_po',index))) {
+                draft._po_revision=(draft._po_revision || 0)+1;draft._po_loading=false;
+                dialog.fields_dict[key('draft_po',index)].set_input('');
+            }
+            var supplier=dialog.get_value(key('supplier',index));
             var revision=(draft._supplier_revision || 0)+1;draft._supplier_revision=revision;
-            draft._supplier_profile=null;draft._term_dates=null;draft._supplier_loading=false;
+            draft._supplier_profile=null;draft._term_dates=null;draft._po_date_mode=false;draft._supplier_loading=false;
             if(!supplier)return Promise.resolve();
             draft._supplier_loading=true;
             var company=report.get_filter_value('company'),cache=report._cashflow_supplier_defaults || (report._cashflow_supplier_defaults={});
@@ -857,10 +887,50 @@
                 } else {remember_term_dates(index,initial);payment_dates_changed(index);}
             }).then(function(){if(draft._supplier_revision===revision)draft._supplier_loading=false;},function(error){if(draft._supplier_revision===revision)draft._supplier_loading=false;throw error;});
         }
+        function draft_po_changed(index) {
+            if(!dialog)return Promise.resolve();
+            var draft=drafts[index],name=dialog.get_value(key('draft_po',index));
+            var revision=(draft._po_revision || 0)+1;draft._po_revision=revision;
+            draft._po_loading=false;
+            if(!name)return Promise.resolve();
+            // Invalidate any supplier-template response before loading the PO's own dates.
+            draft._supplier_revision=(draft._supplier_revision || 0)+1;
+            draft._supplier_loading=false;draft._supplier_profile=null;draft._term_dates=null;draft._po_date_mode=false;
+            draft._po_loading=true;
+            var company=report.get_filter_value('company');
+            return frappe.call({method:method+'get_draft_purchase',args:{company:company,purchase_order:name},freeze:true,
+                freeze_message:__('Loading draft purchase…')}).then(function(response){
+                if(draft._po_revision!==revision || dialog.get_value(key('draft_po',index))!==name || report.get_filter_value('company')!==company || draft.removed)return;
+                var data=response.message;
+                draft._setting_po=true;
+                try {
+                    dialog.fields_dict[key('supplier',index)].set_input(data.supplier);
+                    var payments=dialog.fields_dict[key('payments',index)].grid;
+                    payments.df.data=dialog_rows(data.payments.map(function(row){return {date:row.date,amount:row.amount};}));
+                    payments.refresh();remember_po_dates(index);
+                    dialog.fields_dict[key('include_customs_vat',index)].set_input(data.customs_required || data.import_vat_required?1:0);
+                    var charges=dialog.fields_dict[key('import_charges',index)].grid;
+                    charges.df.data=dialog_rows([{charge:__('Customs'),date:data.customs_date || null},
+                        {charge:__('Import VAT'),date:data.import_vat_date || null}]);
+                    charges.refresh();update_import_fields(index);
+                    dialog.set_df_property(key('suggestion',index),'hidden',1);
+                    dialog.set_df_property(key('apply_suggestion',index),'hidden',1);
+                } finally {draft._setting_po=false;}
+                if(data.moved_past_dates)frappe.show_alert({message:__('Past draft PO payment dates moved to today. Future dates are unchanged.'),indicator:'blue'});
+            }).then(function(){if(draft._po_revision===revision)draft._po_loading=false;},function(error){
+                if(draft._po_revision===revision){
+                    draft._po_loading=false;
+                    dialog.fields_dict[key('draft_po',index)].set_input('');
+                }
+                throw error;
+            });
+        }
         function purchase_fields(index) {
             var draft=drafts[index];
             return [
                 {fieldname:'purchase_section_'+index,fieldtype:'Section Break',label:__('Purchase')+' '+(index+1),collapsible:1},
+                {fieldname:key('draft_po',index),fieldtype:'Link',options:'Purchase Order',label:__('Draft Purchase Order'),default:draft.draft_po || '',
+                    get_query:function(){return {filters:{company:report.get_filter_value('company'),docstatus:0}};},onchange:function(){return draft_po_changed(index);}},
                 {fieldname:key('supplier',index),fieldtype:'Link',options:'Supplier',label:__('Supplier'),default:draft.supplier || '',onchange:function(){return supplier_changed(index,true);}},
                 {fieldname:key('payments',index),fieldtype:'Table',label:__('Supplier Payments'),in_place_edit:true,
                     data:dialog_rows(draft.payments.map(function(row){return Object.assign({},row);})),fields:[
@@ -903,11 +973,15 @@
         var suggested={}, suggestedInput=null;
         function collect_purchases(values) {
             if(!values)return;
-            if(drafts.some(function(draft){return !draft.removed && draft._supplier_loading;})){frappe.msgprint(__('Please wait for the supplier dates to load.'));return;}
+            if(drafts.some(function(draft){return !draft.removed && (draft._supplier_loading || draft._po_loading);})){frappe.msgprint(__('Please wait for the purchase or supplier dates to load.'));return;}
             var purchases=[];
             for(var index=0;index<drafts.length;index++) {
                 if(drafts[index].removed)continue;
-                var rows=(values[key('payments',index)] || []).map(function(row){return {date:row.date,amount:row.amount};});
+                var rows=(values[key('payments',index)] || []).map(function(row){
+                    var payment={date:row.date,amount:row.amount};
+                    if(row.follow_first===false)payment.follow_first=false;
+                    return payment;
+                });
                 var charges=Number(values[key('include_customs_vat',index)] || 0) ? values[key('import_charges',index)] || [] : [];
                 var customsRow=charges.find(function(row){return row.charge===__('Customs');});
                 var vatRow=charges.find(function(row){return row.charge===__('Import VAT');});
@@ -918,7 +992,7 @@
                 if(!rows.length || rows.some(function(row){return !row.date || !isFinite(Number(row.amount)) || Number(row.amount)<=0;})) {
                     frappe.msgprint(__('Enter a date and positive amount for every payment in Purchase')+' '+(purchases.length+1));return;
                 }
-                purchases.push({supplier:values[key('supplier',index)] || null,payments:rows,customs_required:customs,import_vat_required:vat,
+                purchases.push({draft_po:values[key('draft_po',index)] || null,supplier:values[key('supplier',index)] || null,payments:rows,customs_required:customs,import_vat_required:vat,
                     customs_date:customs?customsDate:null,import_vat_date:vat?vatDate:null});
             }
             if(!purchases.length){frappe.msgprint(__('Add a supplier payment, or use Clear All Purchases.'));return;}
@@ -1029,7 +1103,8 @@
             update_import_fields(index);
             var section=dialog.fields_dict && dialog.fields_dict['purchase_section_'+index];
             if(section && section.collapse)section.collapse(index!==0);
-            if(draft.supplier)supplier_changed(index,false);
+            if(draft.draft_po)remember_po_dates(index);
+            else if(draft.supplier)supplier_changed(index,false);
         });
         style_purchase_actions();
         if(dialog.$wrapper){
@@ -1199,6 +1274,12 @@
         dialog.show();
     }
 
+    function next_year_date(value) {
+        var parts=value.split('-').map(Number),year=parts[0]+1;
+        var last=new Date(Date.UTC(year,parts[1],0)).getUTCDate();
+        return year+'-'+String(parts[1]).padStart(2,'0')+'-'+String(Math.min(parts[2],last)).padStart(2,'0');
+    }
+
     frappe.query_reports['Cashflow Forecast'] = {
         filters: [
             {fieldname: 'forecast_date', label: __('Forecast Date'), fieldtype: 'Date', read_only: 1, hidden: 1,
@@ -1208,7 +1289,7 @@
             {fieldname:'excluded_accounts',label:__('Exclude Accounts'),fieldtype:'MultiSelectList',default:[],placeholder:__('Exclude Accounts'),
                 get_data:function(text){return exclusion_options(frappe.query_report,text);},on_change:account_scope_changed},
             {fieldname: 'end_date', label: __('Forecast Until'), fieldtype: 'Date', reqd: 1,
-                default: (Number(frappe.datetime.get_today().slice(0,4))+1)+'-12-31'},
+                default: next_year_date(frappe.datetime.get_today())},
             {fieldname: 'account_scope', fieldtype: 'Data', hidden: 1, default: 'parent-groups-v1'},
             {fieldname:'manual_sales',label:__('Use Average Daily Sales'),fieldtype:'Check',default:0,on_change:function(report){toggle_sales_fields(report);}},
             {fieldname:'average_daily_sales',label:__('Average Daily Sales'),fieldtype:'Currency',precision:3,default:0,description:__('Including VAT.'),depends_on:'eval:doc.manual_sales'},
@@ -1221,7 +1302,7 @@
             {fieldname: 'purchase_scenario', fieldtype: 'Small Text', hidden:1, default:'{}'},
             {fieldname:'today_policy',fieldtype:'Data',hidden:1,default:'auto-v1'},
             {fieldname:'payroll_policy',fieldtype:'Data',hidden:1,default:'ledger-v1'},
-            {fieldname:'sales_policy',fieldtype:'Data',hidden:1,default:'auto-holidays-v1'},
+            {fieldname:'sales_policy',fieldtype:'Data',hidden:1,default:'rolling-history-v1'},
             {fieldname:'vat_policy',fieldtype:'Data',hidden:1,default:'quarter-v4'},
             {fieldname: 'scenario_policy', fieldtype:'Data', hidden:1, default:'purchase-budget-v4'},
             {fieldname: 'supplier_policy', fieldtype: 'Data', hidden: 1, default: 'installments-v2'},
