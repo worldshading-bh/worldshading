@@ -227,9 +227,25 @@ class Sources(object):
         if not frappe.has_permission('Sales Invoice', 'read'):
             self.warn('Sales Invoice access missing; sales coverage is incomplete.')
             return
-        self.historical_reference_year = self.start.year-1
-        comparators = [(day,date(self.historical_reference_year,day.month,
-            min(day.day,monthrange(self.historical_reference_year,day.month)[1]))) for day in days(self.start,self.end)]
+        self.historical_reference_year = None  # Legacy snapshots used one fixed year.
+        comparators = []
+        self.historical_reference_periods = []
+        for day in days(self.start,self.end):
+            year = day.year-1
+            prior = date(year,day.month,min(day.day,monthrange(year,day.month)[1]))
+            while prior > self.start:
+                year -= 1
+                prior = date(year,day.month,min(day.day,monthrange(year,day.month)[1]))
+            comparators.append((day,prior))
+            fallback = year != day.year-1
+            periods = self.historical_reference_periods
+            if (periods and periods[-1]['reference_from'][:4] == str(year)
+                    and periods[-1]['forecast_from'][:4] == str(day.year)
+                    and periods[-1]['fallback'] == fallback):
+                periods[-1].update(forecast_to=str(day),reference_to=str(prior))
+            else:
+                periods.append(dict(forecast_from=str(day),forecast_to=str(day),
+                    reference_from=str(prior),reference_to=str(prior),fallback=fallback))
         first = min(prior for day,prior in comparators)
         last = max(prior for day,prior in comparators)
         records = frappe.get_list('Sales Invoice', filters={'company': self.company, 'docstatus': 1,
@@ -240,8 +256,10 @@ class Sources(object):
                 'posting_date': self.start}, fields=['name', 'posting_date', 'base_grand_total'], limit_page_length=0)
         invoices = {r.name: r for r in records}
         self.actual_sales_today = money(0)
-        if not any(as_date(row.posting_date).year==self.historical_reference_year for row in invoices.values()):
-            self.warn('No accessible submitted sales invoices in reference year {0}; forecast sales use zero where no reference sales are recorded.'.format(self.historical_reference_year))
+        reference_years = {prior.year for day,prior in comparators}
+        recorded_years = {as_date(row.posting_date).year for row in invoices.values() if as_date(row.posting_date)<=self.start}
+        for year in sorted(reference_years-recorded_years):
+            self.warn('No accessible submitted sales invoices in reference year {0}; forecast sales use zero where no reference sales are recorded.'.format(year))
         totals, taxes, dates = defaultdict(Decimal), defaultdict(Decimal), set()
         for r in invoices.values():
             day = as_date(r.posting_date)

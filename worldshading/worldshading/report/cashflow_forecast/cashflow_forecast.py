@@ -147,9 +147,20 @@ def validate(filters):
             elif purchase.get('schema') not in (2, 3, 4, 5) and int(purchase.get('international') or 0):
                 template = get_purchase_template(filters.company, purchase.get('tax_template'))['rows']
         if isinstance(purchase,dict) and purchase.get('schema') in (4,5):
-            suppliers = {}
+            suppliers,draft_names = {},set()
             for item in purchase.get('purchases') or []:
                 supplier = item.get('supplier') if isinstance(item,dict) else None
+                draft_name = item.get('draft_po') if isinstance(item,dict) else None
+                if draft_name:
+                    if not isinstance(draft_name,str) or draft_name in draft_names:
+                        raise ValueError('Select each draft Purchase Order only once.')
+                    draft_names.add(draft_name)
+                    draft = frappe.get_doc('Purchase Order',draft_name)
+                    draft.check_permission('read')
+                    if draft.company!=filters.company or draft.docstatus!=0:
+                        raise ValueError('This Purchase Order is no longer a draft for this company. Remove it from Check Purchase and rebuild the forecast.')
+                    if supplier and supplier!=draft.supplier:
+                        raise ValueError('The selected supplier differs from the draft Purchase Order. Clear the draft PO selection before changing its supplier.')
                 if not supplier:
                     continue
                 if not isinstance(supplier,str):
@@ -208,6 +219,51 @@ def preview_purchase(company, end_date, purchase):
     values = frappe.parse_json(purchase) if isinstance(purchase, str) else purchase
     filters, start, end, accounts, events = validate(dict(company=company, end_date=end_date, purchase_scenario=values))
     return dict(events=[dict(event, date=str(event['date']), amount=str(event['amount'])) for event in events])
+
+
+@frappe.whitelist()
+def get_draft_purchase(company, purchase_order):
+    """Copy an authorized draft schedule into a scenario; no accounting writes."""
+    authorize(company)
+    po = frappe.get_doc('Purchase Order',purchase_order)
+    po.check_permission('read')
+    if po.company != company or po.docstatus != 0:
+        frappe.throw(_('Choose a draft Purchase Order for this company.'))
+    start = as_date(nowdate())
+    # ERPNext v12 builds payment schedules from rounded_total when available.
+    rate = money(po.get('conversion_rate'),9)
+    total = money(po.get('base_rounded_total') or po.get('base_grand_total'))
+    if rate <= 0 or total <= 0:
+        frappe.throw(_('The draft PO needs a positive total and exchange rate.'))
+    schedule = po.get('payment_schedule') or []
+    if len(schedule)>100:
+        frappe.throw(_('Maximum 100 supplier payments.'))
+    payments,moved = [],0
+    for row in schedule:
+        amount = money(Decimal(str(row.get('payment_amount') or 0))*rate)
+        if not amount:
+            continue
+        if amount<0 or not row.get('due_date'):
+            frappe.throw(_('Complete the draft PO payment amounts and dates first.'))
+        due = as_date(row.due_date)
+        moved += int(due<start)
+        payments.append(dict(date=str(max(due,start)),amount=str(amount)))
+    if not schedule:
+        due = as_date(po.get('transaction_date') or start)
+        moved += int(due<start)
+        payments = [dict(date=str(max(due,start)),amount=str(total))]
+    if not payments or abs(sum((money(row['amount']) for row in payments),money(0))-total)>money('.001')*len(payments):
+        frappe.throw(_('The draft PO payment schedule must cover its full supplier total. Complete it on the PO first.'))
+    company_country = (frappe.db.get_value('Company',company,'country') or '').strip().lower()
+    supplier_country = (po.get('supplier_country') or '').strip().lower()
+    international = bool(company_country and supplier_country and company_country!=supplier_country)
+    customs = int(international and bool(po.get('customs_required')))
+    vat = int(international and bool(po.get('import_vat_required')))
+    eta = max(as_date(po.eta_date),start) if po.get('eta_date') else None
+    return dict(draft_po=po.name,supplier=po.supplier,supplier_name=po.get('supplier_name') or po.supplier,
+        payments=payments,customs_required=customs,import_vat_required=vat,
+        customs_date=str(eta) if customs and eta else None,import_vat_date=str(eta) if vat and eta else None,
+        moved_past_dates=moved)
 
 
 @frappe.whitelist()
@@ -375,6 +431,7 @@ def render_forecast(source, filters, start, end, accounts, extra):
         support_amount=str(money(filters.support_amount)), sales_adjustment=str(money(filters.sales_adjustment)), minimum_reserve=str(money(filters.minimum_reserve)),
         today_policy='auto-v1', warnings=source.warnings, vat_policy='quarter-v4',
         historical_reference_year=getattr(source,'historical_reference_year',None),
+        historical_reference_periods=getattr(source,'historical_reference_periods',None),
         manual_sales=bool(filters.manual_sales), average_daily_sales=str(money(filters.average_daily_sales)), holiday_list=getattr(source,'holiday_list',None),
         calculation_inputs=calculation_inputs(source), base_filters={k:v for k,v in filters.items() if k not in ('purchase_scenario','prepared_report_name')},
         sales_comparison=getattr(source,'sales_comparison',None),
@@ -397,6 +454,11 @@ def report_message(source, filters, extra):
         'Payroll forecast: 28th monthly. Customs/import VAT: PO ETA. Quarterly net VAT: 25th of the following month; credits carry forward.',
         'Journal Entries use their net effect on the included account groups. Unlinked salary or expense matches require Accounts review.',
         'Temporary scenario inputs create no accounting transactions. A positive balance is subject to source coverage and assumptions.']
+    if getattr(source,'historical_reference_periods',None) and not filters.manual_sales:
+        text.append(escape('Sales use the previous year’s matching calendar date. If that date is after the forecast start, an earlier year is used. Recorded zero-sales days remain zero.'))
+        for period in source.historical_reference_periods:
+            if period['fallback']:
+                text.append(escape('Sales for {forecast_from} to {forecast_to} use {reference_from} to {reference_to}; the previous-year dates are still in the future.'.format(**period)))
     if getattr(source,'historical_reference_year',None) and not filters.manual_sales:
         text.append(escape('Sales forecasts use matching calendar dates from {0} throughout the forecast period.'.format(source.historical_reference_year)))
     if extra:
@@ -490,7 +552,7 @@ def get_overdue_commitments(filters):
 
 def calculation_inputs(source):
     """Immutable inputs for quick purchase checks; stored only inside protected snapshots."""
-    keys = ('historical_reference_year','sales_comparison','liquidity_accounts','excluded_accounts_breakdown','company','currency','opening_balance','events','historical','vat_opening','accounts_breakdown',
+    keys = ('historical_reference_periods','historical_reference_year','sales_comparison','liquidity_accounts','excluded_accounts_breakdown','company','currency','opening_balance','events','historical','vat_opening','accounts_breakdown',
             'warnings','actual_sales_today','vat_reconciliation','vat_ledger_balance','overdue','journal_stats',
             'holidays','holiday_list','payroll_reconciliation','payroll_loan_names')
     return {key:getattr(source,key,None) for key in keys}
