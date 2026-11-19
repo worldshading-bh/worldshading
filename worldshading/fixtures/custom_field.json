@@ -945,5 +945,16 @@
   "name": "GL Payment-custom_cheque_signing_confirmation",
   "no_copy": 1,
   "read_only": 1
+ },
+ {
+  "fieldname": "custom_bank_loan",
+  "label": "Bank Loan",
+  "fieldtype": "Link",
+  "options": "Bank Loan",
+  "insert_after": "user_remark",
+  "name": "Journal Entry-custom_bank_loan",
+  "doctype": "Custom Field",
+  "dt": "Journal Entry",
+  "allow_on_submit": 1
  }
 ]
