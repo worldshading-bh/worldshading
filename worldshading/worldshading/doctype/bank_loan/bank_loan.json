@@ -1,0 +1,471 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Loan",
+ "module": "Worldshading",
+ "autoname": "BLN-.YY.-.#####",
+ "engine": "InnoDB",
+ "title_field": "loan_name",
+ "search_fields": "loan_name,bank,agreement_number,company",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1,
+ "allow_import": 1,
+ "allow_rename": 0,
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Loan Details"
+  },
+  {
+   "fieldname": "loan_name",
+   "fieldtype": "Data",
+   "label": "Loan Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_global_search": 1
+  },
+  {
+   "fieldname": "loan_position",
+   "label": "Loan Setup",
+   "fieldtype": "Select",
+   "options": "Existing Loan\nNew Loan",
+   "default": "Existing Loan",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "in_standard_filter": 1,
+   "remember_last_selected_value": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Loan Currency",
+   "options": "Currency",
+   "reqd": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "identity_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bank",
+   "fieldtype": "Link",
+   "label": "Bank / Lender",
+   "options": "Bank",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "agreement_number",
+   "fieldtype": "Data",
+   "label": "Agreement Number",
+   "reqd": 1,
+   "in_global_search": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Inactive\nActive\nClosed",
+   "default": "Inactive",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "terms_section",
+   "fieldtype": "Section Break",
+   "label": "Principal and Terms"
+  },
+  {
+   "fieldname": "original_principal",
+   "fieldtype": "Currency",
+   "label": "Original Principal Amount",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "disbursement_date",
+   "fieldtype": "Date",
+   "label": "Loan Received Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "terms_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "maturity_date",
+   "fieldtype": "Date",
+   "label": "Maturity Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "repayment_frequency",
+   "fieldtype": "Select",
+   "label": "Repayment Frequency",
+   "options": "Monthly\nQuarterly\nHalf-yearly\nYearly\nCustom",
+   "default": "Monthly",
+   "reqd": 1
+  },
+  {
+   "fieldname": "interest_section",
+   "fieldtype": "Section Break",
+   "label": "Interest"
+  },
+  {
+   "fieldname": "interest_rate_type",
+   "fieldtype": "Select",
+   "label": "Interest Rate Type",
+   "options": "Fixed\nVariable",
+   "default": "Fixed",
+   "reqd": 1
+  },
+  {
+   "fieldname": "annual_interest_rate",
+   "fieldtype": "Percent",
+   "label": "Annual Interest Rate (%)",
+   "reqd": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "interest_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "interest_calculation_basis",
+   "fieldtype": "Select",
+   "label": "Interest Method",
+   "options": "Diminishing\nFlat Rate\nBank Schedule / Other",
+   "default": "Bank Schedule / Other",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rate_reference",
+   "fieldtype": "Data",
+   "label": "Variable Rate Reference",
+   "depends_on": "eval:doc.interest_rate_type == 'Variable'"
+  },
+  {
+   "fieldname": "tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Existing Loan Opening Position",
+   "depends_on": "eval:doc.loan_position != 'New Loan'"
+  },
+  {
+   "fieldname": "tracking_start_date",
+   "fieldtype": "Date",
+   "label": "Tracking Start Date",
+   "reqd": 1,
+   "description": "Include only installments due on or after this date."
+  },
+  {
+   "fieldname": "opening_principal",
+   "fieldtype": "Currency",
+   "label": "Opening Principal at Tracking Start",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "opening_reconciliation_note",
+   "fieldtype": "Small Text",
+   "label": "Opening Reconciliation Note"
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Repayment Schedule"
+  },
+  {
+   "fieldname": "schedule_notice",
+   "fieldtype": "HTML",
+   "options": "<p>Save to calculate schedule totals and projected principal balances.</p>"
+  },
+  {
+   "fieldname": "schedule",
+   "fieldtype": "Table",
+   "label": "Installments",
+   "options": "Bank Loan Installment"
+  },
+  {
+   "fieldname": "summary_section",
+   "fieldtype": "Section Break",
+   "label": "Schedule Totals"
+  },
+  {
+   "fieldname": "scheduled_principal",
+   "fieldtype": "Currency",
+   "label": "Scheduled Principal",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scheduled_interest",
+   "fieldtype": "Currency",
+   "label": "Scheduled Interest",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "summary_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "scheduled_charges",
+   "fieldtype": "Currency",
+   "label": "Scheduled Charges",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scheduled_total",
+   "fieldtype": "Currency",
+   "label": "Scheduled Total Payments",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "totals_last_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "unscheduled_principal",
+   "fieldtype": "Currency",
+   "label": "Principal Not Yet Scheduled",
+   "options": "currency",
+   "read_only": 1,
+   "description": "Must be zero before approval."
+  },
+  {
+   "fieldname": "payments_section",
+   "label": "Payments",
+   "fieldtype": "Section Break",
+   "depends_on": "eval:!doc.__islocal"
+  },
+  {
+   "fieldname": "load_payment_tracking",
+   "label": "Load Payment Tracking",
+   "fieldtype": "Button"
+  },
+  {
+   "fieldname": "payment_history",
+   "label": "Payments and Balances",
+   "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "accounting_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Defaults"
+  },
+  {
+   "fieldname": "loan_account",
+   "fieldtype": "Link",
+   "label": "Loan Liability Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "interest_account",
+   "fieldtype": "Link",
+   "label": "Interest Expense Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "charges_account",
+   "fieldtype": "Link",
+   "label": "Charges Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "accounting_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_account",
+   "fieldtype": "Link",
+   "label": "Paying Bank Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center",
+   "reqd": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "label": "Notes",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "loan_identity",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "hidden": 1,
+   "unique": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "revision_section",
+   "label": "Schedule Revisions",
+   "fieldtype": "Section Break",
+   "depends_on": "eval:doc.approved_plan || (doc.revisions || []).length"
+  },
+  {
+   "fieldname": "revision_reason",
+   "label": "Revision Reason",
+   "fieldtype": "Small Text",
+   "depends_on": "eval:doc.approved_plan"
+  },
+  {
+   "fieldname": "revision_effective_date",
+   "label": "Revision Date",
+   "fieldtype": "Date",
+   "read_only": 1,
+   "depends_on": "eval:doc.approved_plan"
+  },
+  {
+   "fieldname": "revisions",
+   "label": "Approved Revisions",
+   "fieldtype": "Table",
+   "options": "Bank Loan Revision",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_plan",
+   "label": "Approved Plan",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "hidden": 1,
+   "no_copy": 1,
+   "options": "JSON"
+  }
+ ],
+ "field_order": [
+  "identity_section",
+  "loan_name",
+  "loan_position",
+  "company",
+  "currency",
+  "identity_column",
+  "bank",
+  "agreement_number",
+  "status",
+  "terms_section",
+  "original_principal",
+  "disbursement_date",
+  "terms_column",
+  "maturity_date",
+  "repayment_frequency",
+  "interest_section",
+  "interest_rate_type",
+  "annual_interest_rate",
+  "interest_column",
+  "interest_calculation_basis",
+  "rate_reference",
+  "tracking_section",
+  "tracking_start_date",
+  "opening_principal",
+  "opening_reconciliation_note",
+  "schedule_section",
+  "schedule_notice",
+  "schedule",
+  "summary_section",
+  "scheduled_principal",
+  "scheduled_interest",
+  "summary_column",
+  "scheduled_charges",
+  "scheduled_total",
+  "totals_last_column",
+  "unscheduled_principal",
+  "payments_section",
+  "load_payment_tracking",
+  "payment_history",
+  "accounting_section",
+  "loan_account",
+  "interest_account",
+  "charges_account",
+  "accounting_column",
+  "payment_account",
+  "cost_center",
+  "notes_section",
+  "notes",
+  "loan_identity",
+  "workflow_state",
+  "revision_section",
+  "revision_reason",
+  "revision_effective_date",
+  "revisions",
+  "approved_plan"
+ ],
+ "permissions": [
+  {
+   "role": "Maker - ACC (Workflow)",
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1
+  },
+  {
+   "role": "Checker - ACC (Workflow)",
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Approver - ACC (Workflow)",
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1
+  }
+ ]
+}

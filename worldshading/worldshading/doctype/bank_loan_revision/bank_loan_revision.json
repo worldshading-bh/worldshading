@@ -1,0 +1,66 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Loan Revision",
+ "module": "Worldshading",
+ "istable": 1,
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "fields": [
+  {
+   "fieldname": "revision_number",
+   "label": "Revision",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "effective_date",
+   "label": "Revision Date",
+   "fieldtype": "Date",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "reason",
+   "label": "Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 4
+  },
+  {
+   "fieldname": "approved_by",
+   "label": "Approved By",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "approved_on",
+   "label": "Recorded On",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "snapshot",
+   "label": "Approved Plan",
+   "fieldtype": "Code",
+   "read_only": 1,
+   "hidden": 1,
+   "options": "JSON"
+  }
+ ],
+ "field_order": [
+  "revision_number",
+  "effective_date",
+  "reason",
+  "approved_by",
+  "approved_on",
+  "snapshot"
+ ],
+ "permissions": []
+}

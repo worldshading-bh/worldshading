@@ -1,0 +1,101 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Loan Payment",
+ "module": "Worldshading",
+ "autoname": "hash",
+ "engine": "InnoDB",
+ "track_changes": 1,
+ "fields": [
+  {
+   "fieldname": "bank_loan",
+   "label": "Bank Loan",
+   "fieldtype": "Link",
+   "options": "Bank Loan",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "journal_entry",
+   "label": "Journal Entry",
+   "fieldtype": "Link",
+   "options": "Journal Entry",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "request_id",
+   "label": "Payment Reference",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_bank",
+   "label": "Paying Bank",
+   "fieldtype": "Link",
+   "options": "Account",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "before_tracking",
+   "label": "Before Tracking Start",
+   "fieldtype": "Check",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reason",
+   "label": "Reason",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "account_snapshot",
+   "label": "Accounting Snapshot",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "allocations",
+   "label": "Installment Breakdown",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "reqd": 1,
+   "read_only": 1
+  }
+ ],
+ "field_order": [
+  "bank_loan",
+  "journal_entry",
+  "request_id",
+  "payment_bank",
+  "before_tracking",
+  "reason",
+  "account_snapshot",
+  "allocations"
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1
+  },
+  {
+   "role": "Maker - ACC (Workflow)",
+   "read": 1
+  },
+  {
+   "role": "Checker - ACC (Workflow)",
+   "read": 1
+  },
+  {
+   "role": "Approver - ACC (Workflow)",
+   "read": 1
+  }
+ ]
+}

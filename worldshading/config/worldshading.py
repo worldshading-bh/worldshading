@@ -4,6 +4,10 @@ from frappe import _
 def get_data():
     return [
         {
+            "label": _("Finance"),
+            "items": [{"type": "doctype", "name": "Bank Loan", "label": _("Bank Loans")}],
+        },
+        {
             "label": _("Service"),
             "items": [
                 {

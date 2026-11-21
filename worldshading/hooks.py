@@ -62,10 +62,16 @@ doctype_calendar_js = {
 # before_install = "worldshading.install.before_install"
 # after_install = "worldshading.install.after_install"
 
-after_install = "worldshading.api.fixed_expense_workflow.setup_workflow"
+after_install = [
+    "worldshading.api.fixed_expense_workflow.setup_workflow",
+    "worldshading.api.bank_loan_workflow.setup_workflow",
+    "worldshading.api.bank_loan_setup.setup_payment_fields"
+]
 
 after_migrate = [
     "worldshading.api.fixed_expense_workflow.setup_workflow",
+    "worldshading.api.bank_loan_workflow.setup_workflow",
+    "worldshading.api.bank_loan_setup.setup_payment_fields",
     "worldshading.api.fixed_expense_payments.ensure_payment_index",
     "worldshading.api.currency_exchange.setup_ws_settings_fields"
 ]
@@ -303,6 +309,7 @@ fixtures = [
 
 
 doctype_js = {
+    "Bank Loan": "public/js/bank_loan_payments.js",
 	"Item": "public/js/item_packed_dashboard.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",
 	"Purchase Order": "public/js/purchase_order_urgency.js",
@@ -313,7 +320,7 @@ doctype_js = {
 	],
 	"GL Payment": ["public/js/gl_payment_urgency.js", "public/js/fixed_expense_payment.js",
                    "public/js/cheque_payment.js"],
-	"Journal Entry": "public/js/journal_entry_urgency.js",
+	"Journal Entry": ["public/js/journal_entry_urgency.js", "public/js/bank_loan_journal.js"],
     "Material Request": "public/js/material_request.js",
     "Quotation": [
         "public/js/production_bom.js",
@@ -566,13 +573,17 @@ doc_events = {
         "before_submit": "worldshading.worldshading.doctype.service_visit.service_visit.set_visit_coordinator_on_submit"
     },
     "Journal Entry": {
-        "on_trash": "worldshading.worldshading.doctype.commission_payout.commission_payout.unlink_journal_entry",
+        "on_trash": ["worldshading.worldshading.doctype.commission_payout.commission_payout.unlink_journal_entry",
+                     "worldshading.api.bank_loan_payments.protect_journal_delete"],
         "before_cancel": [
             "worldshading.worldshading.doctype.commission_payout.commission_payout.unlink_journal_entry",
-            "worldshading.api.purchase_order_urgency.clear_cancelled_urgency"
+            "worldshading.api.purchase_order_urgency.clear_cancelled_urgency",
+            "worldshading.api.bank_loan_payments.before_cancel"
         ],
-        "validate": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
-        "before_update_after_submit": "worldshading.api.purchase_order_urgency.clear_completed_urgency",
+        "validate": ["worldshading.api.purchase_order_urgency.clear_completed_urgency",
+                     "worldshading.api.bank_loan_payments.validate_journal"],
+        "before_update_after_submit": ["worldshading.api.purchase_order_urgency.clear_completed_urgency",
+                                       "worldshading.api.bank_loan_payments.protect_history"],
         "on_change": "worldshading.api.urgency_notifications.notify_urgency_change"
     }
 }

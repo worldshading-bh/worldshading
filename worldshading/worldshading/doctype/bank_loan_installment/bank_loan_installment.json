@@ -1,0 +1,94 @@
+{
+ "doctype": "DocType",
+ "name": "Bank Loan Installment",
+ "module": "Worldshading",
+ "istable": 1,
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "fields": [
+  {
+   "fieldname": "installment_number",
+   "fieldtype": "Int",
+   "label": "Installment",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Due Date",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "principal_amount",
+   "fieldtype": "Currency",
+   "label": "Principal",
+   "options": "currency",
+   "in_list_view": 1,
+   "columns": 2,
+   "default": "0"
+  },
+  {
+   "fieldname": "interest_amount",
+   "fieldtype": "Currency",
+   "label": "Interest",
+   "options": "currency",
+   "in_list_view": 1,
+   "columns": 2,
+   "default": "0"
+  },
+  {
+   "fieldname": "charges_amount",
+   "fieldtype": "Currency",
+   "label": "Charges",
+   "options": "currency",
+   "in_list_view": 1,
+   "columns": 2,
+   "default": "0"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Payment",
+   "options": "currency",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "projected_principal_balance",
+   "fieldtype": "Currency",
+   "label": "Projected Principal Balance",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "field_order": [
+  "installment_number",
+  "due_date",
+  "principal_amount",
+  "interest_amount",
+  "charges_amount",
+  "total_amount",
+  "projected_principal_balance",
+  "remarks",
+  "currency"
+ ],
+ "permissions": []
+}
