@@ -439,6 +439,9 @@ def render_forecast(source, filters, start, end, accounts, extra):
         vat_ledger_balance=str(getattr(source,'vat_ledger_balance',0)),
         payroll_policy='ledger-v1', payroll_reconciliation=getattr(source,'payroll_reconciliation',None),
         payroll_loan_names=getattr(source,'payroll_loan_names',[]),
+        bank_loan_names=getattr(source,'bank_loan_names',[]),
+        bank_loan_payment_names=getattr(source,'bank_loan_payment_names',[]),
+        bank_loan_journal_names=getattr(source,'bank_loan_journal_names',[]),
         overdue_count=len(getattr(source, 'overdue', [])), journal_stats=getattr(source, 'journal_stats', {}), journal_policy='pending-v1')
     return columns(filters.get('view'), has_purchase=bool(proposed), minimum_reserve=filters.minimum_reserve), displayed, message, chart, cards, True
 
@@ -454,6 +457,8 @@ def report_message(source, filters, extra):
         'Payroll forecast: 28th monthly. Customs/import VAT: PO ETA. Quarterly net VAT: 25th of the following month; credits carry forward.',
         'Journal Entries use their net effect on the included account groups. Unlinked salary or expense matches require Accounts review.',
         'Temporary scenario inputs create no accounting transactions. A positive balance is subject to source coverage and assumptions.']
+    if getattr(source,'bank_loan_names',None):
+        text.append(escape('Bank Loan Repayments use approved principal, interest and charges less linked payments posted through today. Eligible future JVs replace their allocated installments on the JV date; cancelled JVs do not settle installments. This forecast creates no accounting entries.'))
     if getattr(source,'historical_reference_periods',None) and not filters.manual_sales:
         text.append(escape('Sales use the previous year’s matching calendar date. If that date is after the forecast start, an earlier year is used. Recorded zero-sales days remain zero.'))
         for period in source.historical_reference_periods:
@@ -480,7 +485,7 @@ def columns(view=None, detailed_view=False, has_purchase=False, minimum_reserve=
               ('quarterly_vat', 'Quarterly VAT Settlement'), ('extra_expenses', 'Extra Expenses'),
               ('budget_expenses', 'Budget Expenses'),
               ('baseline_closing_cash', 'Closing Without Purchase'),
-              ('other_payments', 'Other Scheduled Payments'),
+              ('other_payments', 'Other Scheduled Payments'), ('bank_loan_repayments', 'Bank Loan Repayments'),
               ('total_payments', 'Total Payments'), ('closing_cash', 'Closing Cash')]
     labels.append(('available_above_reserve', 'Cash Above Minimum Reserve'))
     result.extend(dict(fieldname=name, label=_(label), fieldtype='Currency', options='currency', precision=3, width=145,
@@ -554,7 +559,8 @@ def calculation_inputs(source):
     """Immutable inputs for quick purchase checks; stored only inside protected snapshots."""
     keys = ('historical_reference_periods','historical_reference_year','sales_comparison','liquidity_accounts','excluded_accounts_breakdown','company','currency','opening_balance','events','historical','vat_opening','accounts_breakdown',
             'warnings','actual_sales_today','vat_reconciliation','vat_ledger_balance','overdue','journal_stats',
-            'holidays','holiday_list','payroll_reconciliation','payroll_loan_names')
+            'holidays','holiday_list','payroll_reconciliation','payroll_loan_names',
+            'bank_loan_names','bank_loan_payment_names','bank_loan_journal_names')
     return {key:getattr(source,key,None) for key in keys}
 
 

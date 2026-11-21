@@ -31,10 +31,10 @@
         ['quarterly_vat','Quarterly VAT Settlement'],['extra_expenses','Extra Expenses'],
         ['budget_expenses','Budget Expenses'],
         ['baseline_closing_cash','Closing Without Purchase'],
-        ['other_payments','Other Scheduled Payments'],['total_payments','Total Payments'],
+        ['other_payments','Other Scheduled Payments'],['bank_loan_repayments','Bank Loan Repayments'],['total_payments','Total Payments'],
         ['closing_cash','Closing Cash'],['available_above_reserve','Cash Above Minimum Reserve']];
     var payment_fields = ['fixed_expenses','payroll','supplier_payments','customs','import_vat',
-        'quarterly_vat','extra_expenses','budget_expenses','proposed_purchase','other_payments'];
+        'quarterly_vat','extra_expenses','budget_expenses','proposed_purchase','other_payments','bank_loan_repayments'];
 
     function context_for(report) {
         var raw = report && report.raw_data;
@@ -1175,6 +1175,8 @@
             if(item.scenario) description=item.purchase_number?__('Purchase')+' '+item.purchase_number:(['customs','import_vat'].indexOf(item.category)>=0?__('Proposed purchase'):'');
             if(description && !item.scenario) description=description.replace(/^Scheduled payment; /,'').replace(/; original due \d{4}-\d{2}-\d{2}/g,'');
             if(item.party_type==='Supplier' && (item.supplier_name || item.party))notes+='<div>'+esc(item.supplier_name || item.party)+'</div>';
+            if(item.category==='bank_loan_repayments')notes+='<div>'+__('Principal')+': '+format_currency(item.principal_amount || 0,currency,3)+
+                ' · '+__('Interest')+': '+format_currency(item.interest_amount || 0,currency,3)+' · '+__('Charges')+': '+format_currency(item.charges_amount || 0,currency,3)+'</div>';
             if(description)notes+='<div>'+esc(description)+'</div>';
             if(item.workflow_state)notes+='<div class="text-muted">'+esc(item.workflow_state)+'</div>';
             if(item.original_due_date)notes+='<div class="text-muted">'+__('Due')+': '+esc(date_label(item.original_due_date))+'</div>';
@@ -1214,11 +1216,11 @@
             var item=grouped[key];item.description=item.descriptions.join(' | ');item.review_note=item.review_notes.join(' ');
             delete item.descriptions;delete item.review_notes;return item;
         }).sort(function(a,b){return [a.date,a.doctype || '',a.name || ''].join('|').localeCompare([b.date,b.doctype || '',b.name || ''].join('|'));});
-        var sections=[["pe_supplier", "Supplier payments — PE prepared", "Review the Payment Entry, allocation and payment date."], ["pe_other", "Other Payment Entries (PE)", "Review the Payment Entry and its payment date."], ["gl", "GL Payments", "Review the GL Payment, source link and payment date."], ["jv", "Journal Entries (JV)", "Review the net cash movement, workflow, references and matching notes."], ["supplier_due", "Supplier / PO obligations — payment needs review", "Verify outstanding balances and existing payments before preparing or linking a payment."], ["fixed_due", "Fixed-expense schedules — payment needs review", "Verify each occurrence and link an existing GL Payment if already paid."], ["payroll_due", "Payroll — payment or matching needs review", "Verify salary-period and Payroll Entry payment links; do not repay an already settled salary."], ["vat_due", "Quarterly VAT", "Review unpaid VAT and settlement journals."], ["other_due", "Other obligations", "Verify the source obligation and payment date."]];
+        var sections=[["pe_supplier", "Supplier payments — PE prepared", "Review the Payment Entry, allocation and payment date."], ["pe_other", "Other Payment Entries (PE)", "Review the Payment Entry and its payment date."], ["gl", "GL Payments", "Review the GL Payment, source link and payment date."], ["jv", "Journal Entries (JV)", "Review the net cash movement, workflow, references and matching notes."], ["supplier_due", "Supplier / PO obligations — payment needs review", "Verify outstanding balances and existing payments before preparing or linking a payment."], ["fixed_due", "Fixed-expense schedules — payment needs review", "Verify each occurrence and link an existing GL Payment if already paid."], ["payroll_due", "Payroll — payment or matching needs review", "Verify salary-period and Payroll Entry payment links; do not repay an already settled salary."], ["vat_due", "Quarterly VAT", "Review unpaid VAT and settlement journals."], ["bank_loan_due", "Bank Loan Repayments", "Review the approved installment, paid allocations and linked JV payment dates."], ["other_due", "Other obligations", "Verify the source obligation and payment date."]];
         var buckets={};
         items.forEach(function(item){
             var kind=item.doctype,category=item.category;
-            var group=kind==='Payment Entry' ? (category==='supplier_payments' || item.party_type==='Supplier' ? 'pe_supplier':'pe_other') :
+            var group=category==='bank_loan_repayments' ? 'bank_loan_due' : kind==='Payment Entry' ? (category==='supplier_payments' || item.party_type==='Supplier' ? 'pe_supplier':'pe_other') :
                 kind==='GL Payment' ? 'gl' : kind==='Journal Entry' ? 'jv' :
                 kind==='Purchase Invoice' || kind==='Purchase Order' ? 'supplier_due' : kind==='Fixed Expense' ? 'fixed_due' :
                 category==='vat_settlement' || category==='quarterly_vat' ? 'vat_due' : category==='payroll' ? 'payroll_due' : 'other_due';
@@ -1236,7 +1238,7 @@
     function show_overdue_review(report, review) {
         var labels = {fixed_expenses: __('Fixed Expense'), payroll: __('Payroll'),
             supplier_payments: __('Supplier Payment'), customs: __('Customs'), import_vat: __('Import VAT'),
-            quarterly_vat: __('VAT Settlement'), vat_settlement: __('VAT Settlement'), other_payments: __('Other Payment')};
+            quarterly_vat: __('VAT Settlement'), vat_settlement: __('VAT Settlement'), bank_loan_repayments: __('Bank Loan Repayment'), other_payments: __('Other Payment')};
         var items = review.items || [];
         var html=collapse_styles()+(review.saved ? '<p>'+__('Overdue payments included in this report')+' — '+esc(date_label(review.forecast_date))+'</p>' : '<p>'+__('Review overdue payments. Update dates or complete payment, or include them today.')+'</p>');
         html+='<p>'+__('Check existing payments before paying again.')+'</p><p>'+__('Overdue items')+': '+items.length+'</p>';
@@ -1307,6 +1309,7 @@
             {fieldname: 'scenario_policy', fieldtype:'Data', hidden:1, default:'purchase-budget-v4'},
             {fieldname: 'supplier_policy', fieldtype: 'Data', hidden: 1, default: 'installments-v2'},
             {fieldname: 'journal_policy', fieldtype: 'Data', hidden: 1, default: 'pending-v1'},
+            {fieldname:'bank_loan_policy',fieldtype:'Data',hidden:1,default:'allocations-v1'},
             {fieldname: 'layout_policy', fieldtype: 'Data', hidden: 1, default: 'compact-v1'},
             {fieldname: 'view', label: __('View'), fieldtype: 'Select', options: 'Daily\nMonthly', default: 'Daily'},
             {fieldname: 'include_overdue', label: __('Include Overdue Commitments'), fieldtype: 'Check', default: 0},

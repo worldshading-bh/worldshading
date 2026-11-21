@@ -130,10 +130,15 @@ class Sources(object):
         Budgets(self).collect()
         return self
 
+    def bank_loans(self):
+        from .bank_loans import BankLoans
+        BankLoans(self).collect()
+
     def collect_commitments(self):
         if not getattr(self, '_vat_loaded', False):
             self.tax_position()
             self.future_tax_events()
+        self.bank_loans()
         self.supplier_invoices()
         self.purchase_orders()
         self.fixed_expenses()

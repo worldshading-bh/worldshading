@@ -113,6 +113,7 @@ REVIEW_SECTIONS = (
     ('fixed_due', 'Fixed-expense schedules — payment needs review', 'Verify each occurrence and link an existing GL Payment if already paid.'),
     ('payroll_due', 'Payroll — payment or matching needs review', 'Verify salary-period and Payroll Entry payment links; do not repay an already settled salary.'),
     ('vat_due', 'Quarterly VAT', 'Review unpaid VAT and settlement journals.'),
+    ('bank_loan_due', 'Bank Loan Repayments', 'Review the approved installment, paid allocations and linked JV payment dates.'),
     ('other_due', 'Other obligations', 'Verify the source obligation and payment date.'),
 )
 
@@ -121,7 +122,9 @@ def group_overdue_review(rows):
     buckets = {}
     for row in rows:
         kind, category = row.get('doctype'), row.get('category')
-        if kind == 'Payment Entry':
+        if category == 'bank_loan_repayments':
+            section = 'bank_loan_due'
+        elif kind == 'Payment Entry':
             section = 'pe_supplier' if category == 'supplier_payments' or row.get('party_type') == 'Supplier' else 'pe_other'
         elif kind == 'GL Payment':
             section = 'gl'
