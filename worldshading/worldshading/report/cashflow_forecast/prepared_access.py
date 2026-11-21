@@ -33,9 +33,30 @@ def guard_request(report_name, filters=None, user=None):
     return True
 
 
+def check_bank_loan_access(context):
+    names = context.get('bank_loan_names') or []
+    if not names:
+        return
+    company = (context.get('calculation_inputs') or {}).get('company')
+    groups = [('Bank Loan', names), ('Bank Loan Payment', context.get('bank_loan_payment_names') or []),
+              ('Journal Entry', context.get('bank_loan_journal_names') or [])]
+    for kind, references in groups:
+        if references and not frappe.has_permission(kind, 'read'):
+            frappe.throw(_('Bank loan access has changed. Rebuild the forecast with your current permissions.'), frappe.PermissionError)
+        for name in set(references):
+            doc = frappe.get_doc(kind, name)
+            doc.check_permission('read')
+            if kind in ('Bank Loan', 'Journal Entry') and company and doc.company != company:
+                frappe.throw(_('Bank loan snapshot company mismatch.'), frappe.PermissionError)
+            linked = doc.get('bank_loan') if kind == 'Bank Loan Payment' else (doc.get('custom_bank_loan') if kind == 'Journal Entry' else None)
+            if kind != 'Bank Loan' and linked not in names:
+                frappe.throw(_('Bank loan snapshot payment link mismatch.'), frappe.PermissionError)
+
+
 def check_payroll_access(result):
     rows = result.get('result') or []
     context = rows[0].get('_cashflow_context', {}) if rows else {}
+    check_bank_loan_access(context)
     if context.get('sales_comparison') and not frappe.has_permission('Sales Invoice','read'):
         frappe.throw(_('Sales Invoice access has changed. Generate a new forecast with your current permissions.'),frappe.PermissionError)
     if context.get('vat_policy') in ('quarter-v2', 'quarter-v4'):

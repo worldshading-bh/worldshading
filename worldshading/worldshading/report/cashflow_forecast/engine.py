@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 PAYMENTS = ('fixed_expenses', 'payroll', 'supplier_payments', 'customs', 'import_vat',
-            'quarterly_vat', 'extra_expenses', 'other_payments', 'budget_expenses', 'proposed_purchase')
+            'quarterly_vat', 'extra_expenses', 'other_payments', 'budget_expenses', 'proposed_purchase', 'bank_loan_repayments')
 FREQUENCIES = {'Monthly': 1, 'Quarterly': 3, 'Half-yearly': 6, 'Yearly': 12,
                'Every 2 Years': 24, 'Every 3 Years': 36, 'Every 4 Years': 48, 'Every 5 Years': 60}
 
