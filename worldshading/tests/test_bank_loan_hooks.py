@@ -8,6 +8,7 @@ class TestBankLoanHooks(unittest.TestCase):
     def test_native_jv_and_form_routes_are_registered(self):
         hooks=runpy.run_module('worldshading.hooks')
         self.assertEqual(hooks['doctype_js']['Bank Loan'],'public/js/bank_loan_payments.js')
+        self.assertEqual(hooks['scheduler_events']['daily'].count('worldshading.api.bank_loan_payments.create_due_payments'),1)
         events=hooks['doc_events']['Journal Entry']
         self.assertIn('worldshading.api.bank_loan_payments.validate_journal',events['validate'])
         self.assertIn('worldshading.api.bank_loan_payments.protect_history',events['before_update_after_submit'])

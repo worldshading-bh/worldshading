@@ -68,3 +68,28 @@ class TestLoanPaymentRules(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class TestAutomaticLoanPayments(unittest.TestCase):
+    def due(self, rows=None, payments=None):
+        from worldshading.worldshading.doctype.bank_loan.payment_rules import due_allocations
+        terms=dict(opening_principal=1000,tracking_start_date='2026-01-01',schedule=rows or [
+            dict(name='row-1',due_date='2026-12-19',principal_amount=100,interest_amount=10,charges_amount=2)])
+        return due_allocations(terms,payments or [],'2026-12-17',3)
+
+    def test_two_days_ahead_and_missed_run_window_without_old_backlog(self):
+        rows=[dict(name='row-'+str(i),due_date=d,principal_amount=100) for i,d in enumerate(
+            ['2026-12-16','2026-12-17','2026-12-18','2026-12-19','2026-12-20'])]
+        self.assertEqual([r['installment'] for r in self.due(rows)],['row-1','row-2','row-3'])
+        self.assertEqual(self.due()[0]['interest_amount'],10)
+        self.assertEqual(self.due()[0]['charges_amount'],2)
+
+    def test_existing_attempts_partial_paid_pending_and_cancelled_are_not_recreated(self):
+        for status in [0,1,2]:
+            self.assertEqual(self.due(payments=[payment(status=status,principal_amount=50)]),[])
+        self.assertEqual(len(self.due(payments=[payment(before=True,installment=None)])),1)
+
+    def test_excess_payment_requires_reconciliation_and_zero_rows_are_skipped(self):
+        rows=[dict(name='row-1',due_date='2026-12-16',principal_amount=10),
+              dict(name='row-2',due_date='2026-12-19',principal_amount=100)]
+        self.assertEqual(self.due(rows,[payment(principal_amount=20,interest_amount=0,charges_amount=0)]),[])
+        self.assertEqual(self.due([dict(name='row-1',due_date='2026-12-19',principal_amount=0)]),[])
