@@ -108,3 +108,20 @@ Example: opening principal BHD 29,540.500, 60 monthly installments of BHD 601.95
 Preview is read-only; Apply fills the unsaved Draft table and Save is still required. Existing permissions and historical/linked-row protections remain. No schema, JV, cashflow calculation or additional persistent fields are introduced. Deployment updates only generator.py and the loan form JS, refreshes the Bank Loan metadata timestamp/cache and reloads the Python web processes serving the preview; no migration or saved-data update is needed.
 
 Installment-mode verification: 208 application Python tests and 275 current Cashflow Forecast Python tests passed, alongside the application/cashflow Node scripts. Native demo preview verified the 60 × 601.950 example above, existing-loan Flat estimation, zero-interest final rounding, unchanged recorded rate and unchanged saved loan/payment/JV records and business counts. Independent review found no important issues. Demo source backup: `/home/erpadmin/bank-loan-installment-amount-backup-20261122-053010`. Production has not been updated by this feature.
+
+## Use the recorded rate and a final settlement
+
+For a Fixed loan, choose **Generate Schedule → Installment Amount → Rate to Use: Use Recorded Rate** when the bank rate is known. This keeps the recorded annual rate, including **0%**, and uses Equal Installments. A recorded zero rate defaults to this option; **Estimate Rate** remains available when the rate is unknown. Enter principal plus interest only; add identified charges separately.
+
+Enter the regular installment, first payment date and number of regular installments. If the principal clears sooner, generation stops and the final payment is reduced. Otherwise choose **Remaining Balance**:
+
+| Option | Result |
+| --- | --- |
+| Add Final Settlement | Adds one payment on the next frequency date for the remaining principal plus that extra period's interest. The preview shows any maturity extension. |
+| Add to Last Installment | Adds the remaining principal to the last selected payment, without adding another period. |
+
+Small currency rounding residue goes into the last payment. Example: opening principal **272,347.595**, recorded rate **0%**, monthly amount **1,786.000**, count **153** produces **152 × 1,786.000 + 875.595**. All interest is zero and scheduled principal exactly matches the opening principal.
+
+These are regular-period estimates: confirm the final amount/date, early-settlement terms, charges and any additional-period interest with the bank. Payments below the period interest require a bank-confirmed manual schedule; negative amortisation is not generated. The limit remains 600 rows including any settlement. Existing linked and historical rows remain protected.
+
+Preview changes nothing. **Apply to Draft** fills the unsaved schedule and extends maturity if necessary; **Save** and the existing approval workflow are still required. The recorded annual rate is unchanged. No new schema, JV fields, accounting entries or automatic payments are introduced.
