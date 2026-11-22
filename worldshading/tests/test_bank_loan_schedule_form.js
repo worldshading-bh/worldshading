@@ -1,10 +1,26 @@
 const assert=require('assert'), fs=require('fs'), vm=require('vm');
 const events={}, dialogs=[], buttons=[], requests=[];
 let current, confirm=true, deferred=false, messages=[];
+// Exercise installed v12 Select option caching, including defaults set while hidden.
+const nativeSelect={set_options:function(){
+    const options=this.df.options.split('\n');
+    if(JSON.stringify(options)===this.last_options)return;
+    this.last_options=JSON.stringify(options);
+    if(this.$input)this.$input.empty().add_options(options);
+}};
+function selectField(f){
+    const field={df:f,options:[]};
+    function makeInput(){field.$input={find:()=>({val:()=>null}),empty:()=>({add_options:options=>{field.options=options;}})};}
+    field.toggle=show=>{f.hidden=show?0:1;if(show&&!field.$input){makeInput();nativeSelect.set_options.call(field);}};
+    if(!f.hidden)makeInput();
+    nativeSelect.set_options.call(field); // FieldGroup applies defaults even to hidden fields.
+    return field;
+}
 class Dialog {
     constructor(config) {this.config=config;this.values={};this.fields_dict={};
         (config.fields||[]).forEach(f=>{if(f.default!==undefined)this.values[f.fieldname]=f.default;
-            this.fields_dict[f.fieldname]={df:f,toggle:show=>{f.hidden=show?0:1;},$wrapper:{html: text=>{this.html=text;}}};});dialogs.push(this);}
+            this.fields_dict[f.fieldname]=f.fieldtype==='Select'?selectField(f):{df:f,toggle:show=>{f.hidden=show?0:1;}};
+            this.fields_dict[f.fieldname].$wrapper={html: text=>{this.html=text;}};});dialogs.push(this);}
     show(){this.visible=true;}
     hide(){
         if(this.hiding)throw Error('Recursive dialog hide');
@@ -82,6 +98,7 @@ function open(frm){context.show_bank_loan_schedule_dialog(frm);const settings=di
     assert.equal(amountSettings.fields_dict.method.df.hidden,1);
     assert.equal(amountSettings.fields_dict.installment_amount.df.hidden,0);
     assert.equal(amountSettings.fields_dict.installment_amount.df.reqd,1);
+    assert.deepEqual(amountSettings.fields_dict.rate_source.options,['Use Recorded Rate','Estimate Rate']);
     amountSettings.values.installment_amount=102;
     response=Object.assign({},response,{calculation_mode:'Installment Amount',estimated_annual_rate:8.25,
         installment_amount:102,final_payment_adjustment:0.001,final_interest_adjustment:-0.001,retained_rows:0});
@@ -99,6 +116,7 @@ function open(frm){context.show_bank_loan_schedule_dialog(frm);const settings=di
     recordedSettings.values.calculation_mode='Installment Amount';recordedSettings.fields_dict.calculation_mode.df.onchange();
     assert.equal(recordedSettings.fields_dict.rate_source.df.hidden,0);
     assert.equal(recordedSettings.fields_dict.remaining_balance.df.hidden,0);
+    assert.deepEqual(recordedSettings.fields_dict.remaining_balance.options,['Add Final Settlement','Add to Last Installment']);
     assert.equal(recordedSettings.values.remaining_balance,'Add Final Settlement');
     response=Object.assign({},response,{rate_source:'Use Recorded Rate',recorded_annual_rate:0,
         final_payment_amount:80,final_payment_adjustment:0,settlement_added:true,

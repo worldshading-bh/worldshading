@@ -152,12 +152,12 @@ function show_bank_loan_schedule_dialog(frm) {
         fields.push({fieldname: 'installment_amount', label: __('Installment Amount'), fieldtype: 'Currency', hidden: 1,
             default: Number(row.principal_amount || 0) + Number(row.interest_amount || 0),
             description: __('Principal + interest only. Add separate charges in the schedule.')});
-        fields.push({fieldname: 'rate_source', label: __('Rate to Use'), fieldtype: 'Select', hidden: 1,
+        fields.push({fieldname: 'rate_source', label: __('Rate to Use'), fieldtype: 'Select',
             options: 'Use Recorded Rate\nEstimate Rate',
             default: Number(frm.doc.annual_interest_rate || 0) === 0 ? 'Use Recorded Rate' : 'Estimate Rate',
             description: __('Recorded rate: ') + Number(frm.doc.annual_interest_rate || 0) + '%',
             onchange: function () { if (settings) update_bank_loan_rate_fields(settings); }});
-        fields.push({fieldname: 'remaining_balance', label: __('Remaining Balance'), fieldtype: 'Select', hidden: 1,
+        fields.push({fieldname: 'remaining_balance', label: __('Remaining Balance'), fieldtype: 'Select',
             options: 'Add Final Settlement\nAdd to Last Installment', default: 'Add Final Settlement'});
     }
     if (variable && existing.length) {
@@ -199,8 +199,10 @@ function show_bank_loan_schedule_dialog(frm) {
             });
         }
     });
-    settings.show();
+    // v12 caches Select options when defaults are applied, even before a hidden input exists.
+    // Build these Select inputs first, then hide them before displaying the dialog.
     update_bank_loan_rate_fields(settings);
+    settings.show();
 }
 
 function update_bank_loan_rate_fields(settings) {
