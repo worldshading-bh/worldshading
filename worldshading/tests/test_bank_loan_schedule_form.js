@@ -98,39 +98,37 @@ function open(frm){context.show_bank_loan_schedule_dialog(frm);const settings=di
     assert.equal(amountSettings.fields_dict.method.df.hidden,1);
     assert.equal(amountSettings.fields_dict.installment_amount.df.hidden,0);
     assert.equal(amountSettings.fields_dict.installment_amount.df.reqd,1);
-    assert.deepEqual(amountSettings.fields_dict.rate_source.options,['Use Recorded Rate','Estimate Rate']);
+    assert(!amountSettings.fields_dict.rate_source);
+    assert(!amountSettings.fields_dict.remaining_balance);
     amountSettings.values.installment_amount=102;
-    response=Object.assign({},response,{calculation_mode:'Installment Amount',estimated_annual_rate:8.25,
+    response=Object.assign({},response,{calculation_mode:'Installment Amount',rate_source:'Use Recorded Rate',recorded_annual_rate:6,final_payment_amount:101,settlement_added:false,
         installment_amount:102,final_payment_adjustment:0.001,final_interest_adjustment:-0.001,retained_rows:0});
     amountSettings.config.primary_action(amountSettings.values);
     const amountPreview=dialogs[dialogs.length-1];
-    assert(amountPreview.html.includes('8.250000'));assert(amountPreview.html.includes('Recorded loan rate unchanged'));
-    assert(amountPreview.html.includes('Final payment adjustment'));assert(amountPreview.html.includes('Final interest rounding'));
+    assert(amountPreview.html.includes('Annual Interest Rate: 6%'));
+    assert(!amountPreview.html.includes('Recorded'));assert(!amountPreview.html.includes('Estimated'));
+    const amountArgs=JSON.parse(requests[requests.length-1].args.options);
+    assert.equal(amountArgs.rate_source,'Use Recorded Rate');
+    assert.equal(amountArgs.remaining_balance,'Add Final Settlement');
     assert.equal(frm.doc.annual_interest_rate,6);await amountPreview.config.primary_action();assert.equal(frm.doc.annual_interest_rate,6);
     amountSettings.values.calculation_mode='Interest Rate';amountSettings.fields_dict.calculation_mode.df.onchange();
     assert.equal(amountSettings.fields_dict.method.df.hidden,0);assert.equal(amountSettings.fields_dict.installment_amount.df.reqd,0);
     assert(!variable.fields_dict.calculation_mode);assert(!variable.fields_dict.installment_amount);
     frm=form();frm.doc.annual_interest_rate=0;context.show_bank_loan_schedule_dialog(frm);
     const recordedSettings=dialogs[dialogs.length-1];
-    assert.equal(recordedSettings.values.rate_source,'Use Recorded Rate');
+    assert(!recordedSettings.fields_dict.rate_source);
     recordedSettings.values.calculation_mode='Installment Amount';recordedSettings.fields_dict.calculation_mode.df.onchange();
-    assert.equal(recordedSettings.fields_dict.rate_source.df.hidden,0);
-    assert.equal(recordedSettings.fields_dict.remaining_balance.df.hidden,0);
-    assert.deepEqual(recordedSettings.fields_dict.remaining_balance.options,['Add Final Settlement','Add to Last Installment']);
-    assert.equal(recordedSettings.values.remaining_balance,'Add Final Settlement');
     response=Object.assign({},response,{rate_source:'Use Recorded Rate',recorded_annual_rate:0,
         final_payment_amount:80,final_payment_adjustment:0,settlement_added:true,
         maturity_date:'2027-02-19',previous_maturity_date:'2027-01-19'});
     response.rows[response.rows.length-1].settlement_row=true;
     recordedSettings.config.primary_action(recordedSettings.values);
     const recordedPreview=dialogs[dialogs.length-1];
-    assert(recordedPreview.html.includes('Recorded Annual Rate'));assert(!recordedPreview.html.includes('Estimated Annual Rate'));
+    assert(recordedPreview.html.includes('Annual Interest Rate: 0%'));assert(!recordedPreview.html.includes('Estimated Annual Rate'));
     assert(!recordedPreview.html.includes('NaN'));assert(recordedPreview.html.includes('Final Settlement'));
     assert(recordedPreview.html.includes('Maturity extended'));assert(!frm.doc.maturity_date);
     await recordedPreview.config.primary_action();assert.equal(frm.doc.maturity_date,'2027-02-19');
     assert.equal(frm.doc.annual_interest_rate,0);
-    recordedSettings.values.rate_source='Estimate Rate';recordedSettings.fields_dict.rate_source.df.onchange();
-    assert.equal(recordedSettings.fields_dict.remaining_balance.df.hidden,1);
     assert(!variable.fields_dict.rate_source);
     frm=form();deferred=true;context.show_bank_loan_schedule_dialog(frm);let settings=dialogs[dialogs.length-1];
     settings.config.primary_action(settings.values);const request=requests[requests.length-1];settings.values.periods=36;

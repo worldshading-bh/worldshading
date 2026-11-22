@@ -97,31 +97,16 @@ The user's existing **submitted** test JV26-01186, all three saved loan records,
 
 Demo examples are illustrative; actual BDB opening/terms need reconciliation against bank documents before operational use. Cashflow report integration, automatic monthly posting, multi-currency repayment and tax calculation are outside this release. Employee Loan remains unchanged.
 
-## Generate from an exact bank installment
+## Generate from the bank's monthly payment
 
-For Fixed loans, Generate Schedule now offers **Calculate Using: Interest Rate / Installment Amount**. Interest Rate retains the previous behaviour. Installment Amount uses Equal Installments and the existing balance, frequency, first payment date and count. Enter principal plus interest only; enter identified charges separately in the schedule. Balloon and variable future-rate cases still use the bank schedule/current rate tools.
+For a Fixed loan, choose **Generate Schedule → Calculate Using: Installment Amount**. Enter the payment amount, first payment date and number of installments. The calculator uses the **Annual Interest Rate already entered on the loan**; enter 0% for an interest-free loan. There is no separate rate choice in the popup.
 
-The calculator derives a non-negative **estimated nominal annual rate**, using Diminishing annuity inversion or Flat interest on original principal. Its bounded Decimal calculation does not change the master Annual Interest Rate. Regular cash installments equal the entered amount; the final principal is reconciled to zero, with any final interest split/cash rounding adjustment shown in the preview. The preview and remarks explain that bank-confirmed splits remain authoritative, especially for irregular first periods, fees and rate changes. Material rounding distortions and infeasible amounts/counts are rejected.
+Enter principal plus interest only; add identified charges separately. The schedule uses Equal Installments. If principal clears early, the final payment reduces and generation stops. If principal remains after the requested installments, one final payment is added on the next payment date, including that additional period's interest. The preview shows the final payment and any maturity extension. Small currency rounding differences go into the last payment.
 
-Example: opening principal BHD 29,540.500, 60 monthly installments of BHD 601.950 implies an estimated nominal annual Diminishing rate of approximately 8.210132%, assuming regular end-period payments without separate fees or a balloon. Total cash is BHD 36,117.000, with estimated total interest BHD 6,576.500. This estimate is not confirmation of the bank's actual contract rate or November allocation.
+Example: opening principal **272,347.595**, rate **0%**, monthly amount **1,786.000**, count **153** produces **152 × 1,786.000 + 875.595**, with zero interest and principal fully reconciled.
 
-Preview is read-only; Apply fills the unsaved Draft table and Save is still required. Existing permissions and historical/linked-row protections remain. No schema, JV, cashflow calculation or additional persistent fields are introduced. Deployment updates only generator.py and the loan form JS, refreshes the Bank Loan metadata timestamp/cache and reloads the Python web processes serving the preview; no migration or saved-data update is needed.
+Confirm dates, interest splits and settlement terms against the bank schedule. Payments below the period interest require a manual bank-confirmed schedule. The limit remains 600 rows including any final payment. Variable loans retain the existing rate-change tools.
 
-Installment-mode verification: 208 application Python tests and 275 current Cashflow Forecast Python tests passed, alongside the application/cashflow Node scripts. Native demo preview verified the 60 × 601.950 example above, existing-loan Flat estimation, zero-interest final rounding, unchanged recorded rate and unchanged saved loan/payment/JV records and business counts. Independent review found no important issues. Demo source backup: `/home/erpadmin/bank-loan-installment-amount-backup-20261122-053010`. Production has not been updated by this feature.
+Preview changes nothing. **Apply to Draft** fills the unsaved schedule and extends maturity if necessary; **Save** and the existing approval workflow are still required. The loan interest rate is unchanged. Existing linked and historical rows remain protected. No new schema, JV fields or accounting entries are introduced.
 
-## Use the recorded rate and a final settlement
-
-For a Fixed loan, choose **Generate Schedule → Installment Amount → Rate to Use: Use Recorded Rate** when the bank rate is known. This keeps the recorded annual rate, including **0%**, and uses Equal Installments. A recorded zero rate defaults to this option; **Estimate Rate** remains available when the rate is unknown. Enter principal plus interest only; add identified charges separately.
-
-Enter the regular installment, first payment date and number of regular installments. If the principal clears sooner, generation stops and the final payment is reduced. Otherwise choose **Remaining Balance**:
-
-| Option | Result |
-| --- | --- |
-| Add Final Settlement | Adds one payment on the next frequency date for the remaining principal plus that extra period's interest. The preview shows any maturity extension. |
-| Add to Last Installment | Adds the remaining principal to the last selected payment, without adding another period. |
-
-Small currency rounding residue goes into the last payment. Example: opening principal **272,347.595**, recorded rate **0%**, monthly amount **1,786.000**, count **153** produces **152 × 1,786.000 + 875.595**. All interest is zero and scheduled principal exactly matches the opening principal.
-
-These are regular-period estimates: confirm the final amount/date, early-settlement terms, charges and any additional-period interest with the bank. Payments below the period interest require a bank-confirmed manual schedule; negative amortisation is not generated. The limit remains 600 rows including any settlement. Existing linked and historical rows remain protected.
-
-Preview changes nothing. **Apply to Draft** fills the unsaved schedule and extends maturity if necessary; **Save** and the existing approval workflow are still required. The recorded annual rate is unchanged. No new schema, JV fields, accounting entries or automatic payments are introduced.
+Deployment: update the loan form JS and generator.py, clear site cache and reload the Python web processes. No migration or DocType reload is needed. Demo checks did not modify saved loans, payments or JVs; production remains unchanged.

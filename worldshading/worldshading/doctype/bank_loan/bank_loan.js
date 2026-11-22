@@ -152,13 +152,6 @@ function show_bank_loan_schedule_dialog(frm) {
         fields.push({fieldname: 'installment_amount', label: __('Installment Amount'), fieldtype: 'Currency', hidden: 1,
             default: Number(row.principal_amount || 0) + Number(row.interest_amount || 0),
             description: __('Principal + interest only. Add separate charges in the schedule.')});
-        fields.push({fieldname: 'rate_source', label: __('Rate to Use'), fieldtype: 'Select',
-            options: 'Use Recorded Rate\nEstimate Rate',
-            default: Number(frm.doc.annual_interest_rate || 0) === 0 ? 'Use Recorded Rate' : 'Estimate Rate',
-            description: __('Recorded rate: ') + Number(frm.doc.annual_interest_rate || 0) + '%',
-            onchange: function () { if (settings) update_bank_loan_rate_fields(settings); }});
-        fields.push({fieldname: 'remaining_balance', label: __('Remaining Balance'), fieldtype: 'Select',
-            options: 'Add Final Settlement\nAdd to Last Installment', default: 'Add Final Settlement'});
     }
     if (variable && existing.length) {
         fields.push({fieldname: 'rate_change', label: __('Update Future Rate Only'), fieldtype: 'Check', default: 0,
@@ -184,10 +177,15 @@ function show_bank_loan_schedule_dialog(frm) {
             if (!values) return;
             const snapshot = JSON.stringify(frm.doc);
             const parameters = JSON.stringify(values);
+            const options = Object.assign({}, values);
+            if (values.calculation_mode === 'Installment Amount') {
+                options.rate_source = 'Use Recorded Rate';
+                options.remaining_balance = 'Add Final Settlement';
+            }
             const request = ++requestNumber;
             frappe.call({
                 method: 'worldshading.api.bank_loan_schedule.preview_schedule',
-                args: {loan: snapshot, options: parameters}, freeze: true,
+                args: {loan: snapshot, options: JSON.stringify(options)}, freeze: true,
                 callback: function (reply) {
                     if (!reply.message || request !== requestNumber) return;
                     if (snapshot !== JSON.stringify(frm.doc) || parameters !== JSON.stringify(settings.get_values())) {
@@ -199,8 +197,6 @@ function show_bank_loan_schedule_dialog(frm) {
             });
         }
     });
-    // v12 caches Select options when defaults are applied, even before a hidden input exists.
-    // Build these Select inputs first, then hide them before displaying the dialog.
     update_bank_loan_rate_fields(settings);
     settings.show();
 }
@@ -210,11 +206,6 @@ function update_bank_loan_rate_fields(settings) {
     const byAmount = settings.get_value('calculation_mode') === 'Installment Amount';
     const amountField = settings.fields_dict.installment_amount;
     if (amountField) { amountField.df.reqd = byAmount ? 1 : 0; amountField.toggle(byAmount); }
-    const rateSource = settings.fields_dict.rate_source;
-    if (rateSource) { rateSource.df.reqd = byAmount ? 1 : 0; rateSource.toggle(byAmount); }
-    const settlement = settings.fields_dict.remaining_balance;
-    const recorded = byAmount && settings.get_value('rate_source') === 'Use Recorded Rate';
-    if (settlement) { settlement.df.reqd = recorded ? 1 : 0; settlement.toggle(recorded); }
     if (byAmount) settings.set_value('method', 'Equal Installments');
     settings.fields_dict.method.df.reqd = byAmount ? 0 : 1;
     settings.fields_dict.method.toggle(!byAmount);
@@ -236,14 +227,14 @@ function show_bank_loan_schedule_preview(frm, result, snapshot, settings) {
     html += '</p>';
     if (result.calculation_mode === 'Installment Amount') {
         const recorded = result.rate_source === 'Use Recorded Rate';
-        const rateLabel = recorded ? __('Recorded Annual Rate: ') : __('Estimated Annual Rate (nominal): ');
+        const rateLabel = recorded ? __('Annual Interest Rate: ') : __('Estimated Annual Rate (nominal): ');
         const rate = recorded ? result.recorded_annual_rate : result.estimated_annual_rate;
         html += '<p><strong>' + escape(__('Installment: ')) + amount(result.installment_amount) + ' ' + escape(frm.doc.currency || '') + '</strong>' +
-            ' &nbsp; ' + escape(rateLabel) + Number(rate).toFixed(6) + '%</p>';
+            ' &nbsp; ' + escape(rateLabel) + (recorded ? Number(rate) : Number(rate).toFixed(6)) + '%</p>';
         if (recorded) {
             html += '<p>' + escape(__('Generated installments: ')) + result.rows.length + ' &nbsp; ' +
                 escape(result.settlement_added ? __('Final Settlement: ') : __('Final payment: ')) + amount(result.final_payment_amount) + ' ' + escape(frm.doc.currency || '') + '</p>';
-            html += '<p class="text-muted">' + escape(__('Uses the recorded rate for regular periods, including 0%. Confirm final payment/date, settlement terms, extra-period interest and charges with the bank.')) + '</p>';
+            html += '<p class="text-muted">' + escape(__('Uses the loan interest rate. Any remaining principal is added as a final payment. Confirm the schedule with the bank.')) + '</p>';
         } else {
             html += '<p class="text-muted">' + escape(__('Estimated split for regular periods; excludes separate fees/balloon. Confirm with the bank. Recorded loan rate unchanged.')) + '</p>';
             if (Number(result.final_payment_adjustment)) html += '<p>' + escape(__('Final payment adjustment: ')) + amount(result.final_payment_adjustment) + ' ' + escape(frm.doc.currency || '') + '</p>';
