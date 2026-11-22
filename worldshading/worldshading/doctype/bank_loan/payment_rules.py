@@ -113,3 +113,19 @@ def validate_schedule_edit(old, new, payments, precision, require_reconciled=Fal
                 changed=money(new[key].get(field),precision)!=money(old[key].get(field),precision)
                 if money(new[key].get(field), precision) < posted[key][field] and (changed or require_reconciled):
                     raise ValueError('A revised installment cannot be smaller than its posted payments.')
+
+
+def due_allocations(terms, payments, today, precision):
+    """First-attempt drafts only, in the two-day preparation window; never old backlog."""
+    from datetime import timedelta
+    start = as_date(today)
+    through = start + timedelta(days=2)
+    state = payment_status(terms['schedule'], payments, terms['opening_principal'], precision)
+    if state['needs_reschedule']:
+        return []
+    attempted = {a.get('installment') for p in payments if not p.get('before_tracking')
+                 for a in p['allocations']}
+    return [dict(installment=row['name'], **row['balances']) for row in state['installments']
+            if start <= as_date(row['due_date']) <= through
+            and as_date(row['due_date']) >= as_date(terms['tracking_start_date'])
+            and row['name'] not in attempted and row['remaining'] > 0]

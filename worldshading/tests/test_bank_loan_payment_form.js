@@ -36,3 +36,25 @@ grid.refresh();assert.equal(grid.df.data.length,1);assert.strictEqual(grid.df.da
 grid.df.data.push({idx:2,__islocal:true});grid.refresh();assert(grid.df.data[1].name);assert.notEqual(grid.df.data[1].name,retained.name);
 const label=context.bank_loan_installment_formatter([{value:'ROW-1',label:'1 — 19-12-2026'}]);
 assert.equal(label('ROW-1'),'1 — 19-12-2026');assert.equal(label(''),'');
+// The JV keeps one link field; payment edits happen in a temporary native dialog.
+const jvEvents={},jvButtons={},jvRequests=[],jvDialogs=[];
+const jvContext={__:s=>s,frappe:{session:{user:'maker@example.com'},user_roles:['Maker - ACC (Workflow)'],
+ ui:{form:{on:(dt,h)=>{jvEvents[dt]=h;}},Dialog:class{constructor(c){this.config=c;jvDialogs.push(this);}show(){}hide(){this.closed=true;}}},
+ datetime:{str_to_user:s=>s},msgprint:()=>{},
+ call:c=>{jvRequests.push(c);if(c.method.endsWith('get_draft_payment'))c.callback({message:{modified:'m1',company:'WS',currency:'BHD',posting_date:'2026-12-19',bank_account:'Bank',reason:'',
+ allocations:[{installment:'ROW-1',principal_amount:100,interest_amount:10,charges_amount:0}],schedule:[{name:'ROW-1',due_date:'2026-12-19'}]}});else c.callback({message:{name:'JV-1'}});}}};
+vm.runInNewContext(fs.readFileSync('worldshading/public/js/bank_loan_journal.js','utf8'),jvContext);
+let reloaded=0;
+const jvForm={doc:{name:'JV-1',docstatus:0,custom_bank_loan:'LOAN-1',modified:'m1'},fields_dict:{custom_bank_loan:{}},
+ is_new:()=>false,is_dirty:()=>false,set_df_property:()=>{},add_custom_button:(s,f)=>{jvButtons[s]=f;},reload_doc:()=>{reloaded++;}};
+jvEvents['Journal Entry'].refresh(jvForm);
+assert(jvButtons['Adjust Loan Payment']);jvButtons['Adjust Loan Payment']();
+const adjustment=jvDialogs[jvDialogs.length-1];
+const table=adjustment.config.fields.find(f=>f.fieldname==='allocations');
+assert(table.data[0].name);assert(table.data[0].installment_label.includes('2026-12-19'));
+assert(table.cannot_add_rows);assert(table.cannot_delete_rows);
+adjustment.config.primary_action({posting_date:'2026-12-19',bank_account:'Bank',reason:'Bank fee',allocations:[{installment:'ROW-1',principal_amount:100,interest_amount:10,charges_amount:5}]});
+assert(jvRequests[jvRequests.length-1].method.endsWith('update_draft_payment'));
+assert.equal(JSON.parse(jvRequests[jvRequests.length-1].args.allocations)[0].charges_amount,5);
+assert.equal(jvRequests[jvRequests.length-1].args.modified,'m1');assert.equal(reloaded,1);assert(adjustment.closed);
+delete jvButtons['Adjust Loan Payment'];jvForm.doc.docstatus=1;jvEvents['Journal Entry'].refresh(jvForm);assert(!jvButtons['Adjust Loan Payment']);

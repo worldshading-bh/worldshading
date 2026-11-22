@@ -222,7 +222,8 @@ def _validate_payment(doc,source=None):
     if (variance or before or (first_link and old and int(old.docstatus)==1)) and not (doc.get('reason') or '').strip():
         frappe.throw(_('Enter a reason for the payment difference or existing-JV link.'))
     try:validate_postings(mapping,totals,[dict(r) for r in doc.accounts],precision)
-    except ValueError as error:frappe.throw(_(str(error)))
+    except ValueError as error:
+        frappe.throw(_(str(error))+' '+_('Use Adjust Loan Payment on the Draft JV to change its payment breakdown.'))
     doc.payment_bank=mapping['payment_account']
     doc.snapshot=json.dumps(mapping,sort_keys=True)
     if old and old.get('request_id'):
@@ -306,16 +307,7 @@ def make_payment(loan,allocations,posting_date=None,bank_account=None,reason=Non
         workflow=get_workflow('Journal Entry');journal.set(workflow.workflow_state_field,workflow.states[0].state)
     journal.flags.bank_loan_payment=dict(allocations=allocations,payment_bank=mapping['payment_account'],
         reason=reason,request_id=request_id or frappe.generate_hash(length=32))
-    journal.set('accounts',[])
-    try:postings=expected_postings(mapping,totals)
-    except ValueError as error:frappe.throw(_(str(error)))
-    for account,amount in postings.items():
-        journal.append('accounts',dict(account=account,account_currency=source.currency,exchange_rate=1,
-            debit=float(max(amount,0)),credit=float(max(-amount,0)),
-            debit_in_account_currency=float(max(amount,0)),credit_in_account_currency=float(max(-amount,0)),cost_center=mapping['cost_center']))
-    journal.total_debit=float(sum(max(value,0) for value in postings.values()))
-    journal.total_credit=journal.total_debit
-    journal.difference=0
+    _set_accounts(journal,mapping,totals)
     journal.insert()  # Native create permissions, validation and workflow; never submit.
     return journal.as_dict()
 
@@ -335,3 +327,120 @@ def link_existing(loan,journal,allocations,before_tracking=0,bank_account=None,r
         payment_bank=bank_account or source.payment_account,reason=reason)
     doc.save()  # Native submitted-document rules and all existing hooks still apply.
     return doc.name
+
+
+
+def _set_accounts(journal, mapping, totals):
+    try:postings=expected_postings(mapping,totals)
+    except ValueError as error:frappe.throw(_(str(error)))
+    journal.set('accounts',[])
+    for account,amount in postings.items():
+        journal.append('accounts',dict(account=account,account_currency=mapping['currency'],exchange_rate=1,
+            debit=float(max(amount,0)),credit=float(max(-amount,0)),
+            debit_in_account_currency=float(max(amount,0)),credit_in_account_currency=float(max(-amount,0)),
+            cost_center=mapping.get('cost_center')))
+    journal.total_debit=float(sum(max(value,0) for value in postings.values()))
+    journal.total_credit=journal.total_debit
+    journal.difference=0
+
+
+def _editable_payment(journal):
+    require_maker()
+    loan=frappe.db.get_value('Journal Entry',journal,'custom_bank_loan')
+    if not loan:frappe.throw(_('This JV has no Bank Loan payment.'))
+    source=_source(loan)
+    payment=_payment_record(journal,for_update=True)
+    frappe.db.sql('select name from `tabJournal Entry` where name=%s for update',(journal,))
+    doc=frappe.get_doc('Journal Entry',journal)
+    doc.check_permission('write')
+    if not payment or payment.bank_loan!=loan or doc.custom_bank_loan!=loan:
+        frappe.throw(_('This JV has no matching Bank Loan payment breakdown.'))
+    if int(doc.docstatus)!=0:
+        frappe.throw(_('Only a Draft loan payment can be adjusted.'))
+    from frappe.model.workflow import get_workflow_name,get_workflow
+    if get_workflow_name('Journal Entry'):
+        workflow=get_workflow('Journal Entry')
+        state=next((r for r in workflow.states if r.state==doc.get(workflow.workflow_state_field)),None)
+        if not state or (frappe.session.user!='Administrator' and state.allow_edit not in frappe.get_roles()):
+            frappe.throw(_('Return the JV to an editable workflow state before adjusting its payment.'),frappe.PermissionError)
+    return source,doc,frappe.get_doc('Bank Loan Payment',payment.name)
+
+
+@frappe.whitelist()
+def get_draft_payment(journal):
+    source,doc,payment=_editable_payment(journal)
+    terms=approved_terms(source)
+    return dict(modified=str(doc.modified),posting_date=doc.posting_date,bank_account=payment.payment_bank,
+        reason=payment.reason,currency=source.currency,company=source.company,
+        allocations=json.loads(payment.allocations),
+        schedule=[dict(name=r['name'],due_date=r['due_date']) for r in terms['schedule']])
+
+
+@frappe.whitelist(methods=['POST'])
+def update_draft_payment(journal,allocations,modified,posting_date=None,bank_account=None,reason=None):
+    source,doc,payment=_editable_payment(journal)
+    if not modified or str(doc.modified)!=str(modified):
+        frappe.throw(_('This JV changed. Reload it before adjusting the payment.'))
+    if not (reason or '').strip():frappe.throw(_('Enter a reason for the payment adjustment.'))
+    rows=json.loads(allocations) if isinstance(allocations,str) else allocations
+    previous=_context(doc,payment)
+    if not isinstance(rows,list) or any(not isinstance(r,dict) for r in rows) or sorted(str(r.get('installment') or '') for r in rows)!=sorted(
+            str(r.get('installment') or '') for r in previous.allocations):
+        frappe.throw(_('Keep the original installment allocations when adjusting a Draft payment.'))
+    # Currency, dates and account mapping remain governed by the original payment snapshot.
+    context=_context(doc,payment)
+    context.allocations=[frappe._dict({k:r.get(k) for k in ALLOCATION_FIELDS}) for r in rows]
+    context.reason=reason.strip()
+    context.payment_bank=bank_account or payment.payment_bank
+    context.posting_date=posting_date or doc.posting_date
+    context.get_doc_before_save=lambda:previous
+    totals=allocation_totals(context.allocations,source.precision('original_principal'))
+    mapping=json.loads(previous.snapshot)
+    mapping['payment_account']=_mapping(source,approved_terms(source),context.payment_bank)['payment_account']
+    _set_accounts(doc,mapping,totals)
+    doc.posting_date=context.posting_date
+    context.accounts=[frappe._dict(r.as_dict()) for r in doc.accounts]
+    _validate_payment(context,source=source)
+    # v12 has no db.savepoint helper. Roll back both records even if a caller catches the error.
+    frappe.db.sql('savepoint bank_loan_adjustment')
+    try:
+        payment.allocations=json.dumps(context.allocations,sort_keys=True,default=str)
+        payment.payment_bank=context.payment_bank
+        payment.reason=context.reason
+        payment.account_snapshot=context.snapshot
+        payment.flags.from_bank_loan_service=True
+        payment.save(ignore_permissions=True)
+        doc.save()  # Native permissions, workflow, timestamp and ledger validation still apply.
+    except Exception:
+        frappe.db.sql('rollback to savepoint bank_loan_adjustment')
+        raise
+    return doc.as_dict()
+
+
+def create_due_payments():
+    """Daily preparation only: never submit a JV or post to GL."""
+    import hashlib
+    from datetime import timedelta
+    from worldshading.worldshading.doctype.bank_loan.payment_rules import due_allocations
+    today=nowdate()
+    candidates=frappe.db.sql("""select distinct l.name from `tabBank Loan` l
+        inner join `tabBank Loan Installment` s on s.parent=l.name
+        and s.parenttype='Bank Loan' and s.parentfield='schedule'
+        where l.workflow_state='Approved' and l.status='Active' and l.docstatus=0
+        and s.due_date between %s and %s order by l.name""",
+        (today,str(as_date(today)+timedelta(days=2))),as_dict=True)
+    for candidate in candidates:
+        try:
+            source=_source(candidate.name)
+            require_active(source)
+            terms=approved_terms(source)
+            rows=due_allocations(terms,payment_documents(source.name,for_update=True),today,
+                                 source.precision('original_principal'))
+            for row in rows:
+                reference='loan-auto-'+hashlib.sha256((source.name+':'+row['installment']).encode()).hexdigest()[:40]
+                due=next(r['due_date'] for r in terms['schedule'] if r['name']==row['installment'])
+                make_payment(source.name,[row],posting_date=str(due),request_id=reference)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback(),'Bank Loan auto payment: '+candidate.name)

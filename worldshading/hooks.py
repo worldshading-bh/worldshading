@@ -198,6 +198,7 @@ scheduler_events = {
     "daily": [
 
         "worldshading.api.fixed_expense_payments.create_due_payments",
+        "worldshading.api.bank_loan_payments.create_due_payments",
         "worldshading.scheduler_events.insurance_reminders.create_insurance_todos",
         "worldshading.scheduler_events.draft_cleanup_schedule.execute",
         "worldshading.scheduler_events.prepared_report_cleanup.execute",
