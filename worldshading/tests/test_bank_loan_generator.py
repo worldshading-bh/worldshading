@@ -43,6 +43,88 @@ class TestBankLoanGenerator(unittest.TestCase):
         self.assertEqual(sum(r['principal_amount'] for r in result['rows']), Decimal('12000.000'))
         self.assertEqual(result['rows'][-1]['projected_principal_balance'], Decimal('0.000'))
 
+    def test_installment_amount_keeps_exact_cash_and_reconciles_principal(self):
+        source=loan(annual_interest_rate=9)
+        original=copy.deepcopy(source)
+        result=self.generate(source,options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060))
+        self.assertEqual(source,original)
+        self.assertTrue(all(r['total_amount']==Decimal('1060.000') for r in result['rows']))
+        self.assertEqual(result['scheduled_principal'],Decimal('12000.000'))
+        self.assertEqual(result['scheduled_interest'],Decimal('720.000'))
+        self.assertEqual(result['rows'][-1]['projected_principal_balance'],0)
+        self.assertGreater(result['estimated_annual_rate'],Decimal('6'))
+        self.assertEqual(result['installment_amount'],Decimal('1060.000'))
+        self.assertEqual(result['final_payment_adjustment'],0)
+        self.assertIn('estimated nominal annual rate',result['rows'][0]['remarks'])
+
+    def test_installment_amount_matches_known_flat_rate_and_existing_opening(self):
+        result=self.generate(loan(interest_calculation_basis='Flat Rate'),options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060))
+        self.assertEqual(result['estimated_annual_rate'],Decimal('6'))
+        self.assertEqual(result['scheduled_interest'],Decimal('720.000'))
+        existing=loan(loan_position='Existing Loan',original_principal=24000,interest_calculation_basis='Flat Rate')
+        result=self.generate(existing,options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060))
+        self.assertEqual(result['estimated_annual_rate'],Decimal('3'))
+        self.assertEqual(result['scheduled_principal'],Decimal('12000.000'))
+
+    def test_installment_amount_zero_rate_and_small_final_rounding_are_explicit(self):
+        result=self.generate(settings=options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1000))
+        self.assertEqual(result['estimated_annual_rate'],0)
+        self.assertEqual(result['scheduled_interest'],0)
+        source=loan(original_principal=100,opening_principal=100)
+        result=self.generate(source,options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount='33.333',periods=3))
+        self.assertEqual(result['estimated_annual_rate'],0)
+        self.assertEqual(result['rows'][-1]['total_amount'],Decimal('33.334'))
+        self.assertEqual(result['final_payment_adjustment'],Decimal('0.001'))
+
+    def test_installment_amount_rejects_bad_combinations_and_underfunded_payments(self):
+        base=options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060)
+        for value in [None,0,-1,'NaN','Infinity','1e100000000',900]:
+            with self.subTest(amount=value),self.assertRaises(ValueError):
+                self.generate(settings=dict(base,installment_amount=value))
+        for settings in [dict(base,method='Equal Principal'),dict(base,rate_change=1),dict(base,calculation_mode='bad')]:
+            with self.subTest(settings=settings),self.assertRaises(ValueError):self.generate(settings=settings)
+        with self.assertRaises(ValueError):self.generate(loan(interest_rate_type='Variable'),base)
+
+    def test_installment_amount_diminishing_rate_matches_independent_two_period_example(self):
+        # 1210 / 1.1 + 1210 / 1.1**2 = 2100, so periodic rate is exactly 10%.
+        result=self.generate(loan(original_principal=2100,opening_principal=2100),
+            options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1210,periods=2))
+        self.assertEqual(result['estimated_annual_rate'],Decimal('120.000000'))
+        self.assertEqual([r['interest_amount'] for r in result['rows']],[Decimal('210.000'),Decimal('110.000')])
+        self.assertEqual(result['scheduled_interest'],Decimal('320.000'))
+
+    def test_installment_amount_bounds_precision_and_historical_rows(self):
+        base=options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060)
+        for periods in [0,601,'1e100000000']:
+            with self.subTest(periods=periods),self.assertRaises(ValueError):
+                self.generate(settings=dict(base,periods=periods))
+        source=loan(schedule=self.generate()['rows'])
+        with self.assertRaises(ValueError):self.generate(source,base,today='2027-01-01')
+        source=loan(maturity_date='2076-11-19')
+        result=self.generate(source,dict(base,periods=600,installment_amount=100))
+        self.assertEqual(len(result['rows']),600)
+        self.assertEqual(result['scheduled_principal'],12000)
+        self.assertEqual(result['scheduled_total'],60000)
+        self.assertTrue(all(r['total_amount']==100 for r in result['rows']))
+        source=loan(original_principal='0.01',opening_principal='0.01')
+        with self.assertRaises(ValueError):self.generate(source,dict(base,installment_amount='0.01'))
+
+    def test_installment_amount_rejects_material_rounding_and_unrepresentable_rate(self):
+        base=options(method='Equal Installments',calculation_mode='Installment Amount')
+        source=loan(maturity_date='2036-11-19')
+        with self.assertRaises(ValueError):self.generate(source,dict(base,periods=100,installment_amount='1200.087'))
+        source=loan(original_principal=1000,opening_principal=1000)
+        with self.assertRaises(ValueError):self.generate(source,dict(base,periods=1,installment_amount='1e22'))
+
+    def test_installment_amount_single_payment_and_quarterly_period(self):
+        result=self.generate(settings=options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=12600,periods=1))
+        self.assertEqual(result['estimated_annual_rate'],Decimal('60'))
+        self.assertEqual(result['scheduled_interest'],600)
+        result=self.generate(loan(repayment_frequency='Quarterly',interest_calculation_basis='Flat Rate'),
+            options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=3180,periods=4))
+        self.assertEqual(result['estimated_annual_rate'],Decimal('6'))
+        self.assertTrue(all(r['total_amount']==3180 for r in result['rows']))
+
     def test_zero_rate_and_balloon(self):
         zero = self.generate(loan(annual_interest_rate=0), options(method='Equal Installments'))
         self.assertEqual(zero['scheduled_interest'], 0)
