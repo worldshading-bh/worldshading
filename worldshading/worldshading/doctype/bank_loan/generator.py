@@ -37,17 +37,84 @@ def installment_rate(balance, original, payment, periods, basis, unit):
         return (low + high) / 2
 
 
+def recorded_rate_schedule(loan, options, dates, precision, payment, money):
+    """Apply the known rate to fixed cash payments, disclosing any final settlement."""
+    handling = options.get('remaining_balance') or 'Add Final Settlement'
+    if handling not in ('Add Final Settlement', 'Add to Last Installment'):
+        raise ValueError('Choose Add Final Settlement or Add to Last Installment.')
+    original = money(number(loan.get('original_principal'), 'Original Principal'))
+    balance = money(number(loan.get('opening_principal'), 'Opening Principal'))
+    annual = number(loan.get('annual_interest_rate'), 'Annual Interest Rate')
+    months = MONTHS[loan['repayment_frequency']]
+    rate = annual * Decimal(months) / 1200
+    unit = Decimal(10) ** -precision
+    rows = []
+    note = 'Estimate: recorded annual rate {0}%; {1}; installment {2}; confirm bank settlement and charges.'.format(
+        annual, loan['repayment_frequency'], payment)
+
+    def interest_due():
+        return money((original if loan.get('interest_calculation_basis') == 'Flat Rate' else balance) * rate)
+
+    for due in dates:
+        interest = interest_due()
+        if payment < interest:
+            raise ValueError('The installment is below the period interest. Use the bank schedule for unpaid interest or capitalisation.')
+        principal = min(balance, money(payment - interest))
+        rows.append(dict(due_date=due, principal_amount=principal, interest_amount=interest,
+                         charges_amount=Decimal(0), remarks=note))
+        balance = money(balance - principal)
+        if balance == 0:
+            rows[-1]['final_payment'] = True
+            rows[-1]['remarks'] += ' Final payment; principal fully settled.'
+            break
+    regular_count = len(rows)
+    settlement_added = False
+    if balance:
+        if balance <= unit * len(dates) or handling == 'Add to Last Installment':
+            rows[-1]['principal_amount'] += balance
+            rows[-1]['final_payment'] = True
+            rows[-1]['remarks'] += ' Remaining principal {0} included in final installment.'.format(balance)
+        else:
+            if len(rows) >= 600:
+                raise ValueError('A settlement would exceed 600 rows. Choose Add to Last Installment or reduce the regular installment count.')
+            try:
+                due = anchored_date(as_date(dates[0]), months * len(dates))
+            except (ValueError, OverflowError):
+                raise ValueError('The final settlement date is outside the supported calendar.')
+            rows.append(dict(due_date=due, principal_amount=balance, interest_amount=interest_due(),
+                charges_amount=Decimal(0), remarks=note + ' Additional final settlement, including the extra period interest.',
+                settlement_row=True))
+            settlement_added = True
+    previous_maturity = as_date(loan['maturity_date']).isoformat()
+    maturity = max(previous_maturity, rows[-1]['due_date'])
+    result = calculate_schedule(dict(loan, schedule=rows, maturity_date=maturity), precision, complete=True)
+    result['rows'] = [dict(row, **values) for row, values in zip(rows, result['rows'])]
+    result.update(retained_rows=0, precision=precision, calculation_mode='Installment Amount',
+        rate_source='Use Recorded Rate', recorded_annual_rate=annual, installment_amount=payment,
+        requested_installments=len(dates), regular_installments=regular_count, settlement_added=settlement_added,
+        final_payment_amount=result['rows'][-1]['total_amount'],
+        final_payment_adjustment=Decimal(0) if settlement_added else result['rows'][-1]['total_amount'] - payment)
+    if maturity > previous_maturity:
+        result.update(maturity_date=maturity, previous_maturity_date=previous_maturity)
+    return result
+
+
 def generate_schedule(loan, options, precision, today):
     loan, options = copy.deepcopy(loan), dict(options)
     mode = options.get('calculation_mode') or 'Interest Rate'
     if mode not in ('Interest Rate', 'Installment Amount'):
         raise ValueError('Select Interest Rate or Installment Amount.')
     by_amount = mode == 'Installment Amount'
+    rate_source = options.get('rate_source') or 'Estimate Rate'
+    if by_amount and rate_source not in ('Estimate Rate', 'Use Recorded Rate'):
+        raise ValueError('Choose Estimate Rate or Use Recorded Rate.')
+    recorded = by_amount and rate_source == 'Use Recorded Rate'
     method = options.get('method')
     if method not in METHODS:
         raise ValueError('Select a repayment method.')
     basis = loan.get('interest_calculation_basis')
-    if basis not in ('Diminishing', 'Flat Rate'):
+    zero_recorded = recorded and number(loan.get('annual_interest_rate'), 'Annual Interest Rate') == 0
+    if basis not in ('Diminishing', 'Flat Rate') and not zero_recorded:
         raise ValueError('Choose Diminishing or Flat Rate to generate; otherwise enter the bank schedule manually.')
     months = MONTHS.get(loan.get('repayment_frequency'))
     if not months:
@@ -109,6 +176,8 @@ def generate_schedule(loan, options, precision, today):
         requested_payment = money(number(options.get('installment_amount'), 'Installment Amount'))
         if requested_payment <= 0:
             raise ValueError('Enter a positive Installment Amount, excluding separate charges and balloon payments.')
+        if recorded:
+            return recorded_rate_schedule(loan, options, dates, precision, requested_payment, money)
         period_rate = installment_rate(balance, original, requested_payment, n, basis, unit)
         annual = period_rate * 1200 / Decimal(months)
         money(annual)

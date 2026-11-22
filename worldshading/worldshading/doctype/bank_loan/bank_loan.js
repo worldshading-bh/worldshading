@@ -177,10 +177,15 @@ function show_bank_loan_schedule_dialog(frm) {
             if (!values) return;
             const snapshot = JSON.stringify(frm.doc);
             const parameters = JSON.stringify(values);
+            const options = Object.assign({}, values);
+            if (values.calculation_mode === 'Installment Amount') {
+                options.rate_source = 'Use Recorded Rate';
+                options.remaining_balance = 'Add Final Settlement';
+            }
             const request = ++requestNumber;
             frappe.call({
                 method: 'worldshading.api.bank_loan_schedule.preview_schedule',
-                args: {loan: snapshot, options: parameters}, freeze: true,
+                args: {loan: snapshot, options: JSON.stringify(options)}, freeze: true,
                 callback: function (reply) {
                     if (!reply.message || request !== requestNumber) return;
                     if (snapshot !== JSON.stringify(frm.doc) || parameters !== JSON.stringify(settings.get_values())) {
@@ -192,8 +197,8 @@ function show_bank_loan_schedule_dialog(frm) {
             });
         }
     });
-    settings.show();
     update_bank_loan_rate_fields(settings);
+    settings.show();
 }
 
 function update_bank_loan_rate_fields(settings) {
@@ -221,11 +226,21 @@ function show_bank_loan_schedule_preview(frm, result, snapshot, settings) {
     if (result.retained_rows) html += ' &nbsp; ' + escape(__('Earlier rows retained: ')) + Number(result.retained_rows);
     html += '</p>';
     if (result.calculation_mode === 'Installment Amount') {
+        const recorded = result.rate_source === 'Use Recorded Rate';
+        const rateLabel = recorded ? __('Annual Interest Rate: ') : __('Estimated Annual Rate (nominal): ');
+        const rate = recorded ? result.recorded_annual_rate : result.estimated_annual_rate;
         html += '<p><strong>' + escape(__('Installment: ')) + amount(result.installment_amount) + ' ' + escape(frm.doc.currency || '') + '</strong>' +
-            ' &nbsp; ' + escape(__('Estimated Annual Rate (nominal): ')) + Number(result.estimated_annual_rate).toFixed(6) + '%</p>';
-        html += '<p class="text-muted">' + escape(__('Estimated split for regular periods; excludes separate fees/balloon. Confirm with the bank. Recorded loan rate unchanged.')) + '</p>';
-        if (Number(result.final_payment_adjustment)) html += '<p>' + escape(__('Final payment adjustment: ')) + amount(result.final_payment_adjustment) + ' ' + escape(frm.doc.currency || '') + '</p>';
-        if (Number(result.final_interest_adjustment)) html += '<p>' + escape(__('Final interest rounding: ')) + amount(result.final_interest_adjustment) + ' ' + escape(frm.doc.currency || '') + '</p>';
+            ' &nbsp; ' + escape(rateLabel) + (recorded ? Number(rate) : Number(rate).toFixed(6)) + '%</p>';
+        if (recorded) {
+            html += '<p>' + escape(__('Generated installments: ')) + result.rows.length + ' &nbsp; ' +
+                escape(result.settlement_added ? __('Final Settlement: ') : __('Final payment: ')) + amount(result.final_payment_amount) + ' ' + escape(frm.doc.currency || '') + '</p>';
+            html += '<p class="text-muted">' + escape(__('Uses the loan interest rate. Any remaining principal is added as a final payment. Confirm the schedule with the bank.')) + '</p>';
+        } else {
+            html += '<p class="text-muted">' + escape(__('Estimated split for regular periods; excludes separate fees/balloon. Confirm with the bank. Recorded loan rate unchanged.')) + '</p>';
+            if (Number(result.final_payment_adjustment)) html += '<p>' + escape(__('Final payment adjustment: ')) + amount(result.final_payment_adjustment) + ' ' + escape(frm.doc.currency || '') + '</p>';
+            if (Number(result.final_interest_adjustment)) html += '<p>' + escape(__('Final interest rounding: ')) + amount(result.final_interest_adjustment) + ' ' + escape(frm.doc.currency || '') + '</p>';
+        }
+        if (result.maturity_date) html += '<p class="text-warning">' + escape(__('Maturity extended: ')) + escape(result.previous_maturity_date) + ' → ' + escape(result.maturity_date) + '</p>';
     }
     html += '<div style="max-height:360px;overflow:auto"><table class="table table-bordered"><thead><tr>';
     ['Due Date', 'Principal', 'Interest', 'Charges', 'Total', 'Principal Balance'].forEach(function (label) {
@@ -233,7 +248,10 @@ function show_bank_loan_schedule_preview(frm, result, snapshot, settings) {
     });
     html += '</tr></thead><tbody>';
     result.rows.forEach(function (row) {
-        html += '<tr><td>' + escape(row.due_date) + '</td>';
+        html += '<tr><td>' + escape(row.due_date);
+        if (row.settlement_row) html += '<br><small>' + escape(__('Final Settlement')) + '</small>';
+        else if (row.final_payment) html += '<br><small>' + escape(__('Final payment')) + '</small>';
+        html += '</td>';
         ['principal_amount', 'interest_amount', 'charges_amount', 'total_amount', 'projected_principal_balance'].forEach(function (field) {
             html += '<td>' + amount(row[field]) + '</td>';
         });
@@ -277,6 +295,7 @@ function apply_bank_loan_schedule(frm, result, snapshot, preview) {
             ['scheduled_principal', 'scheduled_interest', 'scheduled_charges', 'scheduled_total', 'unscheduled_principal'].forEach(function (field) {
                 totals[field] = result[field];
             });
+            if (result.maturity_date) totals.maturity_date = result.maturity_date;
             Promise.resolve(frm.set_value(totals)).then(function () {
                 frm.refresh_field('schedule');
                 frm.dirty();

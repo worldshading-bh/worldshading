@@ -62,6 +62,18 @@ class TestSchedulePreviewAPI(unittest.TestCase):
             with self.assertRaises(ValueError):
                 preview_schedule(source,options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060))
 
+    def test_recorded_zero_rate_settlement_preview_is_read_only(self):
+        import copy
+        source=loan(annual_interest_rate=0,maturity_date='2026-12-19')
+        original=copy.deepcopy(source)
+        result=preview_schedule(source,options(method='Equal Installments',calculation_mode='Installment Amount',
+            rate_source='Use Recorded Rate',installment_amount=5000,periods=1))
+        self.assertEqual(source,original)
+        self.assertEqual(result['scheduled_principal'],12000)
+        self.assertEqual(result['scheduled_interest'],0)
+        self.assertEqual(result['maturity_date'],'2027-01-19')
+        self.assertEqual(result['rows'][-1]['total_amount'],7000)
+
     def test_json_inputs_and_invalid_shape(self):
         import json
         result=preview_schedule(json.dumps(loan()),json.dumps(options()))
