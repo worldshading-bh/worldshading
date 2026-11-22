@@ -25,6 +25,14 @@ class TestSchedulePreviewAPI(unittest.TestCase):
         self.assertEqual(len(result['rows']),12)
         self.assertEqual(result['retained_rows'],0)
 
+    def test_installment_preview_keeps_source_rate_and_cash_amount(self):
+        source=loan(annual_interest_rate=9)
+        result=preview_schedule(source,options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060))
+        self.assertEqual(source['annual_interest_rate'],9)
+        self.assertEqual(result['scheduled_total'],12720)
+        self.assertEqual(result['calculation_mode'],'Installment Amount')
+        self.assertTrue(all(r['total_amount']==1060 for r in result['rows']))
+
     def test_rejects_wrong_role_state_or_create_permission(self):
         for state in ['Approved','Pending Loan - App','Closed']:
             with self.assertRaises(ValueError):preview_schedule(loan(workflow_state=state),options())
@@ -42,6 +50,17 @@ class TestSchedulePreviewAPI(unittest.TestCase):
         saved.check_permission.side_effect=ValueError('denied')
         with patch.object(frappe,'get_doc',return_value=saved):
             with self.assertRaises(ValueError):preview_schedule(loan(name='BLN-1'),options())
+
+    def test_installment_amount_cannot_replace_a_linked_installment(self):
+        from worldshading.worldshading.doctype.bank_loan.generator import generate_schedule
+        source=loan(name='BLN-1',workflow_state='Draft')
+        source['schedule']=generate_schedule(loan(),options(),3,'2026-11-19')['rows']
+        for i,row in enumerate(source['schedule']):row['name']='ROW-'+str(i)
+        saved=Mock(workflow_state='Draft',docstatus=0)
+        payments=[dict(docstatus=1,allocations=[dict(installment='ROW-0')])]
+        with patch.object(frappe,'get_doc',return_value=saved),patch('worldshading.api.bank_loan_payments.payment_documents',return_value=payments):
+            with self.assertRaises(ValueError):
+                preview_schedule(source,options(method='Equal Installments',calculation_mode='Installment Amount',installment_amount=1060))
 
     def test_json_inputs_and_invalid_shape(self):
         import json

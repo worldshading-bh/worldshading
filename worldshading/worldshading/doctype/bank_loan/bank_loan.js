@@ -137,10 +137,22 @@ function show_bank_loan_schedule_dialog(frm) {
     const upcoming = existing.filter(function (row) { return row.due_date >= frappe.datetime.get_today(); });
     let requestNumber = 0;
     let settings;
-    const fields = [
+    const fields = [];
+    if (!variable) {
+        fields.push({fieldname: 'calculation_mode', label: __('Calculate Using'), fieldtype: 'Select',
+            options: 'Interest Rate\nInstallment Amount', default: 'Interest Rate',
+            onchange: function () { if (settings) update_bank_loan_rate_fields(settings); }});
+    }
+    fields.push(
         {fieldname: 'method', label: __('Repayment Method'), fieldtype: 'Select', reqd: 1,
             options: 'Equal Installments\nEqual Principal\nInterest Only / Balloon', default: 'Equal Installments'}
-    ];
+    );
+    if (!variable) {
+        const row = existing[0] || {};
+        fields.push({fieldname: 'installment_amount', label: __('Installment Amount'), fieldtype: 'Currency', hidden: 1,
+            default: Number(row.principal_amount || 0) + Number(row.interest_amount || 0),
+            description: __('Principal + interest only. Add separate charges in the schedule.')});
+    }
     if (variable && existing.length) {
         fields.push({fieldname: 'rate_change', label: __('Update Future Rate Only'), fieldtype: 'Check', default: 0,
             onchange: function () { if (settings) update_bank_loan_rate_fields(settings); }});
@@ -186,6 +198,12 @@ function show_bank_loan_schedule_dialog(frm) {
 
 function update_bank_loan_rate_fields(settings) {
     const changing = Number(settings.get_value('rate_change') || 0) === 1;
+    const byAmount = settings.get_value('calculation_mode') === 'Installment Amount';
+    const amountField = settings.fields_dict.installment_amount;
+    if (amountField) { amountField.df.reqd = byAmount ? 1 : 0; amountField.toggle(byAmount); }
+    if (byAmount) settings.set_value('method', 'Equal Installments');
+    settings.fields_dict.method.df.reqd = byAmount ? 0 : 1;
+    settings.fields_dict.method.toggle(!byAmount);
     ['first_due_date', 'periods', 'effective_date', 'new_rate'].forEach(function (name) {
         const field = settings.fields_dict[name];
         if (!field) return;
@@ -202,6 +220,13 @@ function show_bank_loan_schedule_preview(frm, result, snapshot, settings) {
     let html = '<p>' + escape(__('Total: ')) + amount(result.scheduled_total) + ' ' + escape(frm.doc.currency || '');
     if (result.retained_rows) html += ' &nbsp; ' + escape(__('Earlier rows retained: ')) + Number(result.retained_rows);
     html += '</p>';
+    if (result.calculation_mode === 'Installment Amount') {
+        html += '<p><strong>' + escape(__('Installment: ')) + amount(result.installment_amount) + ' ' + escape(frm.doc.currency || '') + '</strong>' +
+            ' &nbsp; ' + escape(__('Estimated Annual Rate (nominal): ')) + Number(result.estimated_annual_rate).toFixed(6) + '%</p>';
+        html += '<p class="text-muted">' + escape(__('Estimated split for regular periods; excludes separate fees/balloon. Confirm with the bank. Recorded loan rate unchanged.')) + '</p>';
+        if (Number(result.final_payment_adjustment)) html += '<p>' + escape(__('Final payment adjustment: ')) + amount(result.final_payment_adjustment) + ' ' + escape(frm.doc.currency || '') + '</p>';
+        if (Number(result.final_interest_adjustment)) html += '<p>' + escape(__('Final interest rounding: ')) + amount(result.final_interest_adjustment) + ' ' + escape(frm.doc.currency || '') + '</p>';
+    }
     html += '<div style="max-height:360px;overflow:auto"><table class="table table-bordered"><thead><tr>';
     ['Due Date', 'Principal', 'Interest', 'Charges', 'Total', 'Principal Balance'].forEach(function (label) {
         html += '<th>' + escape(__(label)) + '</th>';

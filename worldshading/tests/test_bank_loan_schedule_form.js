@@ -15,6 +15,7 @@ class Dialog {
         this.hiding=false;
     }
     get_values(){return this.values;} get_value(name){return this.values[name];}
+    set_value(name,value){this.values[name]=value;return Promise.resolve();}
 }
 const frappe={session:{user:'maker@example.com'},user_roles:['Maker - ACC (Workflow)'],
     ui:{form:{on(name,handlers){events[name]=handlers;}},Dialog},
@@ -72,6 +73,26 @@ function open(frm){context.show_bank_loan_schedule_dialog(frm);const settings=di
     assert.equal(variable.fields_dict.new_rate.df.hidden,1);
     assert.equal(variable.fields_dict.new_rate.df.reqd,0);
     assert.equal(variable.fields_dict.first_due_date.df.hidden,0);
+    frm=form();context.show_bank_loan_schedule_dialog(frm);const amountSettings=dialogs[dialogs.length-1];
+    assert.equal(amountSettings.values.calculation_mode,'Interest Rate');
+    assert.equal(amountSettings.fields_dict.installment_amount.df.hidden,1);
+    amountSettings.values.calculation_mode='Installment Amount';amountSettings.values.method='Equal Principal';
+    amountSettings.fields_dict.calculation_mode.df.onchange();
+    assert.equal(amountSettings.values.method,'Equal Installments');
+    assert.equal(amountSettings.fields_dict.method.df.hidden,1);
+    assert.equal(amountSettings.fields_dict.installment_amount.df.hidden,0);
+    assert.equal(amountSettings.fields_dict.installment_amount.df.reqd,1);
+    amountSettings.values.installment_amount=102;
+    response=Object.assign({},response,{calculation_mode:'Installment Amount',estimated_annual_rate:8.25,
+        installment_amount:102,final_payment_adjustment:0.001,final_interest_adjustment:-0.001,retained_rows:0});
+    amountSettings.config.primary_action(amountSettings.values);
+    const amountPreview=dialogs[dialogs.length-1];
+    assert(amountPreview.html.includes('8.250000'));assert(amountPreview.html.includes('Recorded loan rate unchanged'));
+    assert(amountPreview.html.includes('Final payment adjustment'));assert(amountPreview.html.includes('Final interest rounding'));
+    assert.equal(frm.doc.annual_interest_rate,6);await amountPreview.config.primary_action();assert.equal(frm.doc.annual_interest_rate,6);
+    amountSettings.values.calculation_mode='Interest Rate';amountSettings.fields_dict.calculation_mode.df.onchange();
+    assert.equal(amountSettings.fields_dict.method.df.hidden,0);assert.equal(amountSettings.fields_dict.installment_amount.df.reqd,0);
+    assert(!variable.fields_dict.calculation_mode);assert(!variable.fields_dict.installment_amount);
     frm=form();deferred=true;context.show_bank_loan_schedule_dialog(frm);let settings=dialogs[dialogs.length-1];
     settings.config.primary_action(settings.values);const request=requests[requests.length-1];settings.values.periods=36;
     const count=dialogs.length;request.callback({message:response});assert.equal(dialogs.length,count);assert(!frm.changed);
