@@ -2404,7 +2404,7 @@ frappe.query_reports["Purchase Plan"] = {
 			var monthly_sales_tooltip = __("Monthly Sales = 0 (0 months of sales history)");
 			if (history_months > 0) {
 				var sales_qty = Math.trunc(flt(data.expected_total_sales));
-				var displayed_months = Number(history_months.toFixed(4));
+				var displayed_months = Number(history_months.toFixed(2));
 				var monthly_qty = sales_qty / history_months;
 				var displayed_qty = Number(monthly_qty.toFixed(2));
 				monthly_sales_tooltip = __("Months used: {0}", [displayed_months]) + "\n" +
