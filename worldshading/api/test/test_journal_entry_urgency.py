@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
+from worldshading.api import urgency_recipients
 
 try:
 	from worldshading.api import journal_entry_urgency
@@ -14,6 +15,14 @@ except ImportError:
 class TestJournalEntryUrgency(unittest.TestCase):
 
 	def setUp(self):
+		for target, name, result in (
+			(frappe, "session", frappe._dict(user="test@example.com")),
+			(urgency_recipients, "get_role_preferences", {}),
+			(urgency_recipients, "get_company_permissions", {}),
+		):
+			override = patch.object(target, name, result) if name == "session" else patch.object(target, name, return_value=result)
+			override.start()
+			self.addCleanup(override.stop)
 		self.assertIsNotNone(
 			journal_entry_urgency,
 			"Journal Entry urgency API has not been implemented"

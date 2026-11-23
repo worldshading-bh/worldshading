@@ -5,6 +5,7 @@ from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.model.workflow import get_workflow, get_workflow_name
 from frappe.utils import cint
+from worldshading.api.urgency_recipients import get_popup_filters
 
 
 PURCHASE_ORDER_URGENCY_FIELDS = {
@@ -63,23 +64,13 @@ def get_urgent_purchase_orders():
 		return []
 
 	workflow = get_workflow("Purchase Order")
-	user_roles = set(_get_user_roles())
-	allowed_states = []
-
-	for state in workflow.states:
-		if state.allow_edit in user_roles and state.state not in allowed_states:
-			allowed_states.append(state.state)
-
-	if not allowed_states:
+	filters = get_popup_filters("Purchase Order", workflow, set(_get_user_roles()))
+	if not filters:
 		return []
 
 	return frappe.get_list(
 		"Purchase Order",
-		filters=[
-			["custom_is_urgent", "=", 1],
-			["docstatus", "!=", 2],
-			["workflow_state", "in", allowed_states]
-		],
+		filters=filters,
 		fields=[
 			"name", "supplier", "supplier_name", "currency", "grand_total",
 			"workflow_state", "custom_urgent_reason", "modified"

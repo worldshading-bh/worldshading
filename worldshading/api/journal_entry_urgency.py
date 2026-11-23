@@ -5,6 +5,7 @@ from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.model.workflow import get_workflow, get_workflow_name
 from frappe.utils import cint
+from worldshading.api.urgency_recipients import get_popup_filters
 from worldshading.api.purchase_order_urgency import is_completed_workflow
 
 
@@ -59,7 +60,7 @@ def setup_journal_entry_urgency_fields():
 
 @frappe.whitelist()
 def get_urgent_journal_entries():
-	"""Return urgent GL payments actionable by the current user's workflow roles."""
+	"""Return urgent Journal Entries actionable by the current user's workflow roles."""
 	if not frappe.get_meta("Journal Entry").has_field("custom_is_urgent"):
 		return []
 
@@ -67,23 +68,13 @@ def get_urgent_journal_entries():
 		return []
 
 	workflow = get_workflow("Journal Entry")
-	user_roles = set(_get_user_roles())
-	allowed_states = []
-
-	for state in workflow.states:
-		if state.allow_edit in user_roles and state.state not in allowed_states:
-			allowed_states.append(state.state)
-
-	if not allowed_states:
+	filters = get_popup_filters("Journal Entry", workflow, set(_get_user_roles()))
+	if not filters:
 		return []
 
 	rows = frappe.get_list(
 		"Journal Entry",
-		filters=[
-			["custom_is_urgent", "=", 1],
-			["docstatus", "!=", 2],
-			[workflow.workflow_state_field, "in", allowed_states]
-		],
+		filters=filters,
 		fields=[
 			"name", "company", "total_debit",
 			workflow.workflow_state_field + " as workflow_state", "custom_urgent_reason", "modified"

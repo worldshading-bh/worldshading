@@ -5,6 +5,7 @@ from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.model.workflow import get_workflow, get_workflow_name
 from frappe.utils import cint
+from worldshading.api.urgency_recipients import get_popup_filters
 from worldshading.api.purchase_order_urgency import is_completed_workflow
 
 
@@ -67,23 +68,13 @@ def get_urgent_payment_entries():
 		return []
 
 	workflow = get_workflow("Payment Entry")
-	user_roles = set(_get_user_roles())
-	allowed_states = []
-
-	for state in workflow.states:
-		if state.allow_edit in user_roles and state.state not in allowed_states:
-			allowed_states.append(state.state)
-
-	if not allowed_states:
+	filters = get_popup_filters("Payment Entry", workflow, set(_get_user_roles()))
+	if not filters:
 		return []
 
 	return frappe.get_list(
 		"Payment Entry",
-		filters=[
-			["custom_is_urgent", "=", 1],
-			["docstatus", "!=", 2],
-			[workflow.workflow_state_field, "in", allowed_states]
-		],
+		filters=filters,
 		fields=[
 			"name", "party", "party_name", "paid_from_account_currency", "paid_amount",
 			workflow.workflow_state_field + " as workflow_state", "custom_urgent_reason", "modified"

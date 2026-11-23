@@ -25,6 +25,8 @@ class TestUrgencyNotifications(unittest.TestCase):
 		self.get_all = self.patch(frappe, "get_all", side_effect=[
 			[frappe._dict(parent="maker@example.com"), frappe._dict(parent="maker@example.com")],
 			[frappe._dict(name="maker@example.com")]])
+		self.patch(notifications, "get_role_preferences", return_value={})
+		self.patch(notifications, "get_company_permissions", return_value={})
 		self.get_list = self.patch(frappe, "get_list", return_value=[frappe._dict(name="PO-1")])
 		self.permission = self.patch(frappe, "has_permission", return_value=True)
 		self.enabled = self.patch(notifications, "is_notifications_enabled", return_value=True)

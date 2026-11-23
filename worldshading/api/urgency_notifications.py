@@ -1,11 +1,14 @@
 from __future__ import unicode_literals
 
+from collections import defaultdict
+
 import frappe
 from frappe import _
 from frappe.model.workflow import get_workflow, get_workflow_name
 from frappe.utils import cint, escape_html
 from frappe.desk.doctype.notification_settings.notification_settings import is_notifications_enabled
 from frappe.desk.doctype.notification_log.notification_log import NotificationLog, set_notifications_as_unseen
+from worldshading.api.urgency_recipients import get_company_permissions, get_role_preferences
 
 
 SUPPORTED_DOCTYPES = ("Purchase Order", "Payment Entry", "GL Payment", "Journal Entry")
@@ -37,31 +40,42 @@ def notify_urgency_change(doc, method=None):
 		return
 	members = frappe.get_all("Has Role", filters={
 		"role": ["in", roles], "parenttype": "User", "parentfield": "roles"
-	}, fields=["parent"])
-	user_names = list(set(row.parent for row in members))
+	}, fields=["parent", "role"])
+	routing_roles = defaultdict(set)
+	for row in members:
+		routing_roles[row.parent].add(row.role)
+	user_names = list(routing_roles)
 	if not user_names:
 		return
 	users = frappe.get_all("User", filters={
 		"name": ["in", user_names], "enabled": 1, "user_type": "System User"
 	}, fields=["name"])
+	preferences = get_role_preferences([user.name for user in users])
+	recipients = [user.name for user in users if not preferences.get(user.name)
+		or routing_roles[user.name].intersection(preferences[user.name])]
+	company = doc.get("company")
+	company_permissions = get_company_permissions(doc.doctype, recipients) if company else {}
 	subject = _("Urgent {0} {1} needs your action — {2}. Reason: {3}").format(
 		escape_html(doc.doctype), escape_html(doc.name), escape_html(state),
 		escape_html(doc.get("custom_urgent_reason") or "")
 	)
-	for user in users:
-		if not is_notifications_enabled(user.name):
+	for user in recipients:
+		allowed_companies = company_permissions.get(user)
+		if allowed_companies and company not in allowed_companies:
+			continue
+		if not is_notifications_enabled(user):
 			continue
 		# Match popup visibility, including custom permission-query conditions.
 		try:
 			visible = frappe.get_list(doc.doctype, filters={"name": doc.name},
-				fields=["name"], limit_page_length=1, user=user.name)
+				fields=["name"], limit_page_length=1, user=user)
 		except frappe.PermissionError:
 			continue
-		if not visible or not frappe.has_permission(doc=doc, user=user.name, ptype="read"):
+		if not visible or not frappe.has_permission(doc=doc, user=user, ptype="read"):
 			continue
 		UrgencyNotificationLog({
 			"doctype": "Notification Log", "type": "Assignment",
-			"for_user": user.name, "from_user": frappe.session.user,
+			"for_user": user, "from_user": frappe.session.user,
 			"document_type": doc.doctype, "document_name": doc.name,
 			"subject": subject
 		}).insert(ignore_permissions=True)
