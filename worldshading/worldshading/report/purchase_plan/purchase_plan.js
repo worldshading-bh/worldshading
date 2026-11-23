@@ -1989,7 +1989,8 @@ frappe.query_reports["Purchase Plan"] = {
 			"reqd": 1,
 			"on_change": function() {
 				var start_date = frappe.query_report.get_filter_value("start_date");
-				if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date || "")) {
+				var end_date = frappe.query_report.get_filter_value("end_date");
+				if (end_date || !/^\d{4}-\d{2}-\d{2}$/.test(start_date || "")) {
 					return;
 				}
 				var suggested_end_date = frappe.datetime.add_days(
@@ -2396,7 +2397,10 @@ frappe.query_reports["Purchase Plan"] = {
 				? ' title="' + frappe.utils.escape_html(unavailable_tooltip) + '"'
 				: '') + '>' + __("N/A") + '</span>';
 		}
-		value = default_formatter(value, row, column, data);
+		var display_column = column.fieldname === "expected_order_quantity"
+			? Object.assign({}, column, {fieldtype: "Float", precision: 2})
+			: column;
+		value = default_formatter(value, row, display_column, data);
 		var cell_tooltip = purchase_plan_combined_tooltip(data, column.fieldname);
 		if (column.fieldname == "monthy_sales" && data &&
 				data.sales_history_months != null) {
