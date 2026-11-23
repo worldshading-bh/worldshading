@@ -216,18 +216,17 @@ def get_combined_purchase_plan_details(item_codes=None, start_date=None,
 	if not cint(include_out_of_stock_sales):
 		return result
 
+	first_sales = get_first_sales_dates(item_codes, end_date)
+	if not first_sales:
+		return result
+	first_sale = min(first_sales.values())
+	selling_months = get_sales_history_months(start_date, end_date, first_sale)
+	start_date = max(getdate(start_date), first_sale)
 	filters = frappe._dict({'start_date': start_date, 'end_date': end_date})
 	total_sales_by_item = get_total_sales_by_item(item_codes, filters)
 	combined_total_sales = sum(total_sales_by_item.values())
-	total_report_days = date_diff(end_date, start_date)
-	completed_report_months = int(total_report_days / 30) \
-		if total_report_days >= 30 else 0
-	minimum_average_monthly_invoices = completed_report_months / 2.0
-	average_monthly_invoices = (
-		invoice_count / completed_report_months
-		if completed_report_months > 0 else invoice_count
-	)
-	if average_monthly_invoices < minimum_average_monthly_invoices:
+	completed_months = int(selling_months)
+	if invoice_count / completed_months < completed_months / 2.0:
 		return result
 
 	working_day_rows = frappe.db.sql("""
@@ -927,6 +926,12 @@ def get_columns(filters, pricing_context):
 			'label': _('Last Sales Voucher'),
 			'fieldtype': 'Data',
 			'hidden': 1
+		},
+		{
+			'fieldname': 'sales_history_months',
+			'label': _('Sales History Months'),
+			'fieldtype': 'Float',
+			'hidden': 1
 		}
 
 	])
@@ -1219,12 +1224,21 @@ def get_data(filters, pricing_context):
 	stock_by_item = get_stock_by_item(item_codes)
 	total_sales_by_item = get_total_sales_by_item(item_codes, filters)
 	sales_invoice_count_by_item = get_sales_invoice_count_by_item(item_codes, filters)
+	first_sales = get_first_sales_dates(item_codes, filters.end_date)
+	first_demand_dates = first_sales.copy()
+	for item_code, first_sale in first_sales.items():
+		for source_item in get_repack_purchase_sources(
+				item_code, repack_context.get('target_to_sources', {})):
+			first_demand_dates[source_item] = min(
+				first_sale, first_demand_dates.get(source_item, first_sale)
+			)
 	if filters.get('include_out_of_stock_sales'):
 		out_of_stock_by_item = get_out_of_stock_values(
 			item_codes,
 			filters,
 			total_sales_by_item,
-			sales_invoice_count_by_item
+			sales_invoice_count_by_item,
+			first_sales
 		)
 	else:
 		out_of_stock_by_item = {}
@@ -1272,13 +1286,14 @@ def get_data(filters, pricing_context):
 			total_sales + estimated_out_of_stock_sales_qty + converted_repack_demand
 		)
 		expected_sales = adjusted_total_sales + (adjusted_total_sales * float(filters.percentage) / 100)
-		total_months_in_report = date_diff(filters.end_date, filters.start_date) / 30 if date_diff(filters.end_date, filters.start_date) >= 30 else 0
-		monthly_sales = int(expected_sales) / int(total_months_in_report) if total_months_in_report != 0 else 0
+		sales_history_months = get_sales_history_months(
+			filters.start_date, filters.end_date, first_demand_dates.get(item.item_code)
+		)
+		monthly_sales = int(expected_sales) / sales_history_months if sales_history_months else 0
 		converted_expected_sales = converted_repack_demand \
 			+ (converted_repack_demand * float(filters.percentage) / 100)
 		converted_monthly_sales = (
-			converted_expected_sales / int(total_months_in_report)
-			if int(total_months_in_report) > 0 else 0
+			converted_expected_sales / sales_history_months if sales_history_months else 0
 		)
 		converted_planning_requirement = converted_monthly_sales * (
 			float(filters.months_to_arrive)
@@ -1357,7 +1372,7 @@ def get_data(filters, pricing_context):
 			last_purchase_detail.get('voucher_type', ''),
 			last_purchase_detail.get('voucher_no', ''),
 			last_sales_detail.get('voucher_type', ''),
-			last_sales_detail.get('voucher_no', '')
+			last_sales_detail.get('voucher_no', ''), sales_history_months
 		])
 		data.append(row)
 
@@ -1877,20 +1892,49 @@ def get_sales_invoice_count_by_item(item_codes, filters):
 	return dict((row.item_code, row.invoice_count or 0) for row in rows)
 
 
-def get_out_of_stock_values(
-		item_codes, filters, total_sales_by_item, sales_invoice_count_by_item):
-	total_report_days = date_diff(filters.end_date, filters.start_date)
-	completed_report_months = int(total_report_days / 30) if total_report_days >= 30 else 0
-	minimum_average_monthly_invoices = completed_report_months / 2.0
+def get_first_sales_dates(item_codes, end_date):
+	if not item_codes:
+		return {}
+	filters = [
+		['docstatus', '=', 1], ['item_code', 'in', item_codes],
+		['qty', '>', 0], ['creation', '<', add_days(end_date, 1)]
+	]
+	first_sales = {}
+	for doctype, extra_filters in (
+			('Sales Invoice Item', []),
+			('Packed Item', [['parenttype', '=', 'Sales Invoice']])):
+		rows = frappe.get_all(doctype,
+			filters=filters + extra_filters,
+			fields=['item_code', 'min(creation) as first_sale'],
+			group_by='item_code')
+		for row in rows:
+			first_sale = getdate(row.first_sale)
+			first_sales[row.item_code] = min(
+				first_sale, first_sales.get(row.item_code, first_sale)
+			)
+	return first_sales
+
+
+def get_sales_history_months(start_date, end_date, first_sale):
+	if not first_sale or getdate(first_sale) > getdate(end_date):
+		return 0
+	report_months = max(1, date_diff(end_date, start_date) // 30)
+	if getdate(first_sale) <= getdate(start_date):
+		return report_months
+	active_months = (date_diff(end_date, first_sale) + 1) / 30.0
+	return min(report_months, max(1, active_months))
+
+
+def get_out_of_stock_values(item_codes, filters, total_sales_by_item,
+		sales_invoice_count_by_item, first_sales):
 	result = {}
 	items_for_stock_check = []
 	for item_code in item_codes:
 		sales_invoice_count = sales_invoice_count_by_item.get(item_code, 0)
-		average_monthly_invoices = (
-			sales_invoice_count / completed_report_months
-			if completed_report_months > 0 else sales_invoice_count
-		)
-		if average_monthly_invoices < minimum_average_monthly_invoices:
+		completed_months = int(get_sales_history_months(
+			filters.start_date, filters.end_date, first_sales.get(item_code)
+		))
+		if not completed_months or sales_invoice_count / completed_months < completed_months / 2.0:
 			result[item_code] = {
 				'days': None,
 				'estimated_sales_qty': 0
@@ -1970,6 +2014,7 @@ def get_out_of_stock_values(
 	start_date = getdate(filters.start_date)
 	total_days = date_diff(filters.end_date, filters.start_date) + 1
 	for item_code in items_for_stock_check:
+		effective_start = max(start_date, first_sales[item_code])
 		warehouse_balances = dict(opening_by_item.get(item_code, {}))
 		balance = sum(warehouse_balances.values())
 		movements = movements_by_item.get(item_code, {})
@@ -1980,7 +2025,7 @@ def get_out_of_stock_values(
 			for warehouse, closing_qty in movements.get(current_date, []):
 				balance += closing_qty - warehouse_balances.get(warehouse, 0)
 				warehouse_balances[warehouse] = closing_qty
-			if current_date in working_dates:
+			if current_date >= effective_start and current_date in working_dates:
 				selling_days += 1
 				if balance <= 0:
 					out_of_stock_days += 1
